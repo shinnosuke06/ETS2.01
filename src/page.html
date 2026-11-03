@@ -1,0 +1,274 @@
+<title>ニッポン長距離便</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Dela+Gothic+One&family=DotGothic16&display=swap">
+<style>
+/* Layout: full-bleed WebGL canvas; HUD sits inside the safe-area gutter. Every panel borrows from
+   Japanese expressway signage: green guide signs with a white inset rule, amber LED info boards, ETC purple.
+   One dark look on purpose, so the HUD reads the same over any sky. */
+:root{
+  --sign:#0b6b42; --sign-deep:#074a2d; --sign-line:#f3f6f1; --sign-sub:#cfe6d8;
+  --led:#ffb020; --led-bg:#0a0b09; --led-frame:#2a2c27;
+  --etc:#5a2d8c; --danger:#ef5a4c; --ok:#43d17f;
+  --ink:#eef1ec; --ink-2:#b9c3bb; --glass:rgba(10,16,13,.74); --glass-2:rgba(10,16,13,.52); --stroke:rgba(238,241,236,.22);
+  --f-display:"Dela Gothic One","BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  --f-ui:"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",system-ui,sans-serif;
+  --f-led:"DotGothic16","BIZ UDGothic",ui-monospace,monospace;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:#0c120f;color:var(--ink);font-family:var(--f-ui);overflow:hidden;overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none;touch-action:none}
+button{font:inherit;color:inherit}
+#hud{position:fixed;inset:0;pointer-events:none;box-sizing:border-box;padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.hud-inner{position:relative;width:100%;height:100%}
+
+.sign{background:var(--sign);color:#fff;border-radius:10px;box-shadow:inset 0 0 0 3px var(--sign),inset 0 0 0 5px var(--sign-line),0 6px 18px rgba(0,0,0,.35)}
+
+#jobSign{position:absolute;left:0;top:0;padding:10px 14px 10px;min-width:150px;max-width:min(44vw,250px);box-sizing:border-box}
+#jobSign .k{font-size:11px;letter-spacing:.08em;color:var(--sign-sub)}
+#jobSign .dest{font-weight:700;font-size:19px;line-height:1.2;margin-top:1px}
+#jobSign .dest small{font-size:11px;font-weight:400;margin-left:6px;letter-spacing:.04em;color:var(--sign-sub)}
+#jobSign .dist{font-weight:700;font-size:26px;font-variant-numeric:tabular-nums;line-height:1.05;margin-top:2px}
+#jobSign .dist span{font-size:13px;margin-left:3px;font-weight:400}
+#jobSign .meta{margin-top:5px;font-size:12px;color:var(--sign-sub);font-variant-numeric:tabular-nums;display:flex;gap:4px 10px;flex-wrap:wrap}
+#jobSign .meta b{color:#fff;font-weight:700}
+#jobSign .meta .late{color:#ffd2cc}
+
+#topbar{position:absolute;right:0;top:0;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:min(60vw,560px);pointer-events:auto}
+.tb{min-width:44px;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--stroke);background:var(--glass);font-size:12px;font-weight:700;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.tb:active{transform:translateY(1px)}
+.tb[aria-pressed="true"]{border-color:var(--led);color:var(--led);box-shadow:inset 0 0 0 1px var(--led)}
+.tb:focus-visible,.btn:focus-visible,.seg button:focus-visible{outline:2px solid var(--led);outline-offset:2px}
+.tb.only-touch{display:none}
+body.touch .tb.only-touch{display:inline-block}
+
+.led{background-color:var(--led-bg);border:2px solid var(--led-frame);border-radius:4px;padding:7px 16px 8px;font-family:var(--f-led);color:var(--led);font-size:18px;letter-spacing:.14em;text-shadow:0 0 7px rgba(255,176,32,.6);background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1.3px);background-size:4px 4px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+#led{position:absolute;left:50%;top:74px;transform:translateX(-50%);max-width:92%;overflow:hidden;text-overflow:ellipsis;transition:opacity .25s}
+#led.warn{color:#ff6a4a;text-shadow:0 0 7px rgba(255,90,60,.6)}
+@media (max-aspect-ratio:1/1){#led{top:96px;font-size:15px;padding:6px 12px 7px}}
+
+#speedo{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);font-variant-numeric:tabular-nums}
+#speedo .num{font-size:30px;font-weight:700;line-height:1}
+#speedo .u{font-size:11px;color:var(--ink-2)}
+#speedo .gear{font-family:var(--f-led);font-size:20px;color:var(--led)}
+#speedo .lim{width:30px;height:30px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 4px #d0201a;color:#1f3f9a;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+
+#touch{position:absolute;inset:0;pointer-events:none}
+#wheelPad{position:absolute;left:0;bottom:0;width:150px;height:150px;pointer-events:auto;touch-action:none;border-radius:50%}
+#wheelSvg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))}
+#blinkPad{position:absolute;left:0;bottom:158px;display:flex;gap:8px;pointer-events:auto}
+#pedalPad{position:absolute;right:0;bottom:0;display:flex;gap:10px;align-items:flex-end;pointer-events:auto}
+.pedal{position:relative;overflow:hidden;border-radius:12px;border:1px solid var(--stroke);background:var(--glass);display:flex;align-items:flex-end;justify-content:center;padding-bottom:9px;box-sizing:border-box;font-size:12px;font-weight:700;touch-action:none;letter-spacing:.04em}
+.pedal .fill{position:absolute;left:0;right:0;bottom:0;height:0;pointer-events:none}
+.pedal span{position:relative}
+#pBrake{width:86px;height:98px}
+#pBrake .fill{background:linear-gradient(to top,rgba(239,90,76,.75),rgba(239,90,76,.25))}
+#pGas{width:66px;height:136px}
+#pGas .fill{background:linear-gradient(to top,rgba(67,209,127,.75),rgba(67,209,127,.25))}
+#gearPad{position:absolute;right:0;bottom:146px;display:flex;gap:8px;pointer-events:auto}
+
+.overlay{position:fixed;inset:0;display:flex;overflow:auto;box-sizing:border-box;padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(12px,env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:linear-gradient(180deg,rgba(6,10,8,.25),rgba(6,10,8,.78));pointer-events:auto;touch-action:pan-y}
+.card{margin:auto;width:min(780px,100%);display:grid;gap:10px}
+.hero{padding:16px 20px 16px}
+.hero .route{font-size:12px;letter-spacing:.12em;color:var(--sign-sub)}
+.hero h1{margin:4px 0 2px;font-family:var(--f-display);font-weight:400;font-size:clamp(26px,5.2vw,40px);line-height:1.1;letter-spacing:.02em;text-wrap:balance}
+.hero p{margin:4px 0 0;font-size:13px;color:var(--sign-sub);line-height:1.6}
+.panels{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:10px}
+@media (max-width:620px){.panels{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--glass);border:1px solid var(--stroke);border-radius:10px;padding:14px 16px;min-width:0}
+.panel h2{margin:0 0 8px;font-size:12px;letter-spacing:.12em;color:var(--ink-2);font-weight:700}
+.trip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:700;font-size:22px}
+.trip .arrow{color:var(--ink-2);font-weight:400}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0 12px}
+@media (max-width:420px){.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.fact{min-width:0}
+.fact .l{font-size:11px;color:var(--ink-2);letter-spacing:.06em}
+.fact .v{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{height:44px;padding:0 20px;border-radius:9px;border:0;background:#fff;color:var(--sign-deep);font-weight:700;font-size:16px;letter-spacing:.06em;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:wait}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--stroke);font-size:14px;height:40px}
+.seg{display:inline-flex;border:1px solid var(--stroke);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;height:34px;padding:0 12px;font-size:13px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#0c120f;font-weight:700}
+.lbl{font-size:12px;color:var(--ink-2)}
+.keys{margin:0;padding:0;list-style:none;display:grid;gap:5px;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+.keys b{color:var(--ink);font-weight:700}
+kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--ink);background:rgba(255,255,255,.04)}
+.money{font-size:12px;color:var(--ink-2)}
+.money b{color:var(--ink);font-variant-numeric:tabular-nums}
+.ledline{margin-top:2px}
+
+.res{display:grid;gap:6px;font-variant-numeric:tabular-nums;font-size:14px}
+.res div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--stroke);padding-bottom:5px}
+.res div span:first-child{color:var(--ink-2)}
+.res .neg{color:#ffb4ab}
+.res .tot{border:0;font-size:18px;font-weight:700;padding-top:4px}
+.range{width:100%;accent-color:var(--led)}
+.set{display:grid;gap:12px}
+.set label{display:grid;gap:4px}
+
+#loading{position:fixed;left:50%;bottom:max(24px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);pointer-events:none}
+#rotateHint{position:absolute;left:50%;bottom:180px;transform:translateX(-50%);font-size:12px;color:var(--ink-2);background:var(--glass-2);padding:6px 10px;border-radius:8px;white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<canvas id="view" tabindex="0" aria-label="運転画面"></canvas>
+
+<div id="hud">
+  <div class="hud-inner">
+    <div id="jobSign" class="sign" hidden>
+      <div class="k">目的地</div>
+      <div class="dest"><span id="jsDest">御殿場</span> IC<small id="jsEn">Gotemba</small></div>
+      <div class="dist"><span id="jsKm" style="font-size:inherit;margin:0;font-weight:700">0.0</span><span>km</span></div>
+      <div class="meta"><span>時刻 <b id="jsClock">13:30</b></span><span id="jsDueWrap">期限 <b id="jsDue">14:40</b></span></div>
+    </div>
+
+    <div id="topbar" hidden>
+      <button class="tb" id="bCam" type="button" title="視点切替 (V)">視点</button>
+      <button class="tb" id="bCruise" type="button" aria-pressed="false" title="クルーズコントロール (C)">クルーズ</button>
+      <button class="tb" id="bLights" type="button" aria-pressed="false" title="ライト (L)">ライト</button>
+      <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
+      <button class="tb" id="bHazard" type="button" aria-pressed="false" title="ハザード (F)">ハザード</button>
+      <button class="tb" id="bMenu" type="button" title="メニュー (Esc)">メニュー</button>
+    </div>
+
+    <div id="led" class="led" hidden><span id="ledText"></span></div>
+
+    <div id="speedo" hidden>
+      <div><div class="num" id="spdNum">0</div><div class="u">km/h</div></div>
+      <div class="gear" id="spdGear">A3</div>
+      <div class="lim" id="spdLim">90</div>
+    </div>
+
+    <div id="touch" hidden>
+      <div id="blinkPad">
+        <button class="tb" id="tBlinkL" type="button" aria-pressed="false" aria-label="左ウインカー">◀ 左</button>
+        <button class="tb" id="tBlinkR" type="button" aria-pressed="false" aria-label="右ウインカー">右 ▶</button>
+      </div>
+      <div id="wheelPad" aria-label="ハンドル">
+        <svg id="wheelSvg" viewBox="-100 -100 200 200" aria-hidden="true">
+          <g id="wheelRot">
+            <circle r="88" fill="none" stroke="#1b1d1f" stroke-width="20"/>
+            <circle r="88" fill="none" stroke="#3a3d40" stroke-width="2" opacity=".9"/>
+            <circle r="98" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1"/>
+            <path d="M-78 6 L-30 14 L-18 34 L18 34 L30 14 L78 6" fill="none" stroke="#25282b" stroke-width="16" stroke-linejoin="round"/>
+            <path d="M0 34 L0 84" stroke="#25282b" stroke-width="16"/>
+            <circle r="26" cy="10" fill="#1d1f22" stroke="#3a3d40" stroke-width="2"/>
+            <rect x="-4" y="-98" width="8" height="18" rx="2" fill="#ffb020"/>
+          </g>
+        </svg>
+      </div>
+      <div id="gearPad">
+        <button class="tb" id="tHorn" type="button">ホーン</button>
+        <button class="tb" id="tGear" type="button" title="前進/後退">D</button>
+      </div>
+      <div id="pedalPad">
+        <div class="pedal" id="pBrake"><div class="fill"></div><span>ブレーキ</span></div>
+        <div class="pedal" id="pGas"><div class="fill"></div><span>アクセル</span></div>
+      </div>
+      <div id="rotateHint" hidden>横向きにすると運転しやすくなります</div>
+    </div>
+  </div>
+</div>
+
+<div id="startOv" class="overlay">
+  <div class="card">
+    <div class="sign hero">
+      <div class="route">東名高速道路 · TOMEI EXPRESSWAY</div>
+      <h1>ニッポン長距離便</h1>
+      <p>スカニア風の大型トラックで、東京から名古屋まで荷物を運ぶ。車内視点で、ミラーと計器を見ながら走ろう。</p>
+    </div>
+    <div class="panels">
+      <div class="panel">
+        <h2>本日の仕事 <span id="jobNo">No.1</span></h2>
+        <div class="trip"><span id="jFrom">東京</span><span class="arrow">→</span><span id="jTo">御殿場</span></div>
+        <div class="facts">
+          <div class="fact"><div class="l">荷物</div><div class="v" id="jCargo">精密機器</div></div>
+          <div class="fact"><div class="l">重量</div><div class="v" id="jMass">12 t</div></div>
+          <div class="fact"><div class="l">距離</div><div class="v" id="jDist">83.7 km</div></div>
+          <div class="fact"><div class="l">報酬</div><div class="v" id="jPay">¥46,000</div></div>
+        </div>
+        <div class="row">
+          <button class="btn" id="startBtn" type="button" disabled>地図を作成中…</button>
+          <span class="money">所持金 <b id="moneyStart">¥0</b></span>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <span class="lbl">画質</span>
+          <div class="seg" id="qualSeg" role="group" aria-label="画質">
+            <button type="button" data-q="high" aria-pressed="false">高</button>
+            <button type="button" data-q="mid" aria-pressed="true">中</button>
+            <button type="button" data-q="low" aria-pressed="false">低</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>操作</h2>
+        <ul class="keys">
+          <li><b>PC</b> <kbd>W</kbd><kbd>S</kbd> アクセル・ブレーキ　<kbd>A</kbd><kbd>D</kbd> ハンドル</li>
+          <li><kbd>Q</kbd><kbd>E</kbd> ウインカー　<kbd>C</kbd> クルーズ　<kbd>V</kbd> 視点　<kbd>R</kbd> 前進/後退　<kbd>H</kbd> ホーン</li>
+          <li>マウスでドラッグすると車内を見回せます（ミラー確認に）</li>
+          <li><b>スマホ</b> 左下のハンドルを回す、右下のペダルを押す。画面をなぞると見回し</li>
+          <li>目的地のICで<b>左の出口</b>へ。ETCゲートは<b>20km/h以下</b>で通過</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="resultOv" class="overlay" hidden>
+  <div class="card" style="width:min(480px,100%)">
+    <div class="sign hero">
+      <div class="route" id="resRoute">東京 → 御殿場</div>
+      <h1 id="resTitle">配送完了</h1>
+      <p id="resNote">おつかれさまでした。</p>
+    </div>
+    <div class="panel">
+      <div class="res" id="resRows"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="nextBtn" type="button">次の仕事へ</button>
+        <span class="money">所持金 <b id="moneyRes">¥0</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="menuOv" class="overlay" hidden>
+  <div class="card" style="width:min(520px,100%)">
+    <div class="sign hero">
+      <div class="route">一時停止中</div>
+      <h1>メニュー</h1>
+    </div>
+    <div class="panel set">
+      <div class="row"><span class="lbl">画質</span>
+        <div class="seg" id="qualSeg2" role="group" aria-label="画質">
+          <button type="button" data-q="high" aria-pressed="false">高</button>
+          <button type="button" data-q="mid" aria-pressed="true">中</button>
+          <button type="button" data-q="low" aria-pressed="false">低</button>
+        </div>
+      </div>
+      <label for="volRange"><span class="lbl">音量</span><input class="range" id="volRange" type="range" min="0" max="100" value="70"></label>
+      <label for="sensRange"><span class="lbl">ハンドルの効き</span><input class="range" id="sensRange" type="range" min="40" max="160" value="100"></label>
+      <ul class="keys">
+        <li><kbd>W</kbd><kbd>S</kbd> アクセル・ブレーキ　<kbd>A</kbd><kbd>D</kbd> ハンドル　<kbd>Space</kbd> 強いブレーキ</li>
+        <li><kbd>Q</kbd><kbd>E</kbd> ウインカー　<kbd>F</kbd> ハザード　<kbd>C</kbd> クルーズ（<kbd>+</kbd><kbd>-</kbd>で速度調整）</li>
+        <li><kbd>V</kbd> 視点　<kbd>L</kbd> ライト　<kbd>P</kbd> ワイパー　<kbd>R</kbd> 前進/後退　<kbd>H</kbd> ホーン</li>
+        <li>大型トラックは90km/hのスピードリミッター付き。下り坂はクルーズでリターダーが効きます</li>
+      </ul>
+      <div class="row">
+        <button class="btn" id="resumeBtn" type="button">運転に戻る</button>
+        <button class="btn ghost" id="restartBtn" type="button">この仕事をやり直す</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="loading" class="led"><span id="loadText">地図を作成中…</span></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/*__GAME__*/
+</script>
