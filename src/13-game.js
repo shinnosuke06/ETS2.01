@@ -282,6 +282,9 @@ function setQuality(name) {
   onResize();
 }
 for (const seg of ['qualSeg', 'qualSeg2']) $(seg).addEventListener('click', e => { const b = e.target.closest('button'); if (b) setQuality(b.dataset.q); });
+function syncSeg(ids, value) { for (const id of ids) for (const b of $(id).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.v === value)); }
+for (const id of ['paintSeg', 'paintSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyPaint(b.dataset.v); syncSeg(['paintSeg', 'paintSeg2'], paintName); } });
+for (const id of ['intSeg', 'intSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyInteriorTheme(b.dataset.v); syncSeg(['intSeg', 'intSeg2'], interiorName); } });
 
 // ---- HUD ------------------------------------------------------------------------
 function showHud(on) {
@@ -366,6 +369,9 @@ function updateVisuals(dt) {
   const lamps = GAME.lights || TOD.lampsOn || GAME.tunnelBlend > 0.3;
   GAME.lampsOn = lamps;
   for (const m of TRK.heads) m.material = lamps ? TM.headOn : TM.headOff;
+  for (const m of TRK.lightbar) m.material = lamps ? TM.headOn : TM.headOff;
+  TM.ledRed.color.setRGB(lamps ? 1 : 0.6, lamps ? 0.13 : 0.08, lamps ? 0.13 : 0.08);
+  setCabAmbient(lamps);
   TRK.spot.intensity = lamps ? 2.6 : 0;
   const braking = INP.brake > 0.08 || TR.ret > 0.3;
   for (const m of TRL.tail) m.material = braking ? TM.redOn : lamps ? TM.redDim : TM.redOff;
@@ -515,6 +521,7 @@ $('startBtn').addEventListener('click', startDriving);
 async function boot(data) {
   if (IS_TOUCH) document.body.classList.add('touch');
   for (const seg of ['qualSeg', 'qualSeg2']) for (const b of $(seg).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.q === qualityName));
+  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName);
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();

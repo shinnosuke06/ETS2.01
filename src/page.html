@@ -180,7 +180,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
     <div class="sign hero">
       <div class="route">東名高速道路 · TOMEI EXPRESSWAY</div>
       <h1>ニッポン長距離便</h1>
-      <p>スカニア風の大型トラックで、東京から名古屋まで荷物を運ぶ。車内視点で、ミラーと計器を見ながら走ろう。</p>
+      <p>スカニアSシリーズ風の大型トラックで、東京から名古屋まで荷物を運ぶ。車内視点で、ミラーと計器を見ながら走ろう。</p>
     </div>
     <div class="panels">
       <div class="panel">
@@ -202,6 +202,21 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
             <button type="button" data-q="high" aria-pressed="false">高</button>
             <button type="button" data-q="mid" aria-pressed="true">中</button>
             <button type="button" data-q="low" aria-pressed="false">低</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <span class="lbl">外装</span>
+          <div class="seg" id="paintSeg" role="group" aria-label="外装の色">
+            <button type="button" data-v="white" aria-pressed="true">白</button>
+            <button type="button" data-v="blue" aria-pressed="false">青</button>
+            <button type="button" data-v="red" aria-pressed="false">赤</button>
+            <button type="button" data-v="silver" aria-pressed="false">銀</button>
+          </div>
+          <span class="lbl">内装</span>
+          <div class="seg" id="intSeg" role="group" aria-label="内装">
+            <button type="button" data-v="black" aria-pressed="true">ブラック</button>
+            <button type="button" data-v="beige" aria-pressed="false">ベージュ</button>
+            <button type="button" data-v="red" aria-pressed="false">レッド</button>
           </div>
         </div>
       </div>
@@ -248,6 +263,21 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <button type="button" data-q="high" aria-pressed="false">高</button>
           <button type="button" data-q="mid" aria-pressed="true">中</button>
           <button type="button" data-q="low" aria-pressed="false">低</button>
+        </div>
+      </div>
+      <div class="row"><span class="lbl">外装</span>
+        <div class="seg" id="paintSeg2" role="group" aria-label="外装の色">
+          <button type="button" data-v="white" aria-pressed="true">白</button>
+          <button type="button" data-v="blue" aria-pressed="false">青</button>
+          <button type="button" data-v="red" aria-pressed="false">赤</button>
+          <button type="button" data-v="silver" aria-pressed="false">銀</button>
+        </div>
+      </div>
+      <div class="row"><span class="lbl">内装</span>
+        <div class="seg" id="intSeg2" role="group" aria-label="内装">
+          <button type="button" data-v="black" aria-pressed="true">ブラック</button>
+          <button type="button" data-v="beige" aria-pressed="false">ベージュ</button>
+          <button type="button" data-v="red" aria-pressed="false">レッド</button>
         </div>
       </div>
       <label for="volRange"><span class="lbl">音量</span><input class="range" id="volRange" type="range" min="0" max="100" value="70"></label>
