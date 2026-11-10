@@ -24,7 +24,7 @@ const TR = {
   art: 0, kp: 0, roll: 0, ltr: 0, slip: 0, surge: 0,
   assist: { abs: false, tcs: false, esc: false, rsc: false },
   cab: { p: 0, pv: 0, r: 0, rv: 0, hv: 0, hy: 0 },
-  spin: 0, onRamp: false, acc: 0, snapT: 0,
+  spin: 0, onRamp: false, acc: 0, snapT: 0, railT: { t: 0, r: 0 },
 };
 const _tkPos = { x: 0, y: 0, z: 0, h: 0 }, _po = {};
 const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 };
@@ -92,7 +92,7 @@ function placeTruck(s, lat, v = 0, opts = {}) {
   if (coupled) { T.tr.idx = hint; RIG.r.i = hint; }
   T.link = coupled ? 'coupled' : 'free'; T.linkT = 0;
   T.cruise = false; T.shiftT = 0; T.dir = 1; T.rpm = 600; T.ret = 0; T.thr = T.brk = T.load = 0;
-  T.accel = T.latAcc = 0; T.acc = 0; T.snapT = 0;
+  T.accel = T.latAcc = 0; T.acc = 0; T.snapT = 0; T.railT.t = T.railT.r = 0;
   T.cab.p = T.cab.pv = T.cab.r = T.cab.rv = T.cab.hv = T.cab.hy = 0;
   syncTR();
   T.gear = T.nextGear = startGear();
@@ -103,6 +103,60 @@ function placeTruck(s, lat, v = 0, opts = {}) {
 function scaleSpeed(k) {
   for (const b of [RIG.t, RIG.r]) { b.vx *= k; b.vz *= k; b.w *= k; }
   TR.v *= k;
+}
+
+// Turn what the rig hit this step into damage and events.
+function truckContacts(dt) {
+  const T = TR, H = RIG.hit;
+  for (const u of ['t', 'r']) {
+    const c = H[u];
+    T.railT[u] = Math.max(0, T.railT[u] - dt);
+    if (c.imp > 0) {
+      T.damage = Math.min(100, T.damage + 1.5 * c.imp / RIG[u].m);
+      if (T.railT[u] <= 0) { EVENTS.push({ t: 'rail', hit: c.vn, unit: u }); T.railT[u] = 1.2; }
+    }
+    c.imp = c.vn = 0;
+  }
+  const b = H.b;
+  if (b.imp > 0) {
+    T.damage = Math.min(100, T.damage + 1.5 * b.imp / (RIG.t.m + (RIG.coupled ? RIG.r.m : 0)));
+    if (b.vn > 2) EVENTS.push({ t: 'crash', hit: b.vn });
+  }
+  b.imp = b.vn = 0;
+}
+
+// Another vehicle c = { s, x, v, len, wid, heavy } against one of playerBoxes(). Moves and slows c,
+// pushes the truck with an impulse, and returns how hard the contact was (0: none).
+const _cc = { x: 0, y: 0, z: 0, h: 0 };
+function resolveCarContact(c, b) {
+  const c0 = c.s - c.len / 2, c1 = c.s + c.len / 2;
+  if (c1 <= b.s0 || c0 >= b.s1) return 0;
+  const ov = (c.wid / 2 + RIGP.half) - Math.abs(c.x - b.lat);
+  if (ov <= 0) return 0;
+  const unit = b.tractor ? 't' : 'r', towed = RIG.coupled;
+  const movable = b.tractor || towed;
+  const M = towed ? RIG.t.m + RIG.r.m : RIG[unit].m, mc = c.heavy ? 12000 : 1500;
+  const red = mc * M / (mc + M), vTruck = movable ? TR.v : 0;
+  let hit = 0;
+  if (b.tractor && c0 > b.s1 - 2.0) {                 // the truck ran into it
+    const dv = Math.max(0, vTruck - c.v), J = 1.1 * red * dv;
+    c.v += J / mc; c.s = b.s1 + c.len / 2 + 0.05; hit = dv;
+    ROAD.posAt(b.s1, b.lat, _cc);
+    rigApplyImpulse('t', _cc.x, _cc.z, -J * Math.sin(_cc.h), -J * Math.cos(_cc.h));
+  } else if (!b.tractor && c1 < b.s0 + 2.0) {         // it ran into the back of the trailer
+    const dv = Math.max(0, c.v - vTruck), J = 1.1 * (movable ? red : mc) * dv;
+    c.v = Math.max(0, Math.min(c.v - J / mc, vTruck - 0.3)); c.s = b.s0 - c.len / 2 - 0.05; hit = 0.6;
+    ROAD.posAt(b.s0, b.lat, _cc);
+    rigApplyImpulse('r', _cc.x, _cc.z, J * Math.sin(_cc.h), J * Math.cos(_cc.h));
+  } else {                                            // side swipe: shove both apart
+    const sgn = Math.sign(c.x - b.lat) || 1, J = red * 1.0;
+    c.x += sgn * ov; hit = 1 + Math.abs(vTruck - c.v) * 0.2; c.v *= 0.97;
+    ROAD.posAt(c.s, b.lat, _cc);
+    rigApplyImpulse(unit, _cc.x, _cc.z, sgn * J * Math.cos(_cc.h), -sgn * J * Math.sin(_cc.h));
+  }
+  if (hit > 0.4) EVENTS.push({ t: 'car', hit });
+  TR.damage = Math.min(100, TR.damage + hit * 0.7);
+  return hit;
 }
 
 const finite = v => (Number.isFinite(v) ? v : 0);
@@ -119,6 +173,7 @@ function stepTruck(dt, inp) {
   syncTR();
   if (!truckHealthy()) { truckRestore(); return; }
   T.snapT += dt; if (T.snapT >= 0.5) { T.snapT = 0; truckSnapshot(); }
+  truckContacts(dt);
 
   // derived motion for cab sway, sounds and gauges
   T.accel = damp(T.accel, (T.v - vPrev) / dt, 8, dt);

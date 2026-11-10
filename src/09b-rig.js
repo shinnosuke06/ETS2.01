@@ -30,6 +30,8 @@ const RIG = {
   ax: 0, Hx: 0, FxT: 0,  // smoothed longitudinal acceleration, trailer push on the tractor, trailer tyre force
   assistOn: true, assist: { abs: false, tcs: false, esc: false, rsc: false },
   roll: 0, rollV: 0, ltr: 0, ltrT: 0, slosh: { x: 0, vx: 0, y: 0, vy: 0 }, surge: 0, gap: 0,
+  // contacts since the truck layer last looked: impulse taken (N s) and the fastest approach (m/s)
+  hit: { t: { imp: 0, vn: 0 }, r: { imp: 0, vn: 0 }, b: { imp: 0, vn: 0 } },
 };
 RIG.t.m = RIGP.m1; RIG.t.I = RIGP.I1;
 
@@ -76,6 +78,7 @@ function rigResetState() {
   R.assist.abs = R.assist.tcs = R.assist.esc = R.assist.rsc = false;
   R.roll = R.rollV = R.ltr = R.ltrT = 0; R.surge = 0;
   R.slosh.x = R.slosh.vx = R.slosh.y = R.slosh.vy = 0;
+  for (const k of ['t', 'r', 'b']) R.hit[k].imp = R.hit[k].vn = 0;
 }
 // (x, z) is the tractor's rear axle. A coupled trailer is put straight behind.
 function rigPlace(x, z, h, v, coupled) {
@@ -114,6 +117,57 @@ function rigTyre(i, uP, vP, delta, Fz, drive, brake) {
 }
 
 const _pr = { i: 0, s: 0, lat: 0 };
+
+// ---- contacts: guardrails and walls push on the body corners, barriers stop the nose ----
+const _iv = [];
+let _cFx = 0, _cFz = 0, _cT = 0;
+// One corner of body b at (a forward, side * half-width right) of its centre of mass.
+function rigCorner(b, rec, a, side, h) {
+  const fx = Math.sin(b.h), fz = Math.cos(b.h), w = side * RIGP.half;
+  const ox = a * fx - w * fz, oz = a * fz + w * fx;
+  ROAD.project(b.x + ox, b.z + oz, b.i, _pr);
+  const ivs = ROAD.drivable(_pr.s, _iv), lat = _pr.lat;
+  let iv = ivs[0], bd = Infinity;
+  for (const c of ivs) {
+    const d = lat < c[0] ? c[0] - lat : lat > c[1] ? lat - c[1] : 0;
+    if (d < bd) { bd = d; iv = c; }
+  }
+  if (!(bd > 0)) return;
+  const dir = lat < iv[0] ? 1 : -1;                       // push back toward the road
+  const hr = ROAD.headingAt(_pr.s), tx = Math.sin(hr), tz = Math.cos(hr), nx = -dir * tz, nz = dir * tx;
+  const vpx = b.vx + b.w * oz, vpz = b.vz - b.w * ox;
+  const vn = vpx * nx + vpz * nz, vt = vpx * tx + vpz * tz;
+  if (vn > 3) return;                                     // already leaving fast enough
+  const N = 1.5e6 * Math.min(bd, 0.5) + 1.2e5 * Math.max(0, -vn);
+  const Ff = -0.4 * N * clamp(vt / 0.5, -1, 1);
+  const Fx = N * nx + Ff * tx, Fz = N * nz + Ff * tz;
+  _cFx += Fx; _cFz += Fz; _cT += Fx * oz - Fz * ox;
+  rec.imp += N * h; if (-vn > rec.vn) rec.vn = -vn;
+}
+function rigWalls(b, rec, aFront, aRear, h) {
+  _cFx = _cFz = _cT = 0;
+  rigCorner(b, rec, aFront, -1, h); rigCorner(b, rec, aFront, 1, h);
+  rigCorner(b, rec, aRear, -1, h); rigCorner(b, rec, aRear, 1, h);
+}
+// The closure at the end of the road or of a ramp: takes all forward momentum at once.
+function rigBarrier(h) {
+  const R = RIG, t = R.t, a = RIGP.front - RIGP.b1, ox = a * Math.sin(t.h), oz = a * Math.cos(t.h);
+  ROAD.project(t.x + ox, t.z + oz, t.i, _pr);
+  const pen = _pr.s - ROAD.barrier(_pr.s, _pr.lat);
+  if (!(pen > 0)) return;
+  const hr = ROAD.headingAt(_pr.s), tx = Math.sin(hr), tz = Math.cos(hr);
+  const u = t.vx * tx + t.vz * tz, M = t.m + (R.coupled ? R.r.m : 0);
+  let F = u > -0.5 ? 1.5e6 * Math.min(pen, 0.5) : 0;
+  if (u > 0) { F += M * u / h; R.hit.b.imp += M * u; if (u > R.hit.b.vn) R.hit.b.vn = u; }
+  _cFx -= F * tx; _cFz -= F * tz; _cT += -F * tx * oz + F * tz * ox;
+}
+// A sudden push at a world point of the tractor ('t') or the trailer ('r'), e.g. from another vehicle.
+function rigApplyImpulse(unit, px, pz, jx, jz) {
+  const b = RIG[unit];
+  if (!b || !(b.m > 0) || (unit === 'r' && !RIG.coupled)) return;   // a parked trailer does not move
+  const rx = px - b.x, rz = pz - b.z;
+  b.vx += jx / b.m; b.vz += jz / b.m; b.w += (jx * rz - jz * rx) / b.I;
+}
 // cmd: { steer (rad), drive (N at the drive axle), drag (N, engine brake + retarder), service (0..1), hold }
 function rigStep(h, cmd) {
   const R = RIG, P = RIGP, t = R.t, r = R.r, coupled = R.coupled;
@@ -139,6 +193,8 @@ function rigStep(h, cmd) {
   ROAD.project(t.x, t.z, t.i, _pr); t.i = _pr.i;
   let g = ROAD.gradeAt(_pr.s), hr = ROAD.headingAt(_pr.s), sg = g / Math.sqrt(1 + g * g);
   F1x -= t.m * G * sg * Math.sin(hr); F1z -= t.m * G * sg * Math.cos(hr);
+  rigWalls(t, R.hit.t, P.front - P.b1, -P.back - P.b1, h); rigBarrier(h);
+  F1x += _cFx; F1z += _cFz; T1 += _cT;
 
   // ---- trailer ----
   let f2x = 0, f2z = 0, F2x = 0, F2z = 0, T2 = 0;
@@ -153,6 +209,8 @@ function rigStep(h, cmd) {
     ROAD.project(r.x, r.z, r.i, _pr); r.i = _pr.i;
     g = ROAD.gradeAt(_pr.s); hr = ROAD.headingAt(_pr.s); sg = g / Math.sqrt(1 + g * g);
     F2x -= r.m * G * sg * Math.sin(hr); F2z -= r.m * G * sg * Math.cos(hr);
+    rigWalls(r, R.hit.r, R.d2 + R.spec.nose - 0.2, R.d2 - R.spec.rear, h);
+    F2x += _cFx; F2z += _cFz; T2 += _cT;
   } else { R.axle[2].Fz = R.axle[2].Fx = R.axle[2].Fy = R.axle[2].alpha = 0; R.FxT = 0; }
 
   // ---- integrate velocities, then make the two bodies agree at the fifth wheel ----

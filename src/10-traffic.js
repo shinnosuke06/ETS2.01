@@ -248,22 +248,9 @@ function collideCar(c, PB) {
   const c0 = c.s - c.len / 2, c1 = c.s + c.len / 2;
   for (const b of PB) {
     if (c1 <= b.s0 || c0 >= b.s1) continue;
-    const ov = (c.wid / 2 + 1.25) - Math.abs(c.x - b.lat);
-    if (ov <= 0) continue;
-    const mid = (b.s0 + b.s1) / 2;
-    let hit = 0;
-    if (b.tractor && c0 > b.s1 - 2.0) { // we hit it from behind
-      hit = Math.max(0, TR.v - c.v);
-      TR.v = Math.max(0, c.v - 0.4); c.v += hit * 0.35; c.s = b.s1 + c.len / 2 + 0.05;
-    } else if (!b.tractor && c1 < b.s0 + 2.0) { // it ran into our trailer
-      c.v = Math.max(0, Math.min(c.v, TR.v - 0.6)); c.s = b.s0 - c.len / 2 - 0.05; hit = 0.6;
-    } else { // side swipe
-      const sgn = Math.sign(c.x - b.lat) || 1;
-      c.x += sgn * ov; c.lc = null; c.lane = Math.abs(c.x - laneX(1, 0)) < Math.abs(c.x - laneX(1, 1)) ? 0 : 1;
-      hit = 1 + Math.abs(TR.v - c.v) * 0.2; c.v *= 0.97;
-    }
-    if (hit > 0.4) EVENTS.push({ t: 'car', hit });
-    TR.damage = Math.min(100, TR.damage + hit * 0.7);
+    const x0 = c.x;
+    if (!resolveCarContact(c, b)) continue;
+    if (c.x !== x0) { c.lc = null; c.lane = Math.abs(c.x - laneX(1, 0)) < Math.abs(c.x - laneX(1, 1)) ? 0 : 1; }   // shoved sideways
     break;
   }
 }
