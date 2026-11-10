@@ -26,7 +26,7 @@ const TR = {
   cab: { p: 0, pv: 0, r: 0, rv: 0, hv: 0, hy: 0 },
   spin: 0, onRamp: false, acc: 0, snapT: 0, railT: { t: 0, r: 0 },
   assistT: { abs: 0, tcs: 0, esc: 0, rsc: 0 },   // each lamp stays on a moment after its system last acted
-  sentRoll: false, sentJack: false,
+  sentRoll: false, sentJack: false, dlPrev: null,
 };
 const _tkPos = { x: 0, y: 0, z: 0, h: 0 }, _po = {};
 const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 };
@@ -45,7 +45,7 @@ function setRigTrailer(key, cargoKg) {
 // Copy the rig's pose into TR and find where it is on the road.
 function syncTR() {
   const T = TR, P = rigPose(_po), spec = RIG.spec;
-  T.x = P.x; T.z = P.z; T.h = P.h; T.v = P.v; T.yawRate = P.w; T.steer = RIG.steer;
+  T.x = P.x; T.z = P.z; T.h = P.h; T.v = P.v + 0; T.yawRate = P.w; T.steer = RIG.steer;   // + 0: never -0
   ROAD.project(T.x, T.z, T.idx, _pj); T.idx = _pj.i; T.s = _pj.s; T.lat = _pj.lat;
   ROAD.project(T.x + Math.sin(T.h) * RIGP.front, T.z + Math.cos(T.h) * RIGP.front, T.idx, _pjF);
   T.frontS = _pjF.s; T.frontLat = _pjF.lat;
@@ -92,7 +92,7 @@ function placeTruck(s, lat, v = 0, opts = {}) {
   const hint = Math.max(0, Math.floor(s / DS));
   T.idx = hint; RIG.t.i = hint;
   if (coupled) { T.tr.idx = hint; RIG.r.i = hint; }
-  T.link = coupled ? 'coupled' : 'free'; T.linkT = 0;
+  T.link = coupled ? 'coupled' : 'free'; T.linkT = 0; T.dlPrev = null;
   T.cruise = false; T.shiftT = 0; T.dir = 1; T.rpm = 600; T.ret = 0; T.thr = T.brk = T.load = 0;
   T.accel = T.latAcc = 0; T.acc = 0; T.snapT = 0; T.railT.t = T.railT.r = 0; T.slip = 0;
   for (const k of ['abs', 'tcs', 'esc', 'rsc']) { T.assistT[k] = 0; T.assist[k] = false; }
@@ -101,6 +101,73 @@ function placeTruck(s, lat, v = 0, opts = {}) {
   syncTR();
   T.gear = T.nextGear = startGear();
   truckSnapshot();
+}
+
+// ---- coupling and uncoupling ----
+// Leave the job trailer standing with its kingpin at road position (s, lat), facing along the road.
+function parkTrailer(s, lat) {
+  ROAD.posAt(s, lat, _tkPos);
+  rigParkTrailer(_tkPos.x, _tkPos.z, _tkPos.h);
+  const hint = Math.max(0, Math.floor(s / DS));
+  RIG.r.i = hint; TR.tr.idx = hint;
+  TR.link = 'free'; TR.linkT = 0; TR.dlPrev = null;
+  syncTR();
+}
+// Move the tractor (not the trailer) by (dx, dz) and stop it.
+function truckNudge(dx, dz) {
+  RIG.t.x += dx; RIG.t.z += dz; RIG.t.vx = RIG.t.vz = RIG.t.w = 0;
+  syncTR(); TR.v = 0;
+}
+function truckLink(dt) {
+  const T = TR, spec = RIG.spec;
+  if (T.link === 'locking' || T.link === 'unlocking') {
+    T.linkT -= dt;
+    if (T.linkT > 0) return;
+    T.linkT = 0;
+    if (T.link === 'locking') { rigCouple(); T.link = 'coupled'; syncTR(); EVENTS.push({ t: 'coupled' }); }
+    else { rigParkTrailer(T.tr.kx, T.tr.kz, T.tr.h); T.link = 'free'; T.dlPrev = null; syncTR(); EVENTS.push({ t: 'uncoupled' }); }
+    return;
+  }
+  if (T.link !== 'free' || !spec) return;
+  // where the fifth wheel is, seen from the parked trailer's kingpin: dl ahead of it, dy to its right
+  const gx = Math.sin(T.tr.h), gz = Math.cos(T.tr.h);
+  const dx = T.x + Math.sin(T.h) * HITCH - T.tr.kx, dz = T.z + Math.cos(T.h) * HITCH - T.tr.kz;
+  const dl = dx * gx + dz * gz, dy = -dx * gz + dz * gx, prev = T.dlPrev;
+  T.dlPrev = dl;
+  if (prev == null || !(prev > 0 && dl <= 0) || Math.abs(dy) >= 1.6) return;
+  const closing = (prev - dl) / dt;
+  if (closing <= 1.5 && Math.abs(dy) <= 0.20 && Math.abs(wrapA(T.h - T.tr.h)) <= 10 * Math.PI / 180) {
+    truckNudge(-dx, -dz);                       // seat the fifth wheel on the kingpin; the trailer stays put
+    T.link = 'locking'; T.linkT = 2.0; EVENTS.push({ t: 'couple-lock' });
+  } else {
+    truckNudge(gx * (0.05 - dl), gz * (0.05 - dl));   // bumped the trailer's nose: back to just in front of it
+    T.dlPrev = 0.05;
+    if (closing > 1.5) { T.damage = Math.min(100, T.damage + 2); EVENTS.push({ t: 'couple-miss', why: 'fast' }); }
+    else EVENTS.push({ t: 'couple-miss', why: 'offset' });
+  }
+}
+function requestUncouple() {
+  const T = TR;
+  if (T.link !== 'coupled') return false;
+  if (Math.abs(T.v) >= 0.1) { EVENTS.push({ t: 'uncouple-refused' }); return false; }
+  T.link = 'unlocking'; T.linkT = 2.0; EVENTS.push({ t: 'uncouple-start' });
+  return true;
+}
+function canAutoCouple() {
+  const T = TR;
+  if (T.link !== 'free' || !RIG.spec || Math.abs(T.v) >= 0.1) return false;
+  return Math.hypot(T.x + Math.sin(T.h) * HITCH - T.tr.kx, T.z + Math.cos(T.h) * HITCH - T.tr.kz) <= 40;
+}
+// Auto-couple: back the tractor under the trailer for the driver.
+function requestCouple() {
+  const T = TR;
+  if (!canAutoCouple()) return false;
+  const gx = Math.sin(T.tr.h), gz = Math.cos(T.tr.h);
+  rigPlace(T.tr.kx - gx * HITCH, T.tr.kz - gz * HITCH, T.tr.h, 0, false);
+  T.idx = T.tr.idx; RIG.t.i = RIG.r.i;
+  syncTR(); T.v = 0;
+  T.link = 'locking'; T.linkT = 2.0; T.dlPrev = null; EVENTS.push({ t: 'couple-lock' });
+  return true;
 }
 
 // After a rollover or a jackknife: stand the rig back up, straight, on the shoulder (or in the ramp lane).
@@ -113,7 +180,7 @@ function towReset() {
 // Scale the whole rig's speed (0 stops it). For game events such as hitting the toll bar.
 function scaleSpeed(k) {
   for (const b of [RIG.t, RIG.r]) { b.vx *= k; b.vz *= k; b.w *= k; }
-  TR.v *= k;
+  TR.v = k === 0 ? 0 : TR.v * k;
 }
 
 // Turn what the rig hit this step into damage and events.
@@ -180,10 +247,12 @@ function stepTruck(dt, inp) {
   _cmd.steer = damp(RIG.steer, target, 7, dt);
   _cmd.drive = pt.drive; _cmd.drag = pt.drag; _cmd.service = pt.service;
   // standing still with the throttle closed or the brake on: stay put, also on a slope
-  _cmd.hold = Math.abs(T.v) < 0.05 && (T.thr < 0.05 || pt.service > 0.02);
+  const busy = T.link === 'locking' || T.link === 'unlocking';   // hoses and landing legs take two seconds
+  _cmd.hold = busy || (Math.abs(T.v) < 0.05 && (T.thr < 0.05 || pt.service > 0.02));
   rigStep(dt, _cmd);
   syncTR();
   if (!truckHealthy()) { truckRestore(); return; }
+  truckLink(dt);
   T.snapT += dt; if (T.snapT >= 0.5) { T.snapT = 0; truckSnapshot(); }
   truckContacts(dt);
   for (const k of ['abs', 'tcs', 'esc', 'rsc']) {

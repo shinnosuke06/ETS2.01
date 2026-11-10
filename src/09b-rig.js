@@ -200,6 +200,36 @@ function rigWalls(b, rec, aFront, aRear, h) {
   rigCorner(b, rec, aFront, -1, h); rigCorner(b, rec, aFront, 1, h);
   rigCorner(b, rec, aRear, -1, h); rigCorner(b, rec, aRear, 1, h);
 }
+// A parked trailer is solid from 1.5 m behind its kingpin to its tail; the tractor's tail may slide under the nose.
+function rigParkedTrailer(h) {
+  const R = RIG, t = R.t, r = R.r, P = RIGP, rec = R.hit.t;
+  const fx = Math.sin(t.h), fz = Math.cos(t.h), gx = Math.sin(r.h), gz = Math.cos(r.h);
+  const kx = r.x + gx * R.d2, kz = r.z + gz * R.d2, rear = R.spec.rear;
+  for (let c = 0; c < 4; c++) {
+    // corners pulled in a little: both bodies are equally wide, so true corners would ride exactly on the box's sides
+    const a = c < 2 ? P.front - P.b1 : -P.back - P.b1, w = (c % 2 ? 1 : -1) * (P.half - 0.15);
+    const ox = a * fx - w * fz, oz = a * fz + w * fx, dx = t.x + ox - kx, dz = t.z + oz - kz;
+    const lx = dx * gx + dz * gz, ly = -dx * gz + dz * gx;             // along and across the trailer
+    if (lx > -1.5 || lx < -rear || Math.abs(ly) > P.half) continue;
+    // leave through the nearest face
+    let pen = -1.5 - lx, nx = gx, nz = gz;
+    if (lx + rear < pen) { pen = lx + rear; nx = -gx; nz = -gz; }
+    if (P.half - ly < pen) { pen = P.half - ly; nx = -gz; nz = gx; }
+    if (ly + P.half < pen) { pen = ly + P.half; nx = gz; nz = -gx; }
+    const vn = (t.vx + t.w * oz) * nx + (t.vz - t.w * ox) * nz;
+    if (vn > 3) continue;
+    const N = 1.5e6 * Math.min(pen, 0.5) + 1.2e5 * Math.max(0, -vn);
+    _cFx += N * nx; _cFz += N * nz; _cT += N * nx * oz - N * nz * ox;
+    rec.imp += N * h; if (-vn > rec.vn) rec.vn = -vn;
+  }
+}
+// Join the tractor to the trailer standing at its fifth wheel.
+function rigCouple() {
+  const R = RIG;
+  if (!R.spec) return;
+  R.coupled = true; R.r.vx = R.r.vz = R.r.w = 0; R.r.i = R.t.i;
+  rigStatic();
+}
 // The closure at the end of the road or of a ramp: takes all forward momentum at once.
 function rigBarrier(h) {
   const R = RIG, t = R.t, a = RIGP.front - RIGP.b1, ox = a * Math.sin(t.h), oz = a * Math.cos(t.h);
@@ -275,6 +305,7 @@ function rigStep(h, cmd) {
   let g = ROAD.gradeAt(_pr.s), hr = ROAD.headingAt(_pr.s), sg = g / Math.sqrt(1 + g * g);
   F1x -= t.m * G * sg * Math.sin(hr); F1z -= t.m * G * sg * Math.cos(hr);
   rigWalls(t, R.hit.t, P.front - P.b1, -P.back - P.b1, h); rigBarrier(h);
+  if (!coupled && R.spec) rigParkedTrailer(h);
   F1x += _cFx; F1z += _cFz; T1 += _cT;
 
   // ---- trailer ----
