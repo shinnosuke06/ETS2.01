@@ -590,6 +590,34 @@ function buildRamps(ctx) {
       g.add(bar); ctx.grp.add(g);
     }
     if (r.sGate >= s0 && r.sGate < s1) buildToll(ctx, r);
+    buildBay(ctx, r, f, t);
+  }
+}
+// Delivery bay on the exit ramp past the toll gate: hatched lane, yellow frame, and a sign before it.
+function buildBay(ctx, r, f, t) {
+  const { O, s0, s1 } = ctx;
+  const zf = Math.max(f, Math.ceil(r.sZone0 / DS)), zt = Math.min(t, Math.floor(r.sZone1 / DS));
+  if (zt > zf) {
+    addMesh(ctx, stripGeo(O, zf, zt, RAMP_X - 1.75, RAMP_X + 1.75, { y: 0.03, uFn: (i, s, a, b) => [a / 2.5, b / 2.5], vScale: 2.5 }), MAT.bay, { receive: true });
+    for (const x of [-1.75, 1.75]) addMesh(ctx, stripGeo(O, zf, zt, RAMP_X + x - 0.09, RAMP_X + x + 0.09, { y: 0.04 }), MAT.bayLine);
+  }
+  for (const sb of [r.sZone0, r.sZone1]) {
+    if (sb < s0 || sb >= s1) continue;
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(3.68, 0.02, 0.3), MAT.bayLine);
+    placeAt(bar, O, sb, RAMP_X, 0.045); ctx.grp.add(bar);
+  }
+  const ss = r.sZone0 - 6;
+  if (ss >= s0 && ss < s1) {
+    const grp = new THREE.Group(), P = new Parts();
+    placeAt(grp, O, ss, RAMP_X - 4.3, 0);
+    postsFor(P, [-0.9, 0.9], 3.6, 0.08); P.build(grp);
+    const mat = cachedTex('bay:' + r.ic.jp, 512, 320, (g, w, h) => {
+      greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = font(110); g.fillText('納品', w / 2, 118);
+      g.font = font(34, 400); g.fillText('枠の中で切り離し', w / 2, 216); g.font = font(26, 400); g.fillText('DELIVERY BAY', w / 2, 266);
+    });
+    const b = signBoard(2.6, 1.62, mat); b.position.y = 2.7; grp.add(b);
+    ctx.grp.add(grp);
   }
 }
 function buildToll(ctx, r) {

@@ -48,7 +48,14 @@ body.touch .tb.only-touch{display:inline-block}
 .led{background-color:var(--led-bg);border:2px solid var(--led-frame);border-radius:4px;padding:7px 16px 8px;font-family:var(--f-led);color:var(--led);font-size:18px;letter-spacing:.14em;text-shadow:0 0 7px rgba(255,176,32,.6);background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1.3px);background-size:4px 4px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.4)}
 #led{position:absolute;left:50%;top:74px;transform:translateX(-50%);max-width:92%;overflow:hidden;text-overflow:ellipsis;transition:opacity .25s}
 #led.warn{color:#ff6a4a;text-shadow:0 0 7px rgba(255,90,60,.6)}
-@media (max-aspect-ratio:1/1){#led{top:96px;font-size:15px;padding:6px 12px 7px}}
+/* narrow screens: a long message would run into the destination sign, so the board drops below it */
+@media (max-width:1000px){#led{top:126px}}
+/* portrait: destination sign, then the buttons across the full width, then the message board */
+@media (max-aspect-ratio:1/1){
+  #topbar{top:132px;left:0;right:0;max-width:none;justify-content:flex-start}
+  #topbar .tb{height:32px;font-size:11px;padding:0 8px;min-width:40px}
+  #led{top:212px;left:0;right:0;margin:0 auto;transform:none;width:fit-content;max-width:100%;box-sizing:border-box;white-space:normal;text-align:center;font-size:14px;letter-spacing:.08em;padding:6px 10px 7px}
+}
 
 #speedo{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);font-variant-numeric:tabular-nums}
 #speedo .num{font-size:30px;font-weight:700;line-height:1}
@@ -133,6 +140,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <button class="tb" id="bLights" type="button" aria-pressed="false" title="ライト (L)">ライト</button>
       <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
       <button class="tb" id="bHazard" type="button" aria-pressed="false" title="ハザード (F)">ハザード</button>
+      <button class="tb" id="bCouple" type="button" title="連結・切り離し (T)" hidden>自動連結</button>
       <button class="tb" id="bMenu" type="button" title="メニュー (Esc)">メニュー</button>
     </div>
 
@@ -227,7 +235,8 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <li><kbd>Q</kbd><kbd>E</kbd> ウインカー　<kbd>C</kbd> クルーズ　<kbd>V</kbd> 視点　<kbd>R</kbd> 前進/後退　<kbd>H</kbd> ホーン</li>
           <li>マウスでドラッグすると車内を見回せます（ミラー確認に）</li>
           <li><b>スマホ</b> 左下のハンドルを回す、右下のペダルを押す。画面をなぞると見回し</li>
-          <li>目的地のICで<b>左の出口</b>へ。ETCゲートは<b>20km/h以下</b>で通過</li>
+          <li>まず後ろのトレーラーに<b>バックして連結</b>（<kbd>T</kbd> か「自動連結」でも可）</li>
+          <li>目的地のICで<b>左の出口</b>へ。ETCゲートは<b>20km/h以下</b>で通過し、先の<b>納品の枠</b>で切り離す</li>
         </ul>
       </div>
     </div>
@@ -280,12 +289,20 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <button type="button" data-v="red" aria-pressed="false">レッド</button>
         </div>
       </div>
+      <div class="row"><span class="lbl">安定装置</span>
+        <div class="seg" id="assistSeg" role="group" aria-label="安定装置">
+          <button type="button" data-v="on" aria-pressed="true">オン</button>
+          <button type="button" data-v="off" aria-pressed="false">オフ</button>
+        </div>
+        <span class="lbl">ABS・横滑り防止・横転防止。オフにすると実車に近い挙動になります</span>
+      </div>
       <label for="volRange"><span class="lbl">音量</span><input class="range" id="volRange" type="range" min="0" max="100" value="70"></label>
       <label for="sensRange"><span class="lbl">ハンドルの効き</span><input class="range" id="sensRange" type="range" min="40" max="160" value="100"></label>
       <ul class="keys">
         <li><kbd>W</kbd><kbd>S</kbd> アクセル・ブレーキ　<kbd>A</kbd><kbd>D</kbd> ハンドル　<kbd>Space</kbd> 強いブレーキ</li>
         <li><kbd>Q</kbd><kbd>E</kbd> ウインカー　<kbd>F</kbd> ハザード　<kbd>C</kbd> クルーズ（<kbd>+</kbd><kbd>-</kbd>で速度調整）</li>
         <li><kbd>V</kbd> 視点　<kbd>L</kbd> ライト　<kbd>P</kbd> ワイパー　<kbd>R</kbd> 前進/後退　<kbd>H</kbd> ホーン</li>
+        <li><kbd>T</kbd> 連結・切り離し。トレーラーにまっすぐバックすると連結します（止まって <kbd>T</kbd> で自動連結）</li>
         <li>大型トラックは90km/hのスピードリミッター付き。下り坂はクルーズでリターダーが効きます</li>
       </ul>
       <div class="row">
@@ -943,6 +960,14 @@ TEX.stripes = (() => { // cushion drum / gate bar
   g.fillStyle = '#151515'; g.fillRect(0, 0, W, H / 4); g.fillRect(0, H / 2, W, H / 4);
   return canvasTex(c, { repeat: true });
 })();
+TEX.bay = (() => { // delivery bay: yellow hatching on asphalt
+  const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
+  g.fillStyle = '#4f5053'; g.fillRect(0, 0, W, W);
+  speckle(g, W, W, 1500, 2, 50, 120, 0.25, 0.6, 151);
+  g.strokeStyle = '#e8b81c'; g.lineWidth = 9;
+  for (let k = -2; k < 3; k++) { g.beginPath(); g.moveTo(k * W, W); g.lineTo(k * W + W, 0); g.stroke(); }
+  return canvasTex(c, { repeat: true });
+})();
 TEX.barStripes = (() => {
   const W = 128, H = 16, c = makeCanvas(W, H), g = c.getContext('2d');
   g.fillStyle = '#f4f4f0'; g.fillRect(0, 0, W, H);
@@ -997,6 +1022,8 @@ const MAT = {
   drum: new THREE.MeshLambertMaterial({ map: TEX.stripes }),
   bar: new THREE.MeshBasicMaterial({ map: TEX.barStripes }),
   black: new THREE.MeshLambertMaterial({ color: 0x1a1b1c }),
+  bay: new THREE.MeshLambertMaterial({ map: TEX.bay, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }),
+  bayLine: new THREE.MeshLambertMaterial({ color: 0xf2c21b, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }),
 };
 for (const k of ['road', 'rampA', 'rampB', 'zebra', 'concrete', 'median', 'terrain', 'lattice', 'grassFill']) MAT[k].userData.keep = true;
 
@@ -1809,6 +1836,34 @@ function buildRamps(ctx) {
       g.add(bar); ctx.grp.add(g);
     }
     if (r.sGate >= s0 && r.sGate < s1) buildToll(ctx, r);
+    buildBay(ctx, r, f, t);
+  }
+}
+// Delivery bay on the exit ramp past the toll gate: hatched lane, yellow frame, and a sign before it.
+function buildBay(ctx, r, f, t) {
+  const { O, s0, s1 } = ctx;
+  const zf = Math.max(f, Math.ceil(r.sZone0 / DS)), zt = Math.min(t, Math.floor(r.sZone1 / DS));
+  if (zt > zf) {
+    addMesh(ctx, stripGeo(O, zf, zt, RAMP_X - 1.75, RAMP_X + 1.75, { y: 0.03, uFn: (i, s, a, b) => [a / 2.5, b / 2.5], vScale: 2.5 }), MAT.bay, { receive: true });
+    for (const x of [-1.75, 1.75]) addMesh(ctx, stripGeo(O, zf, zt, RAMP_X + x - 0.09, RAMP_X + x + 0.09, { y: 0.04 }), MAT.bayLine);
+  }
+  for (const sb of [r.sZone0, r.sZone1]) {
+    if (sb < s0 || sb >= s1) continue;
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(3.68, 0.02, 0.3), MAT.bayLine);
+    placeAt(bar, O, sb, RAMP_X, 0.045); ctx.grp.add(bar);
+  }
+  const ss = r.sZone0 - 6;
+  if (ss >= s0 && ss < s1) {
+    const grp = new THREE.Group(), P = new Parts();
+    placeAt(grp, O, ss, RAMP_X - 4.3, 0);
+    postsFor(P, [-0.9, 0.9], 3.6, 0.08); P.build(grp);
+    const mat = cachedTex('bay:' + r.ic.jp, 512, 320, (g, w, h) => {
+      greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = font(110); g.fillText('納品', w / 2, 118);
+      g.font = font(34, 400); g.fillText('枠の中で切り離し', w / 2, 216); g.font = font(26, 400); g.fillText('DELIVERY BAY', w / 2, 266);
+    });
+    const b = signBoard(2.6, 1.62, mat); b.position.y = 2.7; grp.add(b);
+    ctx.grp.add(grp);
   }
 }
 function buildToll(ctx, r) {
@@ -4242,7 +4297,7 @@ window.addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.repeat) { INP.keys.add(e.code); return; }
   INP.keys.add(e.code);
-  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
+  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', KeyT: 'couple', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
   if (map[e.code]) INP.actions.push(map[e.code]);
 });
 window.addEventListener('keyup', e => { INP.keys.delete(e.code); if (e.code === 'KeyH') INP.actions.push('hornOff'); });
@@ -4304,7 +4359,7 @@ holdButton($('tHorn'), () => INP.actions.push('hornOn'), () => INP.actions.push(
 $('tGear').addEventListener('click', () => INP.actions.push('dir'));
 $('tBlinkL').addEventListener('click', () => INP.actions.push('blinkL'));
 $('tBlinkR').addEventListener('click', () => INP.actions.push('blinkR'));
-for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
+for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
 
 function enableTouchUI() {
   if (document.body.classList.contains('touch')) return;
@@ -4366,11 +4421,12 @@ const chaseCam = new THREE.PerspectiveCamera(55, 1, 0.3, 5200);
 scene.add(chaseCam);
 let activeCam = chaseCam;
 
+// mass: cargo in tonnes. The trailer decides how the load behaves (a tank's liquid sloshes).
 const JOBS = [
-  { from: 0, to: 4, cargo: '精密機器', mass: 12 },
-  { from: 4, to: 7, cargo: '自動車部品', mass: 18 },
-  { from: 7, to: 9, cargo: '静岡茶', mass: 10 },
-  { from: 9, to: 12, cargo: '楽器（ピアノ）', mass: 9 },
+  { from: 0, to: 4, cargo: '精密機器', trailer: 'van', mass: 12 },
+  { from: 4, to: 7, cargo: '牛乳', trailer: 'tank', mass: 19 },
+  { from: 7, to: 9, cargo: '飲料', trailer: 'van', mass: 22 },
+  { from: 9, to: 12, cargo: '楽器（ピアノ）', trailer: 'van', mass: 9 },
 ];
 function jobInfo(j) {
   const a = ICS[j.from], b = ICS[j.to];
@@ -4384,19 +4440,22 @@ const GAME = {
   job: null, blink: 0, hazard: false, lights: false, wiper: false, wiperPhase: 0, blinkT: 0, blinkOn: false,
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
+  assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
 };
 
 // ---- jobs -------------------------------------------------------------------
 function setupJob(idx) {
   const j = jobInfo(JOBS[idx]);
   GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 };
-  setRigTrailer('van', j.mass * 1000);
+  setRigTrailer(j.trailer, j.mass * 1000);
+  RIG.assistOn = GAME.assist;
   TR.damage = 0;
-  const s = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
-  const lat = j.from === 0 ? X_TRV : -10.75;
-  placeTruck(s, lat, 0);
+  // the trailer waits on the shoulder; the tractor stands 12 m ahead of its kingpin, ready to back under it
+  const sK = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
+  parkTrailer(sK, -10.75);
+  placeTruck(sK + 12 - HITCH, -10.75, 0, { coupled: false });
   for (const r of RAMPS) { r.gateOpen = 0; r.gateState = 'closed'; r.passed = false; if (r.barPivot) r.barPivot.rotation.z = 0; }
-  GAME.blink = 0; GAME.hazard = j.from !== 0; GAME.autoHazard = GAME.hazard;
+  GAME.blink = 0; GAME.hazard = true; GAME.autoHazard = true; GAME.leftT = 0; GAME.leftAt = 2;
   resetTraffic();
   fillJobCard();
 }
@@ -4404,11 +4463,14 @@ function fillJobCard() {
   const j = GAME.job;
   $('jobNo').textContent = 'No.' + (GAME.jobIdx + 1);
   $('jFrom').textContent = j.a.jp; $('jTo').textContent = j.b.jp;
-  $('jCargo').textContent = j.cargo; $('jMass').textContent = j.mass + ' t';
+  $('jCargo').textContent = `${j.cargo}（${TRAILERS[j.trailer].name}）`;
+  $('jMass').textContent = `${j.mass} t／${gcwText()}`;
   $('jDist').textContent = j.km.toFixed(1) + ' km'; $('jPay').textContent = yen(j.pay);
   $('moneyStart').textContent = yen(GAME.money);
 }
 function destRamp() { return RAMPS[GAME.job.to - 1]; }
+const gcwText = () => '総重量 ' + (TR.gcw / 1000).toFixed(1) + ' t';
+const COUPLE_HINT = '後ろのトレーラーにバックして連結してください（T で自動連結）';
 
 async function preloadAround(label) {
   $('loading').hidden = false;
@@ -4450,6 +4512,10 @@ function handleActions() {
       case 'blinkL': GAME.blink = GAME.blink === -1 ? 0 : -1; break;
       case 'blinkR': GAME.blink = GAME.blink === 1 ? 0 : 1; break;
       case 'hazard': GAME.hazard = !GAME.hazard; GAME.autoHazard = false; break;
+      case 'couple':
+        if (TR.link === 'coupled') requestUncouple();
+        else if (TR.link === 'free' && !requestCouple()) led('トレーラーの 40 m 以内で止まってから押してください', true, 3.5);
+        break;
       case 'cruise':
         if (!TR.cruise) {
           if (TR.v * 3.6 >= 30 && TR.dir === 1) { TR.cruise = true; TR.cruiseV = Math.min(TR.v, VMAX); TR.cruiseI = 0; led('クルーズ ' + Math.round(TR.cruiseV * 3.6) + ' km/h'); }
@@ -4494,7 +4560,7 @@ function gameLogic(dt) {
     } else {
       led('出口を通過しました。手前に戻ります', true, 4);
       j.missPen += 5000;
-      placeTruck(dr.sDiv - 500, X_TRV, 15);
+      placeTruck(dr.sDiv - 500, X_TRV, 15, { coupled: TR.link !== 'free' });
     }
   }
   if (TR.onRamp) {
@@ -4514,7 +4580,7 @@ function gameLogic(dt) {
     }
     if (!r.passed && TR.s > r.sGate + 6) {
       r.passed = true;
-      if (r.ic.i === j.to) completeJob(); else wrongExit(r);
+      if (r.ic.i !== j.to) wrongExit(r);   // at the destination the job ends when the trailer is dropped in the bay
     }
   }
   for (const q of RAMPS) {
@@ -4522,6 +4588,11 @@ function gameLogic(dt) {
     if (q.gateState !== 'closed' && Math.abs(TR.s - q.sGate) > 600) { q.gateState = 'closed'; q.passed = false; }
   }
   if (GAME.autoHazard && TR.v > 14) { GAME.hazard = false; GAME.autoHazard = false; }
+  // drove off without the trailer: the road is one-way, so say so while a restart is still cheap
+  if (TR.link === 'free' && TR.trailerKey && TR.s - TR.tr.s - TRAILERS[TR.trailerKey].L2 > 150) {
+    GAME.leftT += dt;
+    if (GAME.leftT >= GAME.leftAt) { led('トレーラーを置いたままです。メニューからやり直せます', true, 5); GAME.leftAt = GAME.leftT + 30; }
+  } else { GAME.leftT = 0; GAME.leftAt = 2; }
   // speeding (trucks: 90, or the posted limit if lower)
   const lim = Math.min(90, regionAt(TR.s, {}).lim);
   GAME.limit = lim;
@@ -4532,17 +4603,44 @@ function gameLogic(dt) {
 function wrongExit(r) {
   GAME.job.fines += 5000;
   led(`${r.ic.jp}ICは目的地ではありません。Uターン扱い ¥5,000`, true, 5);
-  placeTruck(r.ic.s + 450, -10.75, 0);
+  placeTruck(r.ic.s + 450, -10.75, 0, { coupled: TR.link !== 'free' });
   resetTraffic();
 }
-function processEvents() {
-  GAME.eventCool -= 1 / 60;
+// The trailer has just been set down: delivered if it stands in the destination's bay.
+function onUncoupled() {
+  const j = GAME.job, r = rampAt(TR.tr.s);
+  const atDest = r && r.ic.i === j.to && TR.tr.lat < -13.4;
+  if (atDest && TR.tr.s >= r.sZone0 && TR.tr.s <= r.sZone1) completeJob();
+  else if (atDest) led('納品の枠の中で切り離してください', true, 5);
+  else led('切り離しました', false, 3);
+}
+function onAccident(kind) {
+  const roll = kind === 'rollover';
+  TR.damage = Math.min(100, TR.damage + (roll ? 25 : 15));
+  if (GAME.job) GAME.job.fines += roll ? 30000 : 20000;
+  sfxThump(3);
+  towReset();
+  led(roll ? '横転しました。レッカー移動 ¥30,000' : 'ジャックナイフ。レッカー移動 ¥20,000', true, 5);
+}
+function processEvents(dt) {
+  GAME.eventCool -= dt; GAME.assistCool.esc -= dt; GAME.assistCool.rsc -= dt;
   while (EVENTS.length) {
     const e = EVENTS.shift();
     if (e.t === 'rail') { sfxScrape(); if (e.hit > 1.2 && GAME.eventCool <= 0) { led('ガードレールに接触', true, 2); GAME.eventCool = 2; } }
     else if (e.t === 'car') { sfxThump(e.hit); if (GAME.eventCool <= 0) { const f = Math.min(30000, Math.round(e.hit * 1500 / 100) * 100 + 2000); if (GAME.job) GAME.job.fines += f; led('接触事故！ 損害 ' + yen(f), true, 3); GAME.eventCool = 2.5; } }
     else if (e.t === 'crash') { sfxThump(3); led('衝突しました', true, 2); }
     else if (e.t === 'cruiseOff') { led('クルーズ解除', false, 1.5); }
+    else if (e.t === 'couple-lock') led('ロックしました。ホースを接続中…', false, 2.5);
+    else if (e.t === 'coupled') led('連結完了　' + gcwText(), false, 4);
+    else if (e.t === 'couple-miss') led(e.why === 'fast' ? '速すぎます' : 'ずれています。前に出てやり直してください', true, 4);
+    else if (e.t === 'uncouple-start') led('切り離し中…', false, 2.5);
+    else if (e.t === 'uncouple-refused') led('止まってから切り離してください', true, 3);
+    else if (e.t === 'uncoupled') onUncoupled();
+    else if (e.t === 'rollover' || e.t === 'jackknife') onAccident(e.t);
+    else if (e.t === 'assist' && (e.kind === 'esc' || e.kind === 'rsc') && GAME.assistCool[e.kind] <= 0) {
+      led(e.kind === 'esc' ? '横滑り防止 作動' : '横転の危険！減速します', true, 2); GAME.assistCool[e.kind] = 4;
+    }
+    else if (e.t === 'reset') led('車両の位置を戻しました', true, 3);
   }
 }
 
@@ -4591,7 +4689,7 @@ $('nextBtn').addEventListener('click', async () => {
   await preloadAround(GAME.jobIdx === 0 ? '東京へ回送中' : '次の積み地へ移動中');
   GAME.state = 'drive';
   showHud(true);
-  led(GAME.job.a.jp + 'ICから本線へ。' + GAME.job.b.jp + 'ICを目指してください', false, 5);
+  led(COUPLE_HINT, false, 6);
 });
 
 // ---- menu and settings ------------------------------------------------------
@@ -4612,6 +4710,11 @@ $('restartBtn').addEventListener('click', async () => {
   await preloadAround('やり直し');
   GAME.state = 'drive'; showHud(true);
 });
+function setAssist(on) {
+  GAME.assist = on; RIG.assistOn = on; lsSet('nlh.assist', on);
+  syncSeg(['assistSeg'], on ? 'on' : 'off');
+}
+$('assistSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setAssist(b.dataset.v === 'on'); });
 $('volRange').value = Math.round(AUD.vol * 100);
 $('volRange').addEventListener('input', e => setVolume(e.target.value / 100));
 $('sensRange').value = Math.round(INP.sens * 100);
@@ -4659,6 +4762,9 @@ function updateHud() {
   pr('tBlinkL', GAME.blink === -1); pr('tBlinkR', GAME.blink === 1);
   $('tGear').textContent = TR.dir === -1 ? 'R' : 'D';
   $('rotateHint').hidden = !(INP.usingTouch && innerHeight > innerWidth);
+  const bc = $('bCouple'), auto = TR.link === 'free' && canAutoCouple();
+  bc.hidden = !(TR.link === 'coupled' || auto);
+  bc.textContent = TR.link === 'coupled' ? '切り離し' : '自動連結';
 }
 function navState() {
   const j = GAME.job;
@@ -4801,14 +4907,9 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---- main loop ---------------------------------------------------------------------
-let lastT = performance.now();
-const DIAG = { frames: 0, ms: 0 };
-function frame(now) {
-  requestAnimationFrame(frame);
-  let dt = (now - lastT) / 1000; lastT = now;
-  if (!(dt > 0)) return;
-  if (dt > 0.1) dt = 0.1;
-  const t0 = performance.now();
+// Everything a frame does except drawing: input, physics, game rules, traffic, events.
+// The browser tests call this directly to move game time forward without waiting for frames.
+function simTick(dt) {
   handleActions();
   pollInput(dt, Math.abs(TR.v));
   const driving = GAME.state === 'drive';
@@ -4818,7 +4919,18 @@ function frame(now) {
     gameLogic(dt);
   }
   if (GAME.state !== 'menu') updateTraffic(Math.min(dt, 0.05), driving);
-  processEvents();
+  processEvents(dt);
+  return driving;
+}
+let lastT = performance.now();
+const DIAG = { frames: 0, ms: 0 };
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - lastT) / 1000; lastT = now;
+  if (!(dt > 0)) return;
+  if (dt > 0.1) dt = 0.1;
+  const t0 = performance.now();
+  const driving = simTick(dt);
   if (GAME.state !== 'loading') updateChunks(TR.s, 1);
   updateVisuals(dt);
   updateCamera(dt);
@@ -4862,21 +4974,25 @@ async function startDriving() {
   try { canvasEl.focus({ preventScroll: true }); } catch (e) { /* */ }
   setTimeout(() => { GAME.engineOn = true; }, 850);
   setTimeout(() => { sfxChime(); led('ETCカードが挿入されています', false, 3.5); }, 1500);
-  setTimeout(() => { if (GAME.state === 'drive') led(GAME.job.b.jp + 'ICを目指して出発！', false, 4); }, 5200);
+  setTimeout(() => { if (GAME.state === 'drive' && TR.link === 'free') led(COUPLE_HINT, false, 6); }, 5200);
 }
 $('startBtn').addEventListener('click', startDriving);
 
 async function boot(data) {
   if (IS_TOUCH) document.body.classList.add('touch');
   for (const seg of ['qualSeg', 'qualSeg2']) for (const b of $(seg).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.q === qualityName));
-  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName);
+  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off');
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();
   if (data && typeof data.job === 'number') { GAME.jobIdx = data.job % JOBS.length; GAME.money = data.money || GAME.money; GAME.clock = data.clock || GAME.clock; }
   applyTimeOfDay((GAME.clock / 3600) % 24, 0);
   setupJob(GAME.jobIdx);
-  if (data && data.s && data.state === 'drive') placeTruck(data.s, data.lat, data.v || 0);
+  if (data && data.s && data.state === 'drive') {   // resume where a page update interrupted the drive
+    const towing = data.link ? data.link !== 'free' : true;
+    if (!towing && Number.isFinite(data.ks)) parkTrailer(data.ks, data.klat);
+    placeTruck(data.s, data.lat, data.v || 0, { coupled: towing });
+  }
   await preloadAround();
   GAME.state = 'title';
   $('startBtn').disabled = false;
@@ -4884,7 +5000,10 @@ async function boot(data) {
   if (data && data.state === 'drive') startDriving();
 }
 try {
-  window.claude?.hot?.snapshot?.(() => ({ job: GAME.jobIdx, money: GAME.money, clock: GAME.clock, s: TR.s, lat: TR.lat, v: TR.v, state: GAME.state === 'drive' ? 'drive' : 'title' }));
+  window.claude?.hot?.snapshot?.(() => {
+    const k = ROAD.project(TR.tr.kx, TR.tr.kz, TR.tr.idx, {});
+    return { job: GAME.jobIdx, money: GAME.money, clock: GAME.clock, s: TR.s, lat: TR.lat, v: TR.v, link: TR.link, ks: k.s, klat: k.lat, state: GAME.state === 'drive' ? 'drive' : 'title' };
+  });
 } catch (e) { /* not in a viewer */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
 

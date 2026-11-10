@@ -166,6 +166,14 @@ TEX.stripes = (() => { // cushion drum / gate bar
   g.fillStyle = '#151515'; g.fillRect(0, 0, W, H / 4); g.fillRect(0, H / 2, W, H / 4);
   return canvasTex(c, { repeat: true });
 })();
+TEX.bay = (() => { // delivery bay: yellow hatching on asphalt
+  const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
+  g.fillStyle = '#4f5053'; g.fillRect(0, 0, W, W);
+  speckle(g, W, W, 1500, 2, 50, 120, 0.25, 0.6, 151);
+  g.strokeStyle = '#e8b81c'; g.lineWidth = 9;
+  for (let k = -2; k < 3; k++) { g.beginPath(); g.moveTo(k * W, W); g.lineTo(k * W + W, 0); g.stroke(); }
+  return canvasTex(c, { repeat: true });
+})();
 TEX.barStripes = (() => {
   const W = 128, H = 16, c = makeCanvas(W, H), g = c.getContext('2d');
   g.fillStyle = '#f4f4f0'; g.fillRect(0, 0, W, H);
@@ -220,6 +228,8 @@ const MAT = {
   drum: new THREE.MeshLambertMaterial({ map: TEX.stripes }),
   bar: new THREE.MeshBasicMaterial({ map: TEX.barStripes }),
   black: new THREE.MeshLambertMaterial({ color: 0x1a1b1c }),
+  bay: new THREE.MeshLambertMaterial({ map: TEX.bay, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }),
+  bayLine: new THREE.MeshLambertMaterial({ color: 0xf2c21b, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }),
 };
 for (const k of ['road', 'rampA', 'rampB', 'zebra', 'concrete', 'median', 'terrain', 'lattice', 'grassFill']) MAT[k].userData.keep = true;
 

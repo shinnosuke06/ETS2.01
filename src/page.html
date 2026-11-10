@@ -48,7 +48,14 @@ body.touch .tb.only-touch{display:inline-block}
 .led{background-color:var(--led-bg);border:2px solid var(--led-frame);border-radius:4px;padding:7px 16px 8px;font-family:var(--f-led);color:var(--led);font-size:18px;letter-spacing:.14em;text-shadow:0 0 7px rgba(255,176,32,.6);background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1.3px);background-size:4px 4px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.4)}
 #led{position:absolute;left:50%;top:74px;transform:translateX(-50%);max-width:92%;overflow:hidden;text-overflow:ellipsis;transition:opacity .25s}
 #led.warn{color:#ff6a4a;text-shadow:0 0 7px rgba(255,90,60,.6)}
-@media (max-aspect-ratio:1/1){#led{top:96px;font-size:15px;padding:6px 12px 7px}}
+/* narrow screens: a long message would run into the destination sign, so the board drops below it */
+@media (max-width:1000px){#led{top:126px}}
+/* portrait: destination sign, then the buttons across the full width, then the message board */
+@media (max-aspect-ratio:1/1){
+  #topbar{top:132px;left:0;right:0;max-width:none;justify-content:flex-start}
+  #topbar .tb{height:32px;font-size:11px;padding:0 8px;min-width:40px}
+  #led{top:212px;left:0;right:0;margin:0 auto;transform:none;width:fit-content;max-width:100%;box-sizing:border-box;white-space:normal;text-align:center;font-size:14px;letter-spacing:.08em;padding:6px 10px 7px}
+}
 
 #speedo{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);font-variant-numeric:tabular-nums}
 #speedo .num{font-size:30px;font-weight:700;line-height:1}
@@ -133,6 +140,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <button class="tb" id="bLights" type="button" aria-pressed="false" title="ライト (L)">ライト</button>
       <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
       <button class="tb" id="bHazard" type="button" aria-pressed="false" title="ハザード (F)">ハザード</button>
+      <button class="tb" id="bCouple" type="button" title="連結・切り離し (T)" hidden>自動連結</button>
       <button class="tb" id="bMenu" type="button" title="メニュー (Esc)">メニュー</button>
     </div>
 
@@ -227,7 +235,8 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <li><kbd>Q</kbd><kbd>E</kbd> ウインカー　<kbd>C</kbd> クルーズ　<kbd>V</kbd> 視点　<kbd>R</kbd> 前進/後退　<kbd>H</kbd> ホーン</li>
           <li>マウスでドラッグすると車内を見回せます（ミラー確認に）</li>
           <li><b>スマホ</b> 左下のハンドルを回す、右下のペダルを押す。画面をなぞると見回し</li>
-          <li>目的地のICで<b>左の出口</b>へ。ETCゲートは<b>20km/h以下</b>で通過</li>
+          <li>まず後ろのトレーラーに<b>バックして連結</b>（<kbd>T</kbd> か「自動連結」でも可）</li>
+          <li>目的地のICで<b>左の出口</b>へ。ETCゲートは<b>20km/h以下</b>で通過し、先の<b>納品の枠</b>で切り離す</li>
         </ul>
       </div>
     </div>
@@ -280,12 +289,20 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <button type="button" data-v="red" aria-pressed="false">レッド</button>
         </div>
       </div>
+      <div class="row"><span class="lbl">安定装置</span>
+        <div class="seg" id="assistSeg" role="group" aria-label="安定装置">
+          <button type="button" data-v="on" aria-pressed="true">オン</button>
+          <button type="button" data-v="off" aria-pressed="false">オフ</button>
+        </div>
+        <span class="lbl">ABS・横滑り防止・横転防止。オフにすると実車に近い挙動になります</span>
+      </div>
       <label for="volRange"><span class="lbl">音量</span><input class="range" id="volRange" type="range" min="0" max="100" value="70"></label>
       <label for="sensRange"><span class="lbl">ハンドルの効き</span><input class="range" id="sensRange" type="range" min="40" max="160" value="100"></label>
       <ul class="keys">
         <li><kbd>W</kbd><kbd>S</kbd> アクセル・ブレーキ　<kbd>A</kbd><kbd>D</kbd> ハンドル　<kbd>Space</kbd> 強いブレーキ</li>
         <li><kbd>Q</kbd><kbd>E</kbd> ウインカー　<kbd>F</kbd> ハザード　<kbd>C</kbd> クルーズ（<kbd>+</kbd><kbd>-</kbd>で速度調整）</li>
         <li><kbd>V</kbd> 視点　<kbd>L</kbd> ライト　<kbd>P</kbd> ワイパー　<kbd>R</kbd> 前進/後退　<kbd>H</kbd> ホーン</li>
+        <li><kbd>T</kbd> 連結・切り離し。トレーラーにまっすぐバックすると連結します（止まって <kbd>T</kbd> で自動連結）</li>
         <li>大型トラックは90km/hのスピードリミッター付き。下り坂はクルーズでリターダーが効きます</li>
       </ul>
       <div class="row">

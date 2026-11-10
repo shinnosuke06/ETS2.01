@@ -16,11 +16,12 @@ const chaseCam = new THREE.PerspectiveCamera(55, 1, 0.3, 5200);
 scene.add(chaseCam);
 let activeCam = chaseCam;
 
+// mass: cargo in tonnes. The trailer decides how the load behaves (a tank's liquid sloshes).
 const JOBS = [
-  { from: 0, to: 4, cargo: '精密機器', mass: 12 },
-  { from: 4, to: 7, cargo: '自動車部品', mass: 18 },
-  { from: 7, to: 9, cargo: '静岡茶', mass: 10 },
-  { from: 9, to: 12, cargo: '楽器（ピアノ）', mass: 9 },
+  { from: 0, to: 4, cargo: '精密機器', trailer: 'van', mass: 12 },
+  { from: 4, to: 7, cargo: '牛乳', trailer: 'tank', mass: 19 },
+  { from: 7, to: 9, cargo: '飲料', trailer: 'van', mass: 22 },
+  { from: 9, to: 12, cargo: '楽器（ピアノ）', trailer: 'van', mass: 9 },
 ];
 function jobInfo(j) {
   const a = ICS[j.from], b = ICS[j.to];
@@ -34,19 +35,22 @@ const GAME = {
   job: null, blink: 0, hazard: false, lights: false, wiper: false, wiperPhase: 0, blinkT: 0, blinkOn: false,
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
+  assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
 };
 
 // ---- jobs -------------------------------------------------------------------
 function setupJob(idx) {
   const j = jobInfo(JOBS[idx]);
   GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 };
-  setRigTrailer('van', j.mass * 1000);
+  setRigTrailer(j.trailer, j.mass * 1000);
+  RIG.assistOn = GAME.assist;
   TR.damage = 0;
-  const s = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
-  const lat = j.from === 0 ? X_TRV : -10.75;
-  placeTruck(s, lat, 0);
+  // the trailer waits on the shoulder; the tractor stands 12 m ahead of its kingpin, ready to back under it
+  const sK = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
+  parkTrailer(sK, -10.75);
+  placeTruck(sK + 12 - HITCH, -10.75, 0, { coupled: false });
   for (const r of RAMPS) { r.gateOpen = 0; r.gateState = 'closed'; r.passed = false; if (r.barPivot) r.barPivot.rotation.z = 0; }
-  GAME.blink = 0; GAME.hazard = j.from !== 0; GAME.autoHazard = GAME.hazard;
+  GAME.blink = 0; GAME.hazard = true; GAME.autoHazard = true; GAME.leftT = 0; GAME.leftAt = 2;
   resetTraffic();
   fillJobCard();
 }
@@ -54,11 +58,14 @@ function fillJobCard() {
   const j = GAME.job;
   $('jobNo').textContent = 'No.' + (GAME.jobIdx + 1);
   $('jFrom').textContent = j.a.jp; $('jTo').textContent = j.b.jp;
-  $('jCargo').textContent = j.cargo; $('jMass').textContent = j.mass + ' t';
+  $('jCargo').textContent = `${j.cargo}（${TRAILERS[j.trailer].name}）`;
+  $('jMass').textContent = `${j.mass} t／${gcwText()}`;
   $('jDist').textContent = j.km.toFixed(1) + ' km'; $('jPay').textContent = yen(j.pay);
   $('moneyStart').textContent = yen(GAME.money);
 }
 function destRamp() { return RAMPS[GAME.job.to - 1]; }
+const gcwText = () => '総重量 ' + (TR.gcw / 1000).toFixed(1) + ' t';
+const COUPLE_HINT = '後ろのトレーラーにバックして連結してください（T で自動連結）';
 
 async function preloadAround(label) {
   $('loading').hidden = false;
@@ -100,6 +107,10 @@ function handleActions() {
       case 'blinkL': GAME.blink = GAME.blink === -1 ? 0 : -1; break;
       case 'blinkR': GAME.blink = GAME.blink === 1 ? 0 : 1; break;
       case 'hazard': GAME.hazard = !GAME.hazard; GAME.autoHazard = false; break;
+      case 'couple':
+        if (TR.link === 'coupled') requestUncouple();
+        else if (TR.link === 'free' && !requestCouple()) led('トレーラーの 40 m 以内で止まってから押してください', true, 3.5);
+        break;
       case 'cruise':
         if (!TR.cruise) {
           if (TR.v * 3.6 >= 30 && TR.dir === 1) { TR.cruise = true; TR.cruiseV = Math.min(TR.v, VMAX); TR.cruiseI = 0; led('クルーズ ' + Math.round(TR.cruiseV * 3.6) + ' km/h'); }
@@ -144,7 +155,7 @@ function gameLogic(dt) {
     } else {
       led('出口を通過しました。手前に戻ります', true, 4);
       j.missPen += 5000;
-      placeTruck(dr.sDiv - 500, X_TRV, 15);
+      placeTruck(dr.sDiv - 500, X_TRV, 15, { coupled: TR.link !== 'free' });
     }
   }
   if (TR.onRamp) {
@@ -164,7 +175,7 @@ function gameLogic(dt) {
     }
     if (!r.passed && TR.s > r.sGate + 6) {
       r.passed = true;
-      if (r.ic.i === j.to) completeJob(); else wrongExit(r);
+      if (r.ic.i !== j.to) wrongExit(r);   // at the destination the job ends when the trailer is dropped in the bay
     }
   }
   for (const q of RAMPS) {
@@ -172,6 +183,11 @@ function gameLogic(dt) {
     if (q.gateState !== 'closed' && Math.abs(TR.s - q.sGate) > 600) { q.gateState = 'closed'; q.passed = false; }
   }
   if (GAME.autoHazard && TR.v > 14) { GAME.hazard = false; GAME.autoHazard = false; }
+  // drove off without the trailer: the road is one-way, so say so while a restart is still cheap
+  if (TR.link === 'free' && TR.trailerKey && TR.s - TR.tr.s - TRAILERS[TR.trailerKey].L2 > 150) {
+    GAME.leftT += dt;
+    if (GAME.leftT >= GAME.leftAt) { led('トレーラーを置いたままです。メニューからやり直せます', true, 5); GAME.leftAt = GAME.leftT + 30; }
+  } else { GAME.leftT = 0; GAME.leftAt = 2; }
   // speeding (trucks: 90, or the posted limit if lower)
   const lim = Math.min(90, regionAt(TR.s, {}).lim);
   GAME.limit = lim;
@@ -182,17 +198,44 @@ function gameLogic(dt) {
 function wrongExit(r) {
   GAME.job.fines += 5000;
   led(`${r.ic.jp}ICは目的地ではありません。Uターン扱い ¥5,000`, true, 5);
-  placeTruck(r.ic.s + 450, -10.75, 0);
+  placeTruck(r.ic.s + 450, -10.75, 0, { coupled: TR.link !== 'free' });
   resetTraffic();
 }
-function processEvents() {
-  GAME.eventCool -= 1 / 60;
+// The trailer has just been set down: delivered if it stands in the destination's bay.
+function onUncoupled() {
+  const j = GAME.job, r = rampAt(TR.tr.s);
+  const atDest = r && r.ic.i === j.to && TR.tr.lat < -13.4;
+  if (atDest && TR.tr.s >= r.sZone0 && TR.tr.s <= r.sZone1) completeJob();
+  else if (atDest) led('納品の枠の中で切り離してください', true, 5);
+  else led('切り離しました', false, 3);
+}
+function onAccident(kind) {
+  const roll = kind === 'rollover';
+  TR.damage = Math.min(100, TR.damage + (roll ? 25 : 15));
+  if (GAME.job) GAME.job.fines += roll ? 30000 : 20000;
+  sfxThump(3);
+  towReset();
+  led(roll ? '横転しました。レッカー移動 ¥30,000' : 'ジャックナイフ。レッカー移動 ¥20,000', true, 5);
+}
+function processEvents(dt) {
+  GAME.eventCool -= dt; GAME.assistCool.esc -= dt; GAME.assistCool.rsc -= dt;
   while (EVENTS.length) {
     const e = EVENTS.shift();
     if (e.t === 'rail') { sfxScrape(); if (e.hit > 1.2 && GAME.eventCool <= 0) { led('ガードレールに接触', true, 2); GAME.eventCool = 2; } }
     else if (e.t === 'car') { sfxThump(e.hit); if (GAME.eventCool <= 0) { const f = Math.min(30000, Math.round(e.hit * 1500 / 100) * 100 + 2000); if (GAME.job) GAME.job.fines += f; led('接触事故！ 損害 ' + yen(f), true, 3); GAME.eventCool = 2.5; } }
     else if (e.t === 'crash') { sfxThump(3); led('衝突しました', true, 2); }
     else if (e.t === 'cruiseOff') { led('クルーズ解除', false, 1.5); }
+    else if (e.t === 'couple-lock') led('ロックしました。ホースを接続中…', false, 2.5);
+    else if (e.t === 'coupled') led('連結完了　' + gcwText(), false, 4);
+    else if (e.t === 'couple-miss') led(e.why === 'fast' ? '速すぎます' : 'ずれています。前に出てやり直してください', true, 4);
+    else if (e.t === 'uncouple-start') led('切り離し中…', false, 2.5);
+    else if (e.t === 'uncouple-refused') led('止まってから切り離してください', true, 3);
+    else if (e.t === 'uncoupled') onUncoupled();
+    else if (e.t === 'rollover' || e.t === 'jackknife') onAccident(e.t);
+    else if (e.t === 'assist' && (e.kind === 'esc' || e.kind === 'rsc') && GAME.assistCool[e.kind] <= 0) {
+      led(e.kind === 'esc' ? '横滑り防止 作動' : '横転の危険！減速します', true, 2); GAME.assistCool[e.kind] = 4;
+    }
+    else if (e.t === 'reset') led('車両の位置を戻しました', true, 3);
   }
 }
 
@@ -241,7 +284,7 @@ $('nextBtn').addEventListener('click', async () => {
   await preloadAround(GAME.jobIdx === 0 ? '東京へ回送中' : '次の積み地へ移動中');
   GAME.state = 'drive';
   showHud(true);
-  led(GAME.job.a.jp + 'ICから本線へ。' + GAME.job.b.jp + 'ICを目指してください', false, 5);
+  led(COUPLE_HINT, false, 6);
 });
 
 // ---- menu and settings ------------------------------------------------------
@@ -262,6 +305,11 @@ $('restartBtn').addEventListener('click', async () => {
   await preloadAround('やり直し');
   GAME.state = 'drive'; showHud(true);
 });
+function setAssist(on) {
+  GAME.assist = on; RIG.assistOn = on; lsSet('nlh.assist', on);
+  syncSeg(['assistSeg'], on ? 'on' : 'off');
+}
+$('assistSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setAssist(b.dataset.v === 'on'); });
 $('volRange').value = Math.round(AUD.vol * 100);
 $('volRange').addEventListener('input', e => setVolume(e.target.value / 100));
 $('sensRange').value = Math.round(INP.sens * 100);
@@ -309,6 +357,9 @@ function updateHud() {
   pr('tBlinkL', GAME.blink === -1); pr('tBlinkR', GAME.blink === 1);
   $('tGear').textContent = TR.dir === -1 ? 'R' : 'D';
   $('rotateHint').hidden = !(INP.usingTouch && innerHeight > innerWidth);
+  const bc = $('bCouple'), auto = TR.link === 'free' && canAutoCouple();
+  bc.hidden = !(TR.link === 'coupled' || auto);
+  bc.textContent = TR.link === 'coupled' ? '切り離し' : '自動連結';
 }
 function navState() {
   const j = GAME.job;
@@ -451,14 +502,9 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---- main loop ---------------------------------------------------------------------
-let lastT = performance.now();
-const DIAG = { frames: 0, ms: 0 };
-function frame(now) {
-  requestAnimationFrame(frame);
-  let dt = (now - lastT) / 1000; lastT = now;
-  if (!(dt > 0)) return;
-  if (dt > 0.1) dt = 0.1;
-  const t0 = performance.now();
+// Everything a frame does except drawing: input, physics, game rules, traffic, events.
+// The browser tests call this directly to move game time forward without waiting for frames.
+function simTick(dt) {
   handleActions();
   pollInput(dt, Math.abs(TR.v));
   const driving = GAME.state === 'drive';
@@ -468,7 +514,18 @@ function frame(now) {
     gameLogic(dt);
   }
   if (GAME.state !== 'menu') updateTraffic(Math.min(dt, 0.05), driving);
-  processEvents();
+  processEvents(dt);
+  return driving;
+}
+let lastT = performance.now();
+const DIAG = { frames: 0, ms: 0 };
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - lastT) / 1000; lastT = now;
+  if (!(dt > 0)) return;
+  if (dt > 0.1) dt = 0.1;
+  const t0 = performance.now();
+  const driving = simTick(dt);
   if (GAME.state !== 'loading') updateChunks(TR.s, 1);
   updateVisuals(dt);
   updateCamera(dt);
@@ -512,21 +569,25 @@ async function startDriving() {
   try { canvasEl.focus({ preventScroll: true }); } catch (e) { /* */ }
   setTimeout(() => { GAME.engineOn = true; }, 850);
   setTimeout(() => { sfxChime(); led('ETCカードが挿入されています', false, 3.5); }, 1500);
-  setTimeout(() => { if (GAME.state === 'drive') led(GAME.job.b.jp + 'ICを目指して出発！', false, 4); }, 5200);
+  setTimeout(() => { if (GAME.state === 'drive' && TR.link === 'free') led(COUPLE_HINT, false, 6); }, 5200);
 }
 $('startBtn').addEventListener('click', startDriving);
 
 async function boot(data) {
   if (IS_TOUCH) document.body.classList.add('touch');
   for (const seg of ['qualSeg', 'qualSeg2']) for (const b of $(seg).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.q === qualityName));
-  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName);
+  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off');
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();
   if (data && typeof data.job === 'number') { GAME.jobIdx = data.job % JOBS.length; GAME.money = data.money || GAME.money; GAME.clock = data.clock || GAME.clock; }
   applyTimeOfDay((GAME.clock / 3600) % 24, 0);
   setupJob(GAME.jobIdx);
-  if (data && data.s && data.state === 'drive') placeTruck(data.s, data.lat, data.v || 0);
+  if (data && data.s && data.state === 'drive') {   // resume where a page update interrupted the drive
+    const towing = data.link ? data.link !== 'free' : true;
+    if (!towing && Number.isFinite(data.ks)) parkTrailer(data.ks, data.klat);
+    placeTruck(data.s, data.lat, data.v || 0, { coupled: towing });
+  }
   await preloadAround();
   GAME.state = 'title';
   $('startBtn').disabled = false;
@@ -534,6 +595,9 @@ async function boot(data) {
   if (data && data.state === 'drive') startDriving();
 }
 try {
-  window.claude?.hot?.snapshot?.(() => ({ job: GAME.jobIdx, money: GAME.money, clock: GAME.clock, s: TR.s, lat: TR.lat, v: TR.v, state: GAME.state === 'drive' ? 'drive' : 'title' }));
+  window.claude?.hot?.snapshot?.(() => {
+    const k = ROAD.project(TR.tr.kx, TR.tr.kz, TR.tr.idx, {});
+    return { job: GAME.jobIdx, money: GAME.money, clock: GAME.clock, s: TR.s, lat: TR.lat, v: TR.v, link: TR.link, ks: k.s, klat: k.lat, state: GAME.state === 'drive' ? 'drive' : 'title' };
+  });
 } catch (e) { /* not in a viewer */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});

@@ -33,3 +33,12 @@ export async function withGame(opts, fn) {
   const { browser, page, errors } = await openGame(opts);
   try { return await fn(page, errors); } finally { await browser.close(); }
 }
+// Press the start button and wait until the engine is running.
+export async function startJob(page) {
+  await page.click('#startBtn');
+  await page.waitForFunction(() => GAME.state === 'drive' && GAME.engineOn, null, { timeout: 20000 });
+}
+export const led = page => page.evaluate(() => document.getElementById('ledText').textContent);
+// Move game time forward by `seconds` without waiting for frames (headless software GL draws about 2 a second).
+// Returns what the LED board says right afterwards (start-up messages on real-time timers can replace it later).
+export const tick = (page, seconds) => page.evaluate(n => { for (let i = 0; i < n; i++) simTick(1 / 60); return document.getElementById('ledText').textContent; }, Math.round(seconds * 60));
