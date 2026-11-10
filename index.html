@@ -3699,7 +3699,9 @@ function rigStep(h, cmd) {
       if (wrel * sgn > 0) { const Lz = wrel / (1 / t.I + 1 / r.I); t.w -= Lz / t.I; r.w += Lz / r.I; }
       r.h = t.h - sgn * P.artMax;
       r.x = t.x + a1x - R.d2 * Math.sin(r.h); r.z = t.z + a1z - R.d2 * Math.cos(r.h);   // seat it back on the fifth wheel
-      if (Math.abs(u1) > 2.8) R.jack = true;            // above 10 km/h this is a jackknife
+      // Above 10 km/h this is a jackknife. Backing up folds a trailer in the ordinary way, and reverse gear
+      // tops out near 16 km/h, so going backwards only counts when the rig is faster than that: it has spun.
+      if (u1 > 2.8 || u1 < -6) R.jack = true;
     }
     R.gap = Math.hypot((r.x + R.d2 * Math.sin(r.h)) - (t.x + a1x), (r.z + R.d2 * Math.cos(r.h)) - (t.z + a1z));
   } else R.gap = 0;

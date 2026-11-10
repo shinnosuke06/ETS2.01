@@ -25,6 +25,20 @@ test('低速のバックで折れ曲がっても 80° で止まり、事故に�
   run(sim, 40, () => ({ throttle: sim.TR.v > -0.8 ? 0.3 : 0, brake: 0, steer: 1 }), () => { worst = Math.max(worst, Math.abs(sim.TR.art)); });
   assert.ok(worst > 1.2 && worst <= 1.396 + 0.01, `art ${worst}`); assert.equal(has(sim, 'jackknife'), false); assert.equal(has(sim, 'reset'), false);
 });
+test('アクセルを踏みっぱなしのバック（約 15 km/h）で折れ曲がっても、事故にはならない', () => {
+  for (const steer of [0.02, 1]) {
+    const sim = flat({ cargo: 12000 }); sim.TR.dir = -1; let worst = 0, fastest = 0;
+    run(sim, 20, () => ({ throttle: 1, brake: 0, steer }), () => { worst = Math.max(worst, Math.abs(sim.TR.art)); fastest = Math.min(fastest, sim.TR.v); });
+    assert.ok(fastest < -2.8, `reverse reached ${fastest} m/s`);
+    assert.ok(worst > 1.2 && worst <= 1.396 + 0.01, `art ${worst}`); assert.equal(has(sim, 'jackknife'), false, `steer ${steer}`); assert.equal(has(sim, 'reset'), false);
+  }
+});
+test('前進で滑って後ろ向きに流れながら折れたときは、ジャックナイフになる', () => {
+  // the rig is travelling backwards far faster than reverse gear can go: it has spun, this is not a reversing manoeuvre
+  const sim = flat({ cargo: 12000, assist: false, v: -15 });
+  run(sim, 8, () => ({ throttle: 0, brake: 0, steer: 1 }), () => !has(sim, 'jackknife'));
+  assert.equal(has(sim, 'jackknife'), true);
+});
 test('towReset はまっすぐ連結した状態で路肩に戻す', () => {
   const sim = flat({ trailer: 'tank', cargo: 19000, v: 80 / 3.6, assist: false }); const st = steerForLatAcc(sim, 0.5);
   run(sim, 3, () => ({ throttle: 0.6, brake: 0, steer: st })); sim.towReset();
