@@ -3,8 +3,10 @@
 // ---------------------------------------------------------------------------
 const TRK = buildTractor();
 const INT = buildInterior(TRK);
-const TRL = buildTrailer();
-scene.add(TRK.root); scene.add(TRL.root);
+const TRAILER_MODELS = { van: buildTrailer(), tank: buildTankTrailer() };
+let TRL = TRAILER_MODELS.van;   // the model of the current job's trailer
+scene.add(TRK.root);
+for (const k in TRAILER_MODELS) scene.add(TRAILER_MODELS[k].root);
 INT.cluster.material = new THREE.MeshBasicMaterial({ map: DASH.tex });
 INT.nav.material = new THREE.MeshBasicMaterial({ map: DASH.ntex });
 setupMirrors(TRK);
@@ -44,6 +46,8 @@ function setupJob(idx) {
   GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 };
   setRigTrailer(j.trailer, j.mass * 1000);
   RIG.assistOn = GAME.assist;
+  TRL = TRAILER_MODELS[j.trailer];
+  for (const k in TRAILER_MODELS) TRAILER_MODELS[k].root.visible = TRAILER_MODELS[k] === TRL;
   TR.damage = 0;
   // the trailer waits on the shoulder; the tractor stands 12 m ahead of its kingpin, ready to back under it
   const sK = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
@@ -400,16 +404,26 @@ function navState() {
 // ---- visuals ------------------------------------------------------------------------
 function updateVisuals(dt) {
   const T = TRK.root;
-  T.position.set(TR.x, TR.y, TR.z);
-  T.rotation.set(TR.pitch, TR.h + Math.PI, 0);
+  // the kingpin's weight settles the rear of the tractor by up to 6 cm; the wheels stay on the road
+  const squat = 0.06 * clamp(TR.kp / (10000 * 9.81), 0, 1), towing = TR.link !== 'free';
+  T.position.set(TR.x, TR.y - squat, TR.z);
+  T.rotation.set(TR.pitch + squat / WB, TR.h + Math.PI, 0);
+  for (const w of TRK.rear) w.position.y = 0.52 + squat;
   TRK.cabPivot.rotation.set(TR.cab.p, 0, TR.cab.r);
   TRK.cabPivot.position.y = 1.25 + TR.cab.hy;
   for (const w of TRK.spin) w.rotation.x = -TR.spin;
   for (const s of TRK.steer) s.rotation.y = -TR.steer;
-  const hx = TR.x + Math.sin(TR.h) * HITCH, hz = TR.z + Math.cos(TR.h) * HITCH;
-  TRL.root.position.set(hx, elevAt(TR.s + HITCH), hz);
-  TRL.root.rotation.set(TR.tr.pitch, TR.tr.h + Math.PI, 0);
-  for (const w of TRL.spin) w.rotation.x = -TR.spin;
+  const L2 = TRAILERS[TR.trailerKey] ? TRAILERS[TR.trailerKey].L2 : 8.3;
+  if (towing) {   // on the fifth wheel
+    TRL.root.position.set(TR.x + Math.sin(TR.h) * HITCH, elevAt(TR.s + HITCH) - squat, TR.z + Math.cos(TR.h) * HITCH);
+    for (const w of TRL.spin) w.rotation.x = -TR.spin;
+  } else TRL.root.position.set(TR.tr.kx, elevAt(TR.tr.s + L2), TR.tr.kz);   // standing where it was set down
+  TRL.root.rotation.set(TR.tr.pitch - squat / L2, TR.tr.h + Math.PI, 0);
+  TRL.body.rotation.z = TR.roll;   // leans away from the turn
+  // landing legs wind up while the lines are connected and down again when they come off
+  const up = TR.link === 'coupled' ? 1 : TR.link === 'locking' ? 1 - TR.linkT / 2 : TR.link === 'unlocking' ? TR.linkT / 2 : 0;
+  TRL.legs.position.y = 0.45 * clamp(up, 0, 1);
+  TRK.coil.visible = towing; TRK.coilStowed.visible = !towing;
   INT.wheel.rotation.z = -TR.steer * 18;
   INT.gas.rotation.x = 0.75 - INP.throttle * 0.28;
   INT.brake.rotation.x = INP.brake * 0.3;
