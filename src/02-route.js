@@ -281,3 +281,14 @@ function soundWallAt(s, side) {
   if (side < 0 && rampAt(s + 30)) return false;
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
+
+// ---- delivery bays and barriers ----------------------------------------------
+for (const r of RAMPS) { r.sZone0 = r.sGate + 70; r.sZone1 = r.sGate + 130; }
+// s of the barrier ahead in this lane: the closure at the end of the route, or the end of an exit ramp.
+function roadBarrier(s, lat) {
+  const r = rampAt(s);
+  if (r && lat < -14.5) return r.sEnd - 12;
+  return ROUTE_END - 1.5;
+}
+// Road queries used by the physics. Tests swap these for a flat straight road.
+const ROAD = { project, posAt, elevAt, gradeAt, headingAt, drivable, rampAt, barrier: roadBarrier };

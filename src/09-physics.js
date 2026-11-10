@@ -11,7 +11,6 @@ function engineTorque(rpm) {
   for (let i = 0; i < TQ.length - 1; i++) if (rpm < TQ[i + 1][0]) return lerp(TQ[i][1], TQ[i + 1][1], (rpm - TQ[i][0]) / (TQ[i + 1][0] - TQ[i][0]));
   return 0;
 }
-const wrapA = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
 
 const TR = {
   x: 0, z: 0, h: 0, v: 0, steer: 0, yawRate: 0, gear: 3, nextGear: 3, dir: 1, rpm: 600, shiftT: 0,

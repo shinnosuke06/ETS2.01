@@ -1,0 +1,11 @@
+{
+  "name": "nippon-long-haul",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "e2e": "node build.mjs && node --test --test-concurrency=1 test/e2e/*.e2e.mjs"
+  },
+  "devDependencies": { "three": "0.128.0" }
+}

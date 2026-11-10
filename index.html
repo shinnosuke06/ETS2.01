@@ -300,10 +300,10 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// ==== 01-util.js ====
+// ==== 01a-math.js ====
 'use strict';
 // ---------------------------------------------------------------------------
-// Small math helpers, seeded random, value noise, geometry merging.
+// Small math helpers, seeded random, value noise. Free of browser APIs: the Node tests load it too.
 // ---------------------------------------------------------------------------
 const TAU = Math.PI * 2, DEG = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -344,6 +344,12 @@ function fmtClock(gameSec) {
   const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
   return h + ':' + String(m).padStart(2, '0');
 }
+const wrapA = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
+
+// ==== 01b-three.js ====
+// ---------------------------------------------------------------------------
+// Helpers that need the DOM or THREE: storage, canvas, geometry merging.
+// ---------------------------------------------------------------------------
 function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage may be blocked */ } }
 
@@ -756,6 +762,17 @@ function soundWallAt(s, side) {
   if (side < 0 && rampAt(s + 30)) return false;
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
+
+// ---- delivery bays and barriers ----------------------------------------------
+for (const r of RAMPS) { r.sZone0 = r.sGate + 70; r.sZone1 = r.sGate + 130; }
+// s of the barrier ahead in this lane: the closure at the end of the route, or the end of an exit ramp.
+function roadBarrier(s, lat) {
+  const r = rampAt(s);
+  if (r && lat < -14.5) return r.sEnd - 12;
+  return ROUTE_END - 1.5;
+}
+// Road queries used by the physics. Tests swap these for a flat straight road.
+const ROAD = { project, posAt, elevAt, gradeAt, headingAt, drivable, rampAt, barrier: roadBarrier };
 
 // ==== 03-gfx.js ====
 // ---------------------------------------------------------------------------
@@ -3072,7 +3089,6 @@ function engineTorque(rpm) {
   for (let i = 0; i < TQ.length - 1; i++) if (rpm < TQ[i + 1][0]) return lerp(TQ[i][1], TQ[i + 1][1], (rpm - TQ[i][0]) / (TQ[i + 1][0] - TQ[i][0]));
   return 0;
 }
-const wrapA = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
 
 const TR = {
   x: 0, z: 0, h: 0, v: 0, steer: 0, yawRate: 0, gear: 3, nextGear: 3, dir: 1, rpm: 600, shiftT: 0,
