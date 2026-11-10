@@ -26,3 +26,8 @@ test('物理のファイルは画面の API を参照しない', () => {
     assert.doesNotMatch(fs.readFileSync(u, 'utf8'), /\b(THREE|document|window|localStorage|matchMedia)\b/, f);
   }
 });
+test('全ファイルをつなげても、名前の重複や構文エラーがない', () => {
+  const dir = new URL('../src/', import.meta.url);
+  const src = fs.readdirSync(dir).filter(f => f.endsWith('.js')).sort().map(f => fs.readFileSync(new URL(f, dir), 'utf8')).join('\n');
+  assert.doesNotThrow(() => new Function(src));   // compiles the bundle without running it
+});

@@ -164,11 +164,12 @@ function idm(v, v0, gap, dv) {
   const ss = s0 + Math.max(0, v * T + v * dv / (2 * Math.sqrt(a * b)));
   return a * (1 - Math.pow(v / Math.max(v0, 0.1), 4) - (ss / Math.max(gap, 0.3)) ** 2);
 }
+// Road-aligned boxes of the tractor and the job trailer. A parked trailer is still an obstacle.
 function playerBoxes() {
-  return [
-    { s0: TR.s - 1.1, s1: TR.s + 5.5, lat: TR.lat, tractor: true },
-    { s0: TR.tr.s - 4.2, s1: TR.tr.s + 9.6, lat: TR.tr.lat, tractor: false },
-  ];
+  const boxes = [{ s0: TR.s - 1.1, s1: TR.s + 5.5, lat: TR.lat, tractor: true }];
+  const sp = TRAILERS[TR.trailerKey];
+  if (sp) boxes.push({ s0: TR.tr.s - (sp.rear - sp.L2) - 0.1, s1: TR.tr.s + sp.L2 + sp.nose + 0.1, lat: TR.tr.lat, tractor: false });
+  return boxes;
 }
 function leaderOf(c, laneIdx, PB) {
   const q = c.s * c.dir;

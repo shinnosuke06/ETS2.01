@@ -40,7 +40,7 @@ const GAME = {
 function setupJob(idx) {
   const j = jobInfo(JOBS[idx]);
   GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 };
-  TR.mass = 15500 + j.mass * 1000; TR.gcw = TR.mass;
+  setRigTrailer('van', j.mass * 1000);
   TR.damage = 0;
   const s = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
   const lat = j.from === 0 ? X_TRV : -10.75;
@@ -156,7 +156,7 @@ function gameLogic(dt) {
         const fare = r.ic.i === j.to ? etcFare(j.km) : 0;
         if (fare) { j.toll = fare; led('ETC 料金 ' + yen(fare)); }
       } else if (dg < 7) {
-        r.gateState = 'broken'; sfxThump(2); TR.damage = Math.min(100, TR.damage + 2.5); TR.v *= 0.8;
+        r.gateState = 'broken'; sfxThump(2); TR.damage = Math.min(100, TR.damage + 2.5); scaleSpeed(0.8);
         j.fines += 8000;
         if (r.ic.i === j.to) j.toll = etcFare(j.km);
         led('開閉バーに接触！ETCは20km/h以下で', true, 4.5);
@@ -220,7 +220,7 @@ function completeJob() {
   $('resNote').textContent = late > 0 ? '少し遅れましたが、荷物は無事に届きました。' : TR.damage < 2 && j.fines === 0 ? notes[1] : notes[0];
   $('moneyRes').textContent = yen(GAME.money);
   GAME.state = 'result';
-  TR.v = 0; TR.cruise = false;
+  scaleSpeed(0); TR.cruise = false;
   setHorn(false);
   showHud(false);
   $('menuOv').hidden = true;
@@ -463,9 +463,7 @@ function frame(now) {
   pollInput(dt, Math.abs(TR.v));
   const driving = GAME.state === 'drive';
   if (driving) {
-    const n = Math.ceil(dt / 0.02), h = dt / n;
-    const inp = { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: INP.steer };
-    for (let k = 0; k < n; k++) stepTruck(h, inp);
+    physicsAdvance(dt, { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: INP.steer });
     GAME.clock += dt * TIME_SCALE;
     gameLogic(dt);
   }

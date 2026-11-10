@@ -1,7 +1,7 @@
 // Loads the DOM-free game sources into one function scope so tests can drive the physics in Node.
 import fs from 'node:fs';
 const SRC = new URL('../../src/', import.meta.url);
-export const PURE = ['01a-math.js', '02-route.js', '09-physics.js', '09a-powertrain.js', '09b-rig.js', '09c-truck.js'];
+export const PURE = ['01a-math.js', '02-route.js', '09a-powertrain.js', '09b-rig.js', '09c-truck.js'];
 const NAMES = ['TAU', 'clamp', 'lerp', 'damp', 'wrapA', 'rng', 'S0', 'DS', 'X_TRV', 'ICS', 'RAMPS', 'TUNNELS', 'ROUTE_END',
   'posAt', 'project', 'elevAt', 'gradeAt', 'headingAt', 'drivable', 'rampAt', 'ROAD', 'roadBarrier',
   'EVENTS', 'GEARS', 'VMAX', 'engineTorque', 'startGear', 'powertrainStep',

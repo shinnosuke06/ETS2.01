@@ -19,7 +19,17 @@ export async function openGame({ width = 1280, height = 720, touch = false } = {
   await page.route('**/three.min.js', r => r.fulfill({ path: new URL('node_modules/three/build/three.min.js', ROOT).pathname, contentType: 'application/javascript' }));
   await page.route('https://fonts.googleapis.com/**', r => r.fulfill({ body: '', contentType: 'text/css' }));
   await page.route('https://fonts.gstatic.com/**', r => r.abort());
-  await page.goto(ORIGIN);
-  await page.waitForFunction(() => !document.getElementById('startBtn').disabled, null, { timeout: 120000 });
+  try {
+    await page.goto(ORIGIN);
+    await page.waitForFunction(() => !document.getElementById('startBtn').disabled, null, { timeout: 60000 });
+  } catch (e) {
+    await browser.close();   // an open browser would keep the test runner alive forever
+    throw new Error('the game did not start: ' + (errors[0] || e.message));
+  }
   return { browser, page, errors };
+}
+// Runs fn(page, errors) against a fresh game and always closes the browser.
+export async function withGame(opts, fn) {
+  const { browser, page, errors } = await openGame(opts);
+  try { return await fn(page, errors); } finally { await browser.close(); }
 }
