@@ -26,6 +26,7 @@ const TR = {
   cab: { p: 0, pv: 0, r: 0, rv: 0, hv: 0, hy: 0 },
   spin: 0, onRamp: false, acc: 0, snapT: 0, railT: { t: 0, r: 0 },
   assistT: { abs: 0, tcs: 0, esc: 0, rsc: 0 },   // each lamp stays on a moment after its system last acted
+  sentRoll: false, sentJack: false,
 };
 const _tkPos = { x: 0, y: 0, z: 0, h: 0 }, _po = {};
 const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 };
@@ -95,10 +96,18 @@ function placeTruck(s, lat, v = 0, opts = {}) {
   T.cruise = false; T.shiftT = 0; T.dir = 1; T.rpm = 600; T.ret = 0; T.thr = T.brk = T.load = 0;
   T.accel = T.latAcc = 0; T.acc = 0; T.snapT = 0; T.railT.t = T.railT.r = 0; T.slip = 0;
   for (const k of ['abs', 'tcs', 'esc', 'rsc']) { T.assistT[k] = 0; T.assist[k] = false; }
+  T.sentRoll = T.sentJack = false; T.roll = T.ltr = T.surge = 0;
   T.cab.p = T.cab.pv = T.cab.r = T.cab.rv = T.cab.hv = T.cab.hy = 0;
   syncTR();
   T.gear = T.nextGear = startGear();
   truckSnapshot();
+}
+
+// After a rollover or a jackknife: stand the rig back up, straight, on the shoulder (or in the ramp lane).
+function towReset() {
+  const T = TR, r = ROAD.rampAt(T.s), towing = T.link !== 'free';
+  const lat = r && T.lat < -13.4 ? rampEdges(T.s - r.sDiv).cx : -10.75;
+  placeTruck(T.s, lat, 0, { coupled: towing });
 }
 
 // Scale the whole rig's speed (0 stops it). For game events such as hitting the toll bar.
@@ -182,6 +191,9 @@ function stepTruck(dt, inp) {
     else T.assistT[k] = Math.max(0, T.assistT[k] - dt);
     T.assist[k] = T.assistT[k] > 0;
   }
+  T.roll = RIG.roll; T.ltr = RIG.ltr; T.surge = RIG.surge;
+  if (RIG.rolled && !T.sentRoll) { T.sentRoll = true; EVENTS.push({ t: 'rollover' }); }
+  if (RIG.jack && !T.sentJack) { T.sentJack = true; EVENTS.push({ t: 'jackknife' }); }
   let slip = 0;
   for (const a of RIG.axle) slip = Math.max(slip, a.lock || a.spin ? 1 : clamp((Math.abs(a.alpha) - 0.06) / 0.12, 0, 1));
   T.slip = slip;
@@ -194,7 +206,7 @@ function stepTruck(dt, inp) {
   T.fuel = Math.max(0, T.fuel - (Math.max(0, pt.drive * T.v) / (0.42 * 36e6) + 0.0004) * dt * SCALE / 600);
   const c = T.cab;
   const bump = (vnoise(T.s * 0.35, 0, 3) - 0.5) * Math.min(1, Math.abs(T.v) / 15);
-  c.pv += ((clamp(T.accel * 0.006, -0.045, 0.035) - c.p) * 70 - c.pv * 9) * dt; c.p += c.pv * dt;
+  c.pv += ((clamp(T.accel * 0.006, -0.045, 0.035) + T.surge * 0.25 - c.p) * 70 - c.pv * 9) * dt; c.p += c.pv * dt;   // liquid cargo rocks the cab
   c.rv += ((clamp(-T.latAcc * 0.011, -0.06, 0.06) - c.r) * 60 - c.rv * 8) * dt; c.r += c.rv * dt;
   c.hv += ((bump * 0.03 - c.hy) * 120 - c.hv * 10) * dt; c.hy += c.hv * dt;
 }
