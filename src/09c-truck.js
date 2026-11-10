@@ -25,6 +25,7 @@ const TR = {
   assist: { abs: false, tcs: false, esc: false, rsc: false },
   cab: { p: 0, pv: 0, r: 0, rv: 0, hv: 0, hy: 0 },
   spin: 0, onRamp: false, acc: 0, snapT: 0, railT: { t: 0, r: 0 },
+  assistT: { abs: 0, tcs: 0, esc: 0, rsc: 0 },   // each lamp stays on a moment after its system last acted
 };
 const _tkPos = { x: 0, y: 0, z: 0, h: 0 }, _po = {};
 const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 };
@@ -92,7 +93,8 @@ function placeTruck(s, lat, v = 0, opts = {}) {
   if (coupled) { T.tr.idx = hint; RIG.r.i = hint; }
   T.link = coupled ? 'coupled' : 'free'; T.linkT = 0;
   T.cruise = false; T.shiftT = 0; T.dir = 1; T.rpm = 600; T.ret = 0; T.thr = T.brk = T.load = 0;
-  T.accel = T.latAcc = 0; T.acc = 0; T.snapT = 0; T.railT.t = T.railT.r = 0;
+  T.accel = T.latAcc = 0; T.acc = 0; T.snapT = 0; T.railT.t = T.railT.r = 0; T.slip = 0;
+  for (const k of ['abs', 'tcs', 'esc', 'rsc']) { T.assistT[k] = 0; T.assist[k] = false; }
   T.cab.p = T.cab.pv = T.cab.r = T.cab.rv = T.cab.hv = T.cab.hy = 0;
   syncTR();
   T.gear = T.nextGear = startGear();
@@ -164,7 +166,8 @@ const finite = v => (Number.isFinite(v) ? v : 0);
 function stepTruck(dt, inp) {
   const T = TR, vPrev = T.v;
   const pt = powertrainStep(dt, finite(inp.throttle), finite(inp.brake));
-  const target = clamp(finite(inp.steer), -1, 1) * steerLock(T.v);
+  const lim = rigSteerLimit(T.v);
+  const target = clamp(clamp(finite(inp.steer), -1, 1) * steerLock(T.v), -lim, lim);
   _cmd.steer = damp(RIG.steer, target, 7, dt);
   _cmd.drive = pt.drive; _cmd.drag = pt.drag; _cmd.service = pt.service;
   // standing still with the throttle closed or the brake on: stay put, also on a slope
@@ -174,6 +177,14 @@ function stepTruck(dt, inp) {
   if (!truckHealthy()) { truckRestore(); return; }
   T.snapT += dt; if (T.snapT >= 0.5) { T.snapT = 0; truckSnapshot(); }
   truckContacts(dt);
+  for (const k of ['abs', 'tcs', 'esc', 'rsc']) {
+    if (RIG.assist[k]) { if (T.assistT[k] <= 0) EVENTS.push({ t: 'assist', kind: k }); T.assistT[k] = 0.3; }
+    else T.assistT[k] = Math.max(0, T.assistT[k] - dt);
+    T.assist[k] = T.assistT[k] > 0;
+  }
+  let slip = 0;
+  for (const a of RIG.axle) slip = Math.max(slip, a.lock || a.spin ? 1 : clamp((Math.abs(a.alpha) - 0.06) / 0.12, 0, 1));
+  T.slip = slip;
 
   // derived motion for cab sway, sounds and gauges
   T.accel = damp(T.accel, (T.v - vPrev) / dt, 8, dt);

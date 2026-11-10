@@ -32,6 +32,7 @@ const RIG = {
   roll: 0, rollV: 0, ltr: 0, ltrT: 0, slosh: { x: 0, vx: 0, y: 0, vy: 0 }, surge: 0, gap: 0,
   // contacts since the truck layer last looked: impulse taken (N s) and the fastest approach (m/s)
   hit: { t: { imp: 0, vn: 0 }, r: { imp: 0, vn: 0 }, b: { imp: 0, vn: 0 } },
+  escT: 0, artDev: 0, wref: 0,   // stability control: time left active, last articulation error, expected yaw rate
 };
 RIG.t.m = RIGP.m1; RIG.t.I = RIGP.I1;
 
@@ -79,6 +80,7 @@ function rigResetState() {
   R.roll = R.rollV = R.ltr = R.ltrT = 0; R.surge = 0;
   R.slosh.x = R.slosh.vx = R.slosh.y = R.slosh.vy = 0;
   for (const k of ['t', 'r', 'b']) R.hit[k].imp = R.hit[k].vn = 0;
+  R.escT = 0; R.artDev = 0; R.wref = 0;
 }
 // (x, z) is the tractor's rear axle. A coupled trailer is put straight behind.
 function rigPlace(x, z, h, v, coupled) {
@@ -108,11 +110,32 @@ function rigTyre(i, uP, vP, delta, Fz, drive, brake) {
   const uw = uP * cd + vP * sd, vw = -uP * sd + vP * cd;
   const alpha = Math.atan2(vw, Math.max(Math.abs(uw), P.V0));
   const roll = clamp(Math.abs(uw) / 0.3, 0, 1) * (uw >= 0 ? 1 : -1);
-  const Fmax = MU * Fz;
-  const Fx = clamp(drive - roll * (brake + 0.0055 * Fz), -Fmax, Fmax);
-  const cap = Math.sqrt(Math.max(Fmax * Fmax - Fx * Fx, 0));
-  const Fy = cap > 1 ? -cap * Math.tanh(P.ca[i] * Fz * alpha / cap) : 0;
-  A.Fz = Fz; A.Fx = Fx; A.Fy = Fy; A.alpha = alpha; A.lock = false; A.spin = false;
+  const Fmax = MU * Fz, moving = Math.abs(uw) > 0.5;
+  let lock = false, spin = false;
+  if (RIG.assistOn) {
+    // ABS keeps each axle short of locking, traction control keeps the drive axle short of spinning.
+    // Both give way to cornering: they leave room on the friction circle for the side force the slip angle asks for.
+    const want = Math.min(P.ca[i] * Fz * Math.abs(alpha), 0.95 * Fmax), room = Math.sqrt(Fmax * Fmax - want * want);
+    const capB = Math.min(0.85 * Fmax, room), capD = Math.min(0.9 * Fmax, room);
+    if (brake > capB) { brake = capB; if (moving) RIG.assist.abs = true; }
+    if (Math.abs(drive) > capD) { drive = Math.sign(drive) * capD; RIG.assist.tcs = true; }
+  }
+  const Fxd = drive - roll * (brake + 0.0055 * Fz);
+  let Fx, Fy;
+  if (Math.abs(Fxd) <= Fmax || RIG.assistOn) {
+    Fx = clamp(Fxd, -Fmax, Fmax);
+    const cap = Math.sqrt(Math.max(Fmax * Fmax - Fx * Fx, 0));
+    Fy = cap > 1 ? -cap * Math.tanh(P.ca[i] * Fz * alpha / cap) : 0;
+  } else if (Math.abs(roll) * brake > Math.abs(drive)) {
+    // locked wheel: it slides, and friction simply opposes the sliding. No sideways grip is left.
+    const sp = Math.hypot(uw, vw) || 1;
+    Fx = -0.8 * Fmax * uw / sp; Fy = -0.8 * Fmax * vw / sp; lock = true;
+  } else {
+    // spinning under power: less drive, and little sideways grip
+    const cap = 0.3 * Fmax;
+    Fx = Math.sign(drive) * 0.7 * Fmax; Fy = -cap * Math.tanh(P.ca[i] * Fz * alpha / cap); spin = true;
+  }
+  A.Fz = Fz; A.Fx = Fx; A.Fy = Fy; A.alpha = alpha; A.lock = lock; A.spin = spin;
   _Fu = Fx * cd - Fy * sd; _Fv = Fx * sd + Fy * cd;
 }
 
@@ -173,9 +196,10 @@ function rigStep(h, cmd) {
   const R = RIG, P = RIGP, t = R.t, r = R.r, coupled = R.coupled;
   for (let i = 0; i < 3; i++) R.brakeP[i] += (cmd.service - R.brakeP[i]) * (1 - Math.exp(-h / P.lag[i]));
   R.steer = cmd.steer;
+  R.assist.abs = R.assist.tcs = false;
   if (cmd.hold) {
     t.vx = t.vz = t.w = 0; if (coupled) r.vx = r.vz = r.w = 0;
-    R.ax = 0; R.Hx = 0; R.FxT = 0;
+    R.ax = 0; R.Hx = 0; R.FxT = 0; R.assist.esc = false; R.escT = 0;
     return;
   }
   const L = rigLoads(R.ax, R.Hx, R.FxT, _L);
@@ -183,10 +207,32 @@ function rigStep(h, cmd) {
   // ---- tractor ----
   const f1x = Math.sin(t.h), f1z = Math.cos(t.h), r1x = -f1z, r1z = f1x;
   const u1 = t.vx * f1x + t.vz * f1z, v1 = t.vx * r1x + t.vz * r1z;
-  let Fu = 0, Fv = 0, T1 = 0;
+  let Fu = 0, Fv = 0, T1 = 0, drive = cmd.drive, trailerExtra = 0;
+  // ---- stability control: yaw rate against what the steering asks for, and a growing fold ----
+  if (R.assistOn) {
+    const ua = Math.max(Math.abs(u1), 1), wmax = MU * G / ua;
+    // the yaw rate a healthy rig would have: what the steering asks for, reached with the rig's own delay
+    R.wref += (clamp(-u1 * Math.tan(cmd.steer) / P.L1, -wmax, wmax) - R.wref) * (1 - Math.exp(-h / 0.25));
+    const wref = R.wref, err = t.w - wref;
+    if (Math.abs(u1) > 5) {
+      let trig = Math.abs(err) > 0.06;
+      if (coupled) {
+        const dev = Math.abs(wrapA(t.h - r.h) - R.spec.L2 * wref / u1);
+        if (dev > 0.105 && dev > R.artDev) trig = true;
+        R.artDev = dev;
+      }
+      if (trig) R.escT = 0.5;
+    }
+    if (R.escT > 0) {
+      R.escT -= h; R.assist.esc = true; drive = 0;
+      const Mmax = 0.3 * MU * (L[0] + L[1]) * P.track / 2;
+      T1 += clamp(-6 * P.I1 * err, -Mmax, Mmax);       // differential braking, as a yaw moment
+      if (coupled) trailerExtra = 1.5 * r.m;            // trailer brakes pull the combination straight
+    } else R.assist.esc = false;
+  } else { R.assist.esc = false; R.escT = 0; }
   rigTyre(0, u1, v1 - t.w * P.a1, cmd.steer, L[0], 0, P.brakeMax[0] * R.brakeP[0]);
   Fu += _Fu; Fv += _Fv; T1 -= _Fv * P.a1;
-  rigTyre(1, u1, v1 + t.w * P.b1, 0, L[1], cmd.drive, P.brakeMax[1] * R.brakeP[1] + cmd.drag);
+  rigTyre(1, u1, v1 + t.w * P.b1, 0, L[1], drive, P.brakeMax[1] * R.brakeP[1] + cmd.drag);
   Fu += _Fu; Fv += _Fv; T1 += _Fv * P.b1;
   Fu -= Math.sign(u1) * 0.5 * 1.2 * 0.6 * 10.2 * u1 * u1 * (coupled ? 1 : 0.75);
   let F1x = Fu * f1x + Fv * r1x, F1z = Fu * f1z + Fv * r1z;
@@ -203,7 +249,7 @@ function rigStep(h, cmd) {
     const r2x = -f2z, r2z = f2x, arm = R.spec.L2 - R.d2;
     const u2 = r.vx * f2x + r.vz * f2z, v2 = r.vx * r2x + r.vz * r2z;
     const lsv = clamp(R.stat[2] / P.lsvRef, P.lsvMin, 1);
-    rigTyre(2, u2, v2 + r.w * arm, 0, L[2], 0, P.brakeMax[2] * lsv * R.brakeP[2]);
+    rigTyre(2, u2, v2 + r.w * arm, 0, L[2], 0, P.brakeMax[2] * lsv * R.brakeP[2] + trailerExtra);
     R.FxT += (R.axle[2].Fx - R.FxT) * 0.2;
     F2x = _Fu * f2x + _Fv * r2x; F2z = _Fu * f2z + _Fv * r2z; T2 = _Fv * arm;
     ROAD.project(r.x, r.z, r.i, _pr); r.i = _pr.i;
@@ -233,7 +279,7 @@ function rigStep(h, cmd) {
 
   // ---- coming to rest: brakes and drag must not push the rig backwards ----
   const uNew = t.vx * f1x + t.vz * f1z;
-  if (Math.abs(u1) > 0.02 && uNew * u1 < 0 && cmd.drive * u1 <= 0) {
+  if (Math.abs(u1) > 0.02 && uNew * u1 < 0 && drive * u1 <= 0) {
     t.vx = t.vz = t.w = 0; if (coupled) r.vx = r.vz = r.w = 0;
     R.ax = 0;
   } else R.ax += ((uNew - u1) / h - R.ax) * 0.19;
@@ -244,6 +290,13 @@ function rigStep(h, cmd) {
     const g1x = Math.sin(t.h), g1z = Math.cos(t.h), o1 = -(P.b1 - P.e);
     R.gap = Math.hypot((r.x + R.d2 * Math.sin(r.h)) - (t.x + o1 * g1x), (r.z + R.d2 * Math.cos(r.h)) - (t.z + o1 * g1z));
   } else R.gap = 0;
+}
+
+// With the assists on, the front wheel angle is held to 80% of what would tip or slide the rig at speed u.
+function rigSteerLimit(u) {
+  if (!RIG.assistOn) return Infinity;
+  const aRoll = 0.8 * G * (RIGP.track / 2) / (RIG.coupled ? RIG.h2 : RIGP.h1);
+  return Math.atan(0.8 * Math.min(aRoll, MU * G) * RIGP.L1 / Math.max(u * u, 1));
 }
 
 // Rear axle position, heading, forward speed, yaw rate, fifth wheel, trailer axle centre and heading.
