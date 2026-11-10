@@ -79,16 +79,31 @@ function drawCluster(st) {
   g.textAlign = 'center';
   g.fillStyle = '#ffffff'; g.font = `700 104px ${JP_FONT}`;
   g.fillText(st.gearTxt, 512, 150);
-  g.fillStyle = '#9fb3c4'; g.font = font(20, 400); g.fillText(st.dir === -1 ? '後退' : st.dir === 0 ? 'ニュートラル' : 'オプティクルーズ', 512, 205);
-  g.fillStyle = '#ffffff'; g.font = font(40); g.fillText(Math.round(st.kmh) + ' km/h', 512, 246);
-  g.font = font(22);
-  if (st.cruise) { g.fillStyle = '#35e07a'; g.fillText('クルーズ ' + Math.round(st.cruiseKmh), 512, 284); }
-  else if (st.retarder > 0.05) { g.fillStyle = '#ffb020'; g.fillText('リターダー ' + Math.max(1, Math.round(st.retarder * 5)), 512, 284); }
-  else { g.fillStyle = '#6f7f8c'; g.fillText('リミッター 90', 512, 284); }
+  // what is on the fifth wheel: the gross weight when a trailer is coupled
+  g.font = font(19);
+  if (st.link === 'coupled') {
+    g.fillStyle = '#cfe0ee'; g.fillText(st.gcwText, 524, 200);
+    const x0 = 524 - g.measureText(st.gcwText).width / 2 - 34;      // a small trailer pictogram
+    g.fillRect(x0, 192, 24, 12); g.fillRect(x0 + 3, 206, 5, 5); g.fillRect(x0 + 14, 206, 5, 5);
+  } else {
+    g.fillStyle = '#ffb020';
+    g.fillText(st.link === 'locking' ? '連結中…' : st.link === 'unlocking' ? '切り離し中…' : 'トレーラーなし', 512, 200);
+  }
+  g.fillStyle = '#ffffff'; g.font = font(36); g.fillText(Math.round(st.kmh) + ' km/h', 512, 238);
+  g.font = font(20);
+  if (st.cruise) { g.fillStyle = '#35e07a'; g.fillText('クルーズ ' + Math.round(st.cruiseKmh), 512, 271); }
+  else if (st.retarder > 0.05) { g.fillStyle = '#ffb020'; g.fillText('リターダー ' + Math.max(1, Math.round(st.retarder * 5)), 512, 271); }
+  else { g.fillStyle = '#6f7f8c'; g.fillText(st.dir === -1 ? '後退' : 'リミッター 90', 512, 271); }
+  // stability assists: steady = switched off, flashing = acting now
+  g.font = font(17);
+  [['ABS', st.lamps.abs, 450], ['ESC', st.lamps.esc, 512], ['TCS', st.lamps.tcs, 574]].forEach(([name, state, x]) => {
+    g.fillStyle = state === 'on' || (state === 'flash' && st.flashOn) ? '#ffb020' : '#26323b';
+    g.fillText(name, x, 298);
+  });
   // fuel bar
-  g.fillStyle = '#1d262e'; g.fillRect(430, 308, 164, 12);
-  g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 308, 164 * st.fuel, 12);
-  g.fillStyle = '#9fb3c4'; g.font = font(16, 400); g.textAlign = 'left'; g.fillText('燃料', 430, 334); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 334);
+  g.fillStyle = '#1d262e'; g.fillRect(430, 314, 164, 10);
+  g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 314, 164 * st.fuel, 10);
+  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText('燃料', 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
   if (st.damage > 1) { g.fillStyle = st.damage > 25 ? '#ff5a1f' : '#ffb020'; g.textAlign = 'center'; g.font = font(18); g.fillText('損傷 ' + Math.round(st.damage) + '%', 512, 96); }
   DASH.tex.needsUpdate = true;
 }
@@ -133,6 +148,13 @@ function drawNav(st) {
     g.fillStyle = isDest ? '#2f9cff' : '#0b6b42'; const tw = g.measureText(r.ic.jp + ' IC').width + 14;
     roundRect(g, p[0] - tw - 6, p[1] - 12, tw, 24, 5); g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(r.ic.jp + ' IC', p[0] - tw + 1, p[1] + 1);
+  }
+  // the trailer waiting to be picked up
+  if (st.trailer) {
+    const p = toScr(st.trailer.x, st.trailer.z);
+    g.fillStyle = '#ff9a1a'; g.fillRect(p[0] - 7, p[1] - 7, 14, 14);
+    g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.strokeRect(p[0] - 7, p[1] - 7, 14, 14);
+    g.font = font(15); g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = '#ffcf8a'; g.fillText('トレーラー', p[0] + 13, p[1]);
   }
   // own vehicle
   g.fillStyle = '#ffffff'; g.strokeStyle = '#2f9cff'; g.lineWidth = 3;

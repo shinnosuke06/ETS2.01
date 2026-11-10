@@ -41,6 +41,8 @@ function initAudio() {
   AUD.roadG = gain(0, master); noise().connect(filt('lowpass', 170, 0.7, AUD.roadG));
   // retarder
   AUD.retG = gain(0, master); const rbp = filt('bandpass', 320, 2.5, AUD.retG); noise().connect(rbp); AUD.retO = osc('triangle', 160); AUD.retO.connect(gain(0.25, AUD.retG));
+  // tyres sliding or scrubbing
+  AUD.squealG = gain(0, master); noise().connect(filt('bandpass', 1800, 6, AUD.squealG));
   // horn
   AUD.hornG = gain(0, master); const hl = filt('lowpass', 2400, 0.7, AUD.hornG);
   for (const f of [311, 392, 466]) osc('sawtooth', f).connect(gain(0.18, hl));
@@ -64,11 +66,12 @@ function audioUpdate(st) {
   AUD.roadG.gain.setTargetAtTime(Math.min(1, sp) * 0.22, t, 0.2);
   AUD.retG.gain.setTargetAtTime(st.ret * Math.min(1, sp * 2) * 0.12, t, 0.1);
   AUD.retO.frequency.setTargetAtTime(120 + Math.abs(st.v) * 9, t, 0.1);
+  AUD.squealG.gain.setTargetAtTime((st.slip || 0) * Math.min(1, Math.abs(st.v) / 5) * 0.16, t, 0.08);
 }
 function sfxBurst({ f = 2500, q = 3, dur = 0.02, vol = 0.25, type = 'bandpass' } = {}) {
   if (!AUD.on) return;
   const ctx = AUD.ctx, t = ctx.currentTime;
-  const s = ctx.createBufferSource(); s.buffer = AUD.noiseBuf;
+  const s = ctx.createBufferSource(); s.buffer = AUD.noiseBuf; s.loop = true;
   const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q;
   const g = ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   s.connect(b); b.connect(g); g.connect(AUD.master);
@@ -76,6 +79,9 @@ function sfxBurst({ f = 2500, q = 3, dur = 0.02, vol = 0.25, type = 'bandpass' }
 }
 function sfxTick(on) { sfxBurst({ f: on ? 2800 : 1900, q: 4, dur: 0.025, vol: 0.35 }); }
 function sfxThump(strength) { sfxBurst({ f: 120, q: 0.8, dur: 0.35, vol: clamp(0.3 + strength * 0.1, 0.3, 1.2), type: 'lowpass' }); sfxBurst({ f: 900, q: 1, dur: 0.15, vol: 0.3 }); }
+function sfxClunk() { sfxBurst({ f: 150, q: 0.9, dur: 0.28, vol: 0.9, type: 'lowpass' }); sfxBurst({ f: 2300, q: 2, dur: 0.07, vol: 0.4 }); }   // fifth wheel jaws
+function sfxHiss(sec) { sfxBurst({ f: 5200, q: 0.7, dur: sec, vol: 0.13, type: 'highpass' }); }                                                  // air lines, landing legs
+function sfxWarn() { sfxTone([880, 880, 880], 0.12, 0.2); }                                                                                    // rollover warning
 function sfxScrape() { sfxBurst({ f: 3200, q: 1.5, dur: 0.5, vol: 0.25 }); }
 function sfxTone(freqs, len = 0.22, vol = 0.18) {
   if (!AUD.on) return;

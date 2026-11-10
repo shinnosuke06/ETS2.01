@@ -3021,16 +3021,31 @@ function drawCluster(st) {
   g.textAlign = 'center';
   g.fillStyle = '#ffffff'; g.font = `700 104px ${JP_FONT}`;
   g.fillText(st.gearTxt, 512, 150);
-  g.fillStyle = '#9fb3c4'; g.font = font(20, 400); g.fillText(st.dir === -1 ? '後退' : st.dir === 0 ? 'ニュートラル' : 'オプティクルーズ', 512, 205);
-  g.fillStyle = '#ffffff'; g.font = font(40); g.fillText(Math.round(st.kmh) + ' km/h', 512, 246);
-  g.font = font(22);
-  if (st.cruise) { g.fillStyle = '#35e07a'; g.fillText('クルーズ ' + Math.round(st.cruiseKmh), 512, 284); }
-  else if (st.retarder > 0.05) { g.fillStyle = '#ffb020'; g.fillText('リターダー ' + Math.max(1, Math.round(st.retarder * 5)), 512, 284); }
-  else { g.fillStyle = '#6f7f8c'; g.fillText('リミッター 90', 512, 284); }
+  // what is on the fifth wheel: the gross weight when a trailer is coupled
+  g.font = font(19);
+  if (st.link === 'coupled') {
+    g.fillStyle = '#cfe0ee'; g.fillText(st.gcwText, 524, 200);
+    const x0 = 524 - g.measureText(st.gcwText).width / 2 - 34;      // a small trailer pictogram
+    g.fillRect(x0, 192, 24, 12); g.fillRect(x0 + 3, 206, 5, 5); g.fillRect(x0 + 14, 206, 5, 5);
+  } else {
+    g.fillStyle = '#ffb020';
+    g.fillText(st.link === 'locking' ? '連結中…' : st.link === 'unlocking' ? '切り離し中…' : 'トレーラーなし', 512, 200);
+  }
+  g.fillStyle = '#ffffff'; g.font = font(36); g.fillText(Math.round(st.kmh) + ' km/h', 512, 238);
+  g.font = font(20);
+  if (st.cruise) { g.fillStyle = '#35e07a'; g.fillText('クルーズ ' + Math.round(st.cruiseKmh), 512, 271); }
+  else if (st.retarder > 0.05) { g.fillStyle = '#ffb020'; g.fillText('リターダー ' + Math.max(1, Math.round(st.retarder * 5)), 512, 271); }
+  else { g.fillStyle = '#6f7f8c'; g.fillText(st.dir === -1 ? '後退' : 'リミッター 90', 512, 271); }
+  // stability assists: steady = switched off, flashing = acting now
+  g.font = font(17);
+  [['ABS', st.lamps.abs, 450], ['ESC', st.lamps.esc, 512], ['TCS', st.lamps.tcs, 574]].forEach(([name, state, x]) => {
+    g.fillStyle = state === 'on' || (state === 'flash' && st.flashOn) ? '#ffb020' : '#26323b';
+    g.fillText(name, x, 298);
+  });
   // fuel bar
-  g.fillStyle = '#1d262e'; g.fillRect(430, 308, 164, 12);
-  g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 308, 164 * st.fuel, 12);
-  g.fillStyle = '#9fb3c4'; g.font = font(16, 400); g.textAlign = 'left'; g.fillText('燃料', 430, 334); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 334);
+  g.fillStyle = '#1d262e'; g.fillRect(430, 314, 164, 10);
+  g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 314, 164 * st.fuel, 10);
+  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText('燃料', 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
   if (st.damage > 1) { g.fillStyle = st.damage > 25 ? '#ff5a1f' : '#ffb020'; g.textAlign = 'center'; g.font = font(18); g.fillText('損傷 ' + Math.round(st.damage) + '%', 512, 96); }
   DASH.tex.needsUpdate = true;
 }
@@ -3075,6 +3090,13 @@ function drawNav(st) {
     g.fillStyle = isDest ? '#2f9cff' : '#0b6b42'; const tw = g.measureText(r.ic.jp + ' IC').width + 14;
     roundRect(g, p[0] - tw - 6, p[1] - 12, tw, 24, 5); g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(r.ic.jp + ' IC', p[0] - tw + 1, p[1] + 1);
+  }
+  // the trailer waiting to be picked up
+  if (st.trailer) {
+    const p = toScr(st.trailer.x, st.trailer.z);
+    g.fillStyle = '#ff9a1a'; g.fillRect(p[0] - 7, p[1] - 7, 14, 14);
+    g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.strokeRect(p[0] - 7, p[1] - 7, 14, 14);
+    g.font = font(15); g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = '#ffcf8a'; g.fillText('トレーラー', p[0] + 13, p[1]);
   }
   // own vehicle
   g.fillStyle = '#ffffff'; g.strokeStyle = '#2f9cff'; g.lineWidth = 3;
@@ -4222,6 +4244,8 @@ function initAudio() {
   AUD.roadG = gain(0, master); noise().connect(filt('lowpass', 170, 0.7, AUD.roadG));
   // retarder
   AUD.retG = gain(0, master); const rbp = filt('bandpass', 320, 2.5, AUD.retG); noise().connect(rbp); AUD.retO = osc('triangle', 160); AUD.retO.connect(gain(0.25, AUD.retG));
+  // tyres sliding or scrubbing
+  AUD.squealG = gain(0, master); noise().connect(filt('bandpass', 1800, 6, AUD.squealG));
   // horn
   AUD.hornG = gain(0, master); const hl = filt('lowpass', 2400, 0.7, AUD.hornG);
   for (const f of [311, 392, 466]) osc('sawtooth', f).connect(gain(0.18, hl));
@@ -4245,11 +4269,12 @@ function audioUpdate(st) {
   AUD.roadG.gain.setTargetAtTime(Math.min(1, sp) * 0.22, t, 0.2);
   AUD.retG.gain.setTargetAtTime(st.ret * Math.min(1, sp * 2) * 0.12, t, 0.1);
   AUD.retO.frequency.setTargetAtTime(120 + Math.abs(st.v) * 9, t, 0.1);
+  AUD.squealG.gain.setTargetAtTime((st.slip || 0) * Math.min(1, Math.abs(st.v) / 5) * 0.16, t, 0.08);
 }
 function sfxBurst({ f = 2500, q = 3, dur = 0.02, vol = 0.25, type = 'bandpass' } = {}) {
   if (!AUD.on) return;
   const ctx = AUD.ctx, t = ctx.currentTime;
-  const s = ctx.createBufferSource(); s.buffer = AUD.noiseBuf;
+  const s = ctx.createBufferSource(); s.buffer = AUD.noiseBuf; s.loop = true;
   const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q;
   const g = ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   s.connect(b); b.connect(g); g.connect(AUD.master);
@@ -4257,6 +4282,9 @@ function sfxBurst({ f = 2500, q = 3, dur = 0.02, vol = 0.25, type = 'bandpass' }
 }
 function sfxTick(on) { sfxBurst({ f: on ? 2800 : 1900, q: 4, dur: 0.025, vol: 0.35 }); }
 function sfxThump(strength) { sfxBurst({ f: 120, q: 0.8, dur: 0.35, vol: clamp(0.3 + strength * 0.1, 0.3, 1.2), type: 'lowpass' }); sfxBurst({ f: 900, q: 1, dur: 0.15, vol: 0.3 }); }
+function sfxClunk() { sfxBurst({ f: 150, q: 0.9, dur: 0.28, vol: 0.9, type: 'lowpass' }); sfxBurst({ f: 2300, q: 2, dur: 0.07, vol: 0.4 }); }   // fifth wheel jaws
+function sfxHiss(sec) { sfxBurst({ f: 5200, q: 0.7, dur: sec, vol: 0.13, type: 'highpass' }); }                                                  // air lines, landing legs
+function sfxWarn() { sfxTone([880, 880, 880], 0.12, 0.2); }                                                                                    // rollover warning
 function sfxScrape() { sfxBurst({ f: 3200, q: 1.5, dur: 0.5, vol: 0.25 }); }
 function sfxTone(freqs, len = 0.22, vol = 0.18) {
   if (!AUD.on) return;
@@ -4630,14 +4658,15 @@ function processEvents(dt) {
     else if (e.t === 'car') { sfxThump(e.hit); if (GAME.eventCool <= 0) { const f = Math.min(30000, Math.round(e.hit * 1500 / 100) * 100 + 2000); if (GAME.job) GAME.job.fines += f; led('接触事故！ 損害 ' + yen(f), true, 3); GAME.eventCool = 2.5; } }
     else if (e.t === 'crash') { sfxThump(3); led('衝突しました', true, 2); }
     else if (e.t === 'cruiseOff') { led('クルーズ解除', false, 1.5); }
-    else if (e.t === 'couple-lock') led('ロックしました。ホースを接続中…', false, 2.5);
+    else if (e.t === 'couple-lock') { sfxClunk(); sfxHiss(1.6); led('ロックしました。ホースを接続中…', false, 2.5); }
     else if (e.t === 'coupled') led('連結完了　' + gcwText(), false, 4);
-    else if (e.t === 'couple-miss') led(e.why === 'fast' ? '速すぎます' : 'ずれています。前に出てやり直してください', true, 4);
-    else if (e.t === 'uncouple-start') led('切り離し中…', false, 2.5);
+    else if (e.t === 'couple-miss') { sfxThump(1); led(e.why === 'fast' ? '速すぎます' : 'ずれています。前に出てやり直してください', true, 4); }
+    else if (e.t === 'uncouple-start') { sfxHiss(1.2); led('切り離し中…', false, 2.5); }
     else if (e.t === 'uncouple-refused') led('止まってから切り離してください', true, 3);
-    else if (e.t === 'uncoupled') onUncoupled();
+    else if (e.t === 'uncoupled') { sfxClunk(); onUncoupled(); }
     else if (e.t === 'rollover' || e.t === 'jackknife') onAccident(e.t);
     else if (e.t === 'assist' && (e.kind === 'esc' || e.kind === 'rsc') && GAME.assistCool[e.kind] <= 0) {
+      if (e.kind === 'rsc') sfxWarn();
       led(e.kind === 'esc' ? '横滑り防止 作動' : '横転の危険！減速します', true, 2); GAME.assistCool[e.kind] = 4;
     }
     else if (e.t === 'reset') led('車両の位置を戻しました', true, 3);
@@ -4766,6 +4795,19 @@ function updateHud() {
   bc.hidden = !(TR.link === 'coupled' || auto);
   bc.textContent = TR.link === 'coupled' ? '切り離し' : '自動連結';
 }
+// What the instrument cluster shows right now.
+function clusterState() {
+  // an assist lamp: steady when the assists are switched off, flashing while that system is acting
+  const lamp = on => (!GAME.assist ? 'on' : on ? 'flash' : 'off');
+  return {
+    kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
+    lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
+    clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage,
+    gcwText: gcwText(), link: TR.link,
+    lamps: { abs: lamp(TR.assist.abs), esc: lamp(TR.assist.esc || TR.assist.rsc), tcs: lamp(TR.assist.tcs) },
+    flashOn: performance.now() % 360 < 180,
+  };
+}
 function navState() {
   const j = GAME.job;
   const dr = destRamp();
@@ -4779,7 +4821,10 @@ function navState() {
   }
   const rem = Math.max(0, dr.sGate - TR.s) * SCALE / 1000;
   const eta = GAME.clock + rem / 80 * 3600;
+  const trailer = TR.link === 'free' && TR.trailerKey ? { x: TR.tr.kx, z: TR.tr.kz } : null;
+  if (trailer && !TR.onRamp) { guide = 'トレーラーを連結してください'; gd = Math.round(Math.hypot(TR.x - trailer.x, TR.z - trailer.z)) + ' m'; }
   return {
+    trailer,
     x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sGate, destIc: j.to,
     guide, guideDist: gd, footer: `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`, limit: GAME.limit || 90,
   };
@@ -4936,7 +4981,7 @@ function frame(now) {
   updateCamera(dt);
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
-  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5 });
+  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
 
   if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, activeCam);
@@ -4945,11 +4990,7 @@ function frame(now) {
   GAME.dashT -= dt; GAME.navT -= dt; GAME.hudT -= dt;
   if (GAME.dashT <= 0 && GAME.job) {
     GAME.dashT = GAME.cam === 'cab' ? 1 / 20 : 0.3;
-    drawCluster({
-      kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
-      lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
-      clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage,
-    });
+    drawCluster(clusterState());
   }
   if (GAME.navT <= 0 && GAME.job) { GAME.navT = GAME.cam === 'cab' ? 0.2 : 0.6; drawNav(navState()); }
   if (GAME.hudT <= 0 && GAME.job) { GAME.hudT = 0.2; updateHud(); }

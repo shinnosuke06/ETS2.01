@@ -225,14 +225,15 @@ function processEvents(dt) {
     else if (e.t === 'car') { sfxThump(e.hit); if (GAME.eventCool <= 0) { const f = Math.min(30000, Math.round(e.hit * 1500 / 100) * 100 + 2000); if (GAME.job) GAME.job.fines += f; led('接触事故！ 損害 ' + yen(f), true, 3); GAME.eventCool = 2.5; } }
     else if (e.t === 'crash') { sfxThump(3); led('衝突しました', true, 2); }
     else if (e.t === 'cruiseOff') { led('クルーズ解除', false, 1.5); }
-    else if (e.t === 'couple-lock') led('ロックしました。ホースを接続中…', false, 2.5);
+    else if (e.t === 'couple-lock') { sfxClunk(); sfxHiss(1.6); led('ロックしました。ホースを接続中…', false, 2.5); }
     else if (e.t === 'coupled') led('連結完了　' + gcwText(), false, 4);
-    else if (e.t === 'couple-miss') led(e.why === 'fast' ? '速すぎます' : 'ずれています。前に出てやり直してください', true, 4);
-    else if (e.t === 'uncouple-start') led('切り離し中…', false, 2.5);
+    else if (e.t === 'couple-miss') { sfxThump(1); led(e.why === 'fast' ? '速すぎます' : 'ずれています。前に出てやり直してください', true, 4); }
+    else if (e.t === 'uncouple-start') { sfxHiss(1.2); led('切り離し中…', false, 2.5); }
     else if (e.t === 'uncouple-refused') led('止まってから切り離してください', true, 3);
-    else if (e.t === 'uncoupled') onUncoupled();
+    else if (e.t === 'uncoupled') { sfxClunk(); onUncoupled(); }
     else if (e.t === 'rollover' || e.t === 'jackknife') onAccident(e.t);
     else if (e.t === 'assist' && (e.kind === 'esc' || e.kind === 'rsc') && GAME.assistCool[e.kind] <= 0) {
+      if (e.kind === 'rsc') sfxWarn();
       led(e.kind === 'esc' ? '横滑り防止 作動' : '横転の危険！減速します', true, 2); GAME.assistCool[e.kind] = 4;
     }
     else if (e.t === 'reset') led('車両の位置を戻しました', true, 3);
@@ -361,6 +362,19 @@ function updateHud() {
   bc.hidden = !(TR.link === 'coupled' || auto);
   bc.textContent = TR.link === 'coupled' ? '切り離し' : '自動連結';
 }
+// What the instrument cluster shows right now.
+function clusterState() {
+  // an assist lamp: steady when the assists are switched off, flashing while that system is acting
+  const lamp = on => (!GAME.assist ? 'on' : on ? 'flash' : 'off');
+  return {
+    kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
+    lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
+    clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage,
+    gcwText: gcwText(), link: TR.link,
+    lamps: { abs: lamp(TR.assist.abs), esc: lamp(TR.assist.esc || TR.assist.rsc), tcs: lamp(TR.assist.tcs) },
+    flashOn: performance.now() % 360 < 180,
+  };
+}
 function navState() {
   const j = GAME.job;
   const dr = destRamp();
@@ -374,7 +388,10 @@ function navState() {
   }
   const rem = Math.max(0, dr.sGate - TR.s) * SCALE / 1000;
   const eta = GAME.clock + rem / 80 * 3600;
+  const trailer = TR.link === 'free' && TR.trailerKey ? { x: TR.tr.kx, z: TR.tr.kz } : null;
+  if (trailer && !TR.onRamp) { guide = 'トレーラーを連結してください'; gd = Math.round(Math.hypot(TR.x - trailer.x, TR.z - trailer.z)) + ' m'; }
   return {
+    trailer,
     x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sGate, destIc: j.to,
     guide, guideDist: gd, footer: `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`, limit: GAME.limit || 90,
   };
@@ -531,7 +548,7 @@ function frame(now) {
   updateCamera(dt);
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
-  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5 });
+  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
 
   if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, activeCam);
@@ -540,11 +557,7 @@ function frame(now) {
   GAME.dashT -= dt; GAME.navT -= dt; GAME.hudT -= dt;
   if (GAME.dashT <= 0 && GAME.job) {
     GAME.dashT = GAME.cam === 'cab' ? 1 / 20 : 0.3;
-    drawCluster({
-      kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
-      lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
-      clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage,
-    });
+    drawCluster(clusterState());
   }
   if (GAME.navT <= 0 && GAME.job) { GAME.navT = GAME.cam === 'cab' ? 0.2 : 0.6; drawNav(navState()); }
   if (GAME.hudT <= 0 && GAME.job) { GAME.hudT = 0.2; updateHud(); }
