@@ -8,10 +8,11 @@ const NAMES = ['TAU', 'clamp', 'lerp', 'damp', 'wrapA', 'rng', 'S0', 'DS', 'X_TR
   'MU', 'RIGP', 'RIG', 'rigSetTrailer', 'rigPlace', 'rigParkTrailer', 'rigStep', 'rigPose', 'rigApplyImpulse', 'rigAxleLoads', 'rigSteerLimit',
   'TRAILERS', 'TR', 'steerLock', 'setRigTrailer', 'placeTruck', 'parkTrailer', 'stepTruck', 'physicsAdvance',
   'requestCouple', 'requestUncouple', 'canAutoCouple', 'towReset', 'resolveCarContact'];
-export function loadSim() {
+// `extra` is source appended after the game files (for globals that live in browser-only files).
+export function loadSim({ extra = '' } = {}) {
   const src = PURE.filter(f => fs.existsSync(new URL(f, SRC))).map(f => fs.readFileSync(new URL(f, SRC), 'utf8')).join('\n');
   const ret = NAMES.map(n => `${n}: typeof ${n} !== 'undefined' ? ${n} : undefined`).join(', ');
-  return new Function(`${src}\n;return { ${ret} };`)();
+  return new Function(`${src}\n${extra}\n;return { ${ret} };`)();
 }
 export const H = 1 / 240;
 // Replace the road with a straight line along +z (lat = -x), constant grade, optional guardrails.

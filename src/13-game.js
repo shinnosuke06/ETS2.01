@@ -40,7 +40,7 @@ const GAME = {
 function setupJob(idx) {
   const j = jobInfo(JOBS[idx]);
   GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 };
-  TR.mass = 15500 + j.mass * 1000;
+  TR.mass = 15500 + j.mass * 1000; TR.gcw = TR.mass;
   TR.damage = 0;
   const s = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
   const lat = j.from === 0 ? X_TRV : -10.75;
