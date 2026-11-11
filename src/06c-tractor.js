@@ -181,20 +181,13 @@ function buildTractor() {
   K.build(cab, { cast: true });
 
   const M = new Parts();
-  for (let k = 0; k < 5; k++) M.box(TM.marker, 0.13, 0.04, 0.04, -0.8 + k * 0.4, 3.47, -5.62);
   for (const sx of [-1, 1]) M.box(TM.marker, 0.03, 0.06, 0.12, sx * 1.265, 1.4, -5.0);
   M.build(cab);
   for (const sx of [-1, 1]) {
     const rep = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.12), TM.amberOff);
     rep.position.set(sx * 1.262, 1.95, -5.1); cab.add(rep); (sx < 0 ? T.blinkL : T.blinkR).push(rep);
   }
-  // custom trim: light bar lamps on the visor
-  T.deco = new THREE.Group(); cab.add(T.deco);
-  { const D = new Parts(); D.add(roundBox(1.95, 0.07, 0.1, 0.02), TM.black, 0, 3.58, -5.5); D.build(T.deco); }
-  for (let k = 0; k < 6; k++) {
-    const l = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.04, 16), TM.headOff);
-    l.rotation.x = Math.PI / 2; l.position.set(-0.75 + k * 0.3, 3.58, -5.56); T.deco.add(l); T.barLamps.push(l);
-  }
+  tractorDeco(T, cab, root);
   // red end markers on the visor
   const LED = new Parts();
   for (const sx of [-1, 1]) {
@@ -314,8 +307,8 @@ function tractorMirrors(T, K, cab) {
     K.add(tube([[sx * 1.22, 3.28, -5.0], [sx * 1.36, 3.285, hz + 0.1], [sx * 1.50, 3.24, hz + 0.05], [sx * 1.6, 3.12, hz]], 0.022, 8), TM.black);
     K.add(tube([[sx * 1.23, 2.36, -5.02], [sx * 1.38, 2.34, hz + 0.07], [sx * 1.52, 2.37, hz + 0.03], [sx * 1.6, 2.44, hz]], 0.02, 8), TM.black);
   }
-  K.add(roundBox(0.22, 0.13, 0.18, 0.04), TM.paint, -1.38, 3.47, -5.3);                 // kerb-view mirror
-  K.add(roundBox(0.24, 0.1, 0.16, 0.035), TM.paint, -0.95, 3.6, -5.55);                 // front under-mirror
+  K.add(roundBox(0.22, 0.13, 0.18, 0.04), TM.trim, -1.38, 3.47, -5.3);                  // kerb-view mirror
+  K.add(roundBox(0.24, 0.1, 0.16, 0.035), TM.trim, -0.95, 3.6, -5.55);                  // front under-mirror
   K.add(tube([[-1.24, 3.47, -5.32], [-1.30, 3.55, -5.36], [-1.36, 3.6, -5.38]], 0.012, 6), TM.black);
   K.add(tube([[-0.95, 3.6, -5.38], [-0.95, 3.6, -5.52]], 0.012, 6), TM.black);
   K.part(null);
@@ -334,7 +327,7 @@ function tractorMirrors(T, K, cab) {
     const mat = new THREE.MeshBasicMaterial({ color: 0x9aa3aa });
     const head = new THREE.Group(); head.position.set(sx * 1.62, 2.75, hz); head.rotation.y = sx > 0 ? -0.42 : 0.55; head.updateMatrix(); cab.add(head);
     const hb = new Parts(); hb.part('mirrors', head.matrix);
-    hb.add(roundBox(0.27, 0.66, 0.10, 0.03), TM.paint, 0, -0.02, -0.02);               // shell
+    hb.add(roundBox(0.27, 0.66, 0.10, 0.03), TM.trim, 0, -0.02, -0.02);                // shell: body colour, chrome on the custom trim
     hb.add(roundBox(0.262, 0.65, 0.05, 0.012), TM.black, 0, -0.02, 0.045);             // glass frame
     hb.add(roundBox(0.27, 0.02, 0.06, 0.006, 1), TM.black, 0, -0.13, 0.05);
     hb.part(null); hb.build(head, { cast: true });
@@ -510,4 +503,51 @@ function tractorChassis(T, C, root) {
     const rm = new THREE.Matrix4().makeTranslation(sx * 0.9, 0.52, 0);
     const r = tractorWheel(true, sx, 'wheelR', rm); r.position.set(sx * 0.9, 0.52, 0); root.add(r); T.spin.push(r); T.rear.push(r);
   }
+}
+
+// ---- custom trim: roof light bar, marker lamps, chrome nut caps, pinstripe livery ----------------------
+// Parts under T.deco (on the cab) and T.decoExtra (on the chassis and in the wheels) show only on the custom trim.
+function tractorDeco(T, cab, root) {
+  T.deco = new THREE.Group(); cab.add(T.deco); T.decoExtra = [];
+  const D = new Parts();
+  D.part('lightBar');                                                                   // a tube on four legs above the roof's front edge
+  D.add(tube([[-1.0, 4.20, -4.98], [1.0, 4.20, -4.98]], 0.025, 10), TM.chrome);
+  for (const x of [-0.9, -0.3, 0.3, 0.9]) D.add(tube([[x, 3.99, -4.92], [x, 4.20, -4.98]], 0.015, 8), TM.black);
+  for (let k = 0; k < 6; k++) D.add(lathe([[0, -0.05], [0.10, -0.05], [0.10, 0.0], [0.085, 0.01]], 20), TM.black, -0.75 + k * 0.3, 4.22, -5.04, -Math.PI / 2, 0, 0);   // lamp housings
+  D.part('markers');
+  for (let k = 0; k < 5; k++) D.add(roundBox(0.10, 0.03, 0.04, 0.01), TM.marker, -0.8 + k * 0.4, 3.43, -5.47);   // under the visor's front edge
+  D.part(null); D.build(T.deco);
+  T.barLamps = [];
+  for (let k = 0; k < 6; k++) {                                                          // the lenses light with the headlights
+    const g = lathe([[0.09, 0], [0.06, 0.012], [0, 0.015]], 20).rotateX(-Math.PI / 2).translate(-0.75 + k * 0.3, 4.22, -5.052);
+    statPart('lightBar', g); const m = new THREE.Mesh(g, TM.headOff); T.deco.add(m); T.barLamps.push(m);
+  }
+  const B = new Parts(); B.part('markers');
+  for (let k = 0; k < 5; k++) B.add(roundBox(0.10, 0.03, 0.04, 0.01), TM.marker, -0.8 + k * 0.4, 0.40, -5.58);     // under the bumper
+  B.part(null); const bumperDeco = new THREE.Group(); root.add(bumperDeco); B.build(bumperDeco); T.decoExtra.push(bumperDeco);
+  // chrome caps over the wheel nuts, turning with the wheels
+  for (let i = 0; i < T.spin.length; i++) {
+    const w = T.spin[i], dual = T.rear.includes(w), side = Math.sign(dual ? w.position.x : w.parent.position.x);
+    w.updateMatrix(); w.parent.updateMatrix();
+    const outer = side * (dual ? 0.30 : 0.155), toRoot = dual ? w.matrix : w.parent.matrix;
+    const C = new Parts(); C.part('nutCaps', toRoot);
+    for (let n = 0; n < 10; n++) { const a = n / 10 * TAU; C.add(lathe([[0.026, 0], [0.024, 0.02], [0.012, 0.045], [0, 0.05]], 6), TM.chrome, outer - side * 0.03, Math.cos(a) * 0.2, Math.sin(a) * 0.2, 0, 0, -side * Math.PI / 2); }
+    C.part(null); const caps = new THREE.Group(); w.add(caps); C.build(caps); T.decoExtra.push(caps);
+  }
+  // livery: transparent decals 2 mm off the cab sides (the canvas's top half) and following the front face (bottom half)
+  const side = (sx) => {
+    const g = new THREE.PlaneGeometry(2.05, 1.05);
+    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, sx > 0 ? uv.getX(i) : 1 - uv.getX(i), 0.5 + uv.getY(i) * 0.5);
+    return g.rotateY(sx * Math.PI / 2).translate(sx * 1.252, 1.775, -4.175);
+  };
+  const front = () => {
+    const rows = 6, pos = [], uvs = [], hw = 1.12;
+    for (let r = 0; r < rows; r++) {
+      const y0 = 1.25 + 0.95 * r / rows, y1 = 1.25 + 0.95 * (r + 1) / rows, z0 = zfAt(y0) - 0.002, z1 = zfAt(y1) - 0.002, v0 = 0.5 * r / rows, v1 = 0.5 * (r + 1) / rows;
+      const a = [-hw, y0, z0], b = [hw, y0, z0], c = [hw, y1, z1], d = [-hw, y1, z1];
+      for (const [p, u] of [[a, [1, v0]], [c, [0, v1]], [b, [0, v0]], [a, [1, v0]], [d, [1, v1]], [c, [0, v1]]]) { pos.push(...p); uvs.push(...u); }   // facing -z; u runs right to left as seen from the front
+    }
+    return _kitFinish(pos, uvs, 40);
+  };
+  for (const g of [side(1), side(-1), front()]) { statPart('livery', g); T.deco.add(new THREE.Mesh(g, TM.livery)); }
 }

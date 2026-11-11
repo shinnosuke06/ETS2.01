@@ -201,6 +201,33 @@ function _vehPatterns(S) {
   };
 }
 
+// The custom trim's pinstripe livery on a 1024 x 512 picture. Top half: the cab sides (front at the right):
+// a band that starts 0.10 m wide low at the door and thins to 0.02 m as it sweeps up toward the back of the cab,
+// with two fine lines (0.012 m, 0.03 m apart) above it. Bottom half: the front face, two fine lines framing the grille.
+// Navy on white and silver, gold on blue and red. No lettering, logo or emblem.
+const _liveryColor = () => (paintName === 'white' || paintName === 'silver' ? '#1b2a4a' : '#d4af37');
+function _drawLivery(c) {
+  const g = c.getContext('2d'), W = c.width, H = c.height / 2, col = _liveryColor();
+  g.clearRect(0, 0, W, c.height); g.fillStyle = col; g.strokeStyle = col;
+  const pxPerM = H / 1.05, curve = t => [W * (0.97 - 0.93 * t), H * (0.86 - 0.62 * t * t)];   // front-low to rear-high
+  const N = 48, top = [], bot = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, [x, y] = curve(t), half = (0.10 - 0.08 * t) * pxPerM / 2;
+    top.push([x, y - half]); bot.push([x, y + half]);
+  }
+  g.beginPath(); top.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); bot.reverse().forEach(([x, y]) => g.lineTo(x, y)); g.closePath(); g.fill();
+  g.lineWidth = Math.max(2, 0.012 * pxPerM); g.lineCap = 'round';
+  for (const off of [0.07, 0.07 + 0.03 + 0.012]) {
+    g.beginPath();
+    for (let i = 0; i <= N; i++) { const t = i / N, [x, y] = curve(t), dy = (off + (0.10 - 0.08 * t) / 2) * pxPerM; i ? g.lineTo(x, y - dy) : g.moveTo(x, y - dy); }
+    g.stroke();
+  }
+  // front: a V of two fine lines on each side of the grille
+  const fy = y => H + H * (1 - (y - 1.25) / 0.95), fx = x => W * (0.5 - x / 2.24);
+  for (const s of [-1, 1]) for (const o of [0, 0.03 + 0.012]) {
+    g.beginPath(); g.moveTo(fx(s * (0.93 + o)), fy(2.18)); g.lineTo(fx(s * (0.80 + o)), fy(1.30)); g.stroke();
+  }
+}
 const _v2 = s => new THREE.Vector2(s, s);
 // Turn the cab's environment lookups into the tractor's frame (see VEH.cabRot).
 function _cabEnvHook(shader) {
@@ -279,6 +306,11 @@ function makeVehicleMaterials(quality) {
     hoseB: phong({ color: 0x1b1b1c, specular: 0x444444, shininess: 40 }),
     tank: envPhong(0xd3d8dc, 120, 0.6),   // the tanker trailer: trailers keep their materials
   });
+  // the custom trim's livery decal, redrawn when the paint changes
+  const lc = makeCanvas(1024, 512); _drawLivery(lc); const lt = canvasTex(lc, { aniso: 8 }); lt.userData = { c: lc }; VEH.tex.push(lt);
+  const decal = { map: lt, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 };
+  TM.livery = pbr ? lit(new THREE.MeshPhysicalMaterial({ ...decal, roughness: 0.35, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMap: VEH.envOut }), 1, false)
+    : phong({ ...decal, specular: 0x666666, shininess: 80 });
   const ib = o => basic({ ...o, vertexColors: true }), ip = o => phong({ ...o, vertexColors: true });
   Object.assign(IM, {
     upper: kind.plastic(0x3b3d41, true),
@@ -350,6 +382,7 @@ function applyPaint(name) {
   TM.paint.color.setHex(PAINTS[name].color);
   if (!VEH.pbr) TM.paint.reflectivity = name === 'white' ? 0.12 : 0.24;
   _trimLook();
+  if (TM.livery && TM.livery.map) { _drawLivery(TM.livery.map.userData.c); TM.livery.map.needsUpdate = true; }
 }
 // The trim material follows the paint on the normal trim and turns to chrome on the custom trim.
 function _trimLook() {
@@ -394,7 +427,10 @@ function applyTrim(name, T) {
   if (!TRIMS.includes(name)) return;
   trimName = name; lsSet('nlh.trim', name);
   _trimLook();
-  if (T && T.deco) { T.deco.visible = name === 'custom'; T.lightbar = name === 'custom' ? T.barLamps : []; }
+  if (T && T.deco) {
+    for (const g of [T.deco, ...(T.decoExtra || [])]) g.visible = name === 'custom';
+    T.lightbar = name === 'custom' ? T.barLamps : [];
+  }
 }
 
 makeVehicleMaterials(qualityName);

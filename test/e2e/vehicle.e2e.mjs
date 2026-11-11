@@ -79,7 +79,7 @@ test('V6 外装色 4 × 仕様 2 × 内装 3 のどれに切り替えても描�
     }
     return { out, saved: JSON.parse(localStorage.getItem('nlh.trim')), pressed: document.querySelector('#trimSeg [data-v="custom"]').getAttribute('aria-pressed') };
   });
-  assert.equal(r.out.length, 24); assert.ok(r.out.every(s => /^normal,.*,false,0$/.test(s) || /^custom,.*,true,[1-9]\d*$/.test(s)), r.out.join(' | '));
+  assert.equal(r.out.length, 24); assert.ok(r.out.every(s => /^normal,.*,false,0$/.test(s) || /^custom,.*,true,6$/.test(s)), r.out.join(' | '));
   assert.equal(r.saved, 'custom'); assert.equal(r.pressed, 'true'); assert.deepEqual(errors, []);
 }));
 test('基準の視点 9 つを当てられ、車内の視点では細かい部品が描かれる', () => withGame({}, async (page, errors) => {
@@ -208,4 +208,15 @@ test('V10 外寸：トラクターの形は決まった箱に収まる', () => w
   const P = await partsOf(page), ext = Object.entries(P).filter(([k, p]) => p.group === 'exterior' && !['mirrors', 'lightBar', 'markers'].includes(k)).map(([, p]) => p.box);
   const w = Math.max(...ext.map(b => b[3])) - Math.min(...ext.map(b => b[0])), front = Math.min(...ext.map(b => b[2])), top = Math.max(...ext.map(b => b[4]));
   assert.ok(w >= 2.50 && w <= 2.60, `width ${w}`); assert.ok(front <= -5.60 && front >= -5.75, `front ${front}`); assert.ok(top >= 4.00 && top <= 4.10, `top ${top}`);
+}));
+test('飾り付き：屋根のランプ 6 個がライトと一緒に点き、スラットはメッキ、線模様は外装色に合わせて変わる', () => withGame({ storage: { 'nlh.trim': 'custom', 'nlh.paint': 'white' } }, async (page, errors) => {
+  await startJob(page);
+  const r = await page.evaluate(async () => { const P = vehicleStats().parts;
+    GAME.lights = true; await __t.frames(3); const lit = TRK.lightbar.length === 6 && TRK.lightbar.every(m => m.material === TM.headOn);
+    const px = () => { const c = TM.livery.map.image, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2]; } return [Math.round(r / n), Math.round(g / n), Math.round(b / n), n / (c.width * c.height)]; };
+    const white = px(), metal = TM.trim.metalness; applyPaint('red'); const red = px(); applyTrim('normal', TRK); await __t.frames(2);
+    return { parts: ['lightBar', 'markers', 'nutCaps', 'livery'].every(k => P[k] && P[k].tris > 0), top: P.lightBar.box[4], lit, white, red, metal, plain: [TM.trim.metalness, TRK.deco.visible, TRK.lightbar.length, TRK.decoExtra.every(g => !g.visible)] }; });
+  assert.ok(r.parts && r.lit && r.top <= 4.38, JSON.stringify(r)); assert.equal(r.metal, 1); assert.deepEqual(r.plain, [0, false, 0, true]);
+  assert.ok(Math.abs(r.white[0] - 0x1b) < 12 && Math.abs(r.white[2] - 0x4a) < 12, String(r.white)); assert.ok(Math.abs(r.red[0] - 0xd4) < 12 && Math.abs(r.red[2] - 0x37) < 12, String(r.red));
+  assert.ok(r.white[3] > 0.01 && r.white[3] < 0.2, `coverage ${r.white[3]}`); assert.deepEqual(errors, []);
 }));
