@@ -160,47 +160,7 @@ function buildTractor() {
 
   // ---- chassis (does not tilt) ----
   const C = new Parts();
-  C.box(TM.frame, 0.1, 0.28, 6.3, -0.42, 0.92, -2.1); C.box(TM.frame, 0.1, 0.28, 6.3, 0.42, 0.92, -2.1);
-  for (const z of [-4.7, -3.1, -1.7, -0.3, 0.85]) C.box(TM.frame, 0.84, 0.1, 0.12, 0, 0.92, z);
-  C.box(TM.dark, 1.0, 0.1, 1.0, 0, 1.11, -0.35);
-  C.cyl(TM.dark, 0.47, 0.47, 0.07, 22, 0, 1.19, -0.35);
-  C.box(TM.black, 0.2, 0.02, 0.5, 0, 1.235, -0.05);
-  C.add(new THREE.CylinderGeometry(0.3, 0.3, 1.7, 20), TM.alu, -0.84, 0.74, -2.2, Math.PI / 2, 0, 0);
-  C.box(TM.black, 0.46, 0.5, 0.8, 0.86, 0.8, -2.65);
-  C.add(new THREE.CylinderGeometry(0.12, 0.12, 0.9, 10), TM.dark, 0.64, 0.62, -1.0, Math.PI / 2, 0, 0);
-  C.add(new THREE.CylinderGeometry(0.12, 0.12, 0.9, 10), TM.dark, -0.64, 0.62, -0.9, Math.PI / 2, 0, 0);
-  // catwalk behind the cab (chequer plate) and the steps up to it
-  C.box(TM.chequer, 1.6, 0.03, 2.05, 0, 1.335, -2.08);
-  for (const sx of [-0.78, 0.78]) C.box(TM.frame, 0.05, 0.25, 2.0, sx, 1.21, -2.08);
-  C.box(TM.chequer, 0.3, 0.03, 0.26, -1.1, 0.62, -0.95); C.box(TM.chequer, 0.3, 0.03, 0.26, -1.04, 0.98, -0.95);
-  C.box(TM.frame, 0.03, 0.5, 0.04, -1.24, 0.8, -0.83);
-  for (const sx of [-1, 1]) {
-    // side skirts between the axles, chrome foot strip, amber side markers (Japan)
-    C.box(TM.paint, 0.04, 0.74, 2.62, sx * 1.235, 0.8, -1.98);
-    C.box(TM.chrome, 0.046, 0.028, 2.62, sx * 1.237, 0.445, -1.98);
-    C.add(new THREE.CylinderGeometry(0.02, 0.02, 0.74, 8), TM.paint, sx * 1.235, 0.8, -3.29);
-    // front wheel-arch liners
-    C.add(new THREE.CylinderGeometry(0.62, 0.62, 0.42, 18, 1, true, 0, Math.PI), TM.blackDS, sx * 1.03, 0.52, -3.9, 0, 0, Math.PI / 2);
-    // rear fenders: black wings over the drive wheels, end plates with lamps and the
-    // mandatory 大型後部反射器 striped reflector, mudflaps below
-    const x0 = sx < 0 ? -1.27 : 0.52, x1 = sx < 0 ? -0.52 : 1.27;
-    C.add(extrudeX([[-0.78, 1.0], [-0.78, 1.08], [-0.42, 1.23], [0.58, 1.23], [0.9, 1.12], [0.9, 1.04], [0.58, 1.15], [-0.42, 1.15]], x0, x1, 0.01), TM.rubber);
-    C.box(TM.rubber, 0.035, 0.28, 1.3, sx * 1.252, 1.05, 0.06);
-    C.box(TM.rubber, 0.75, 0.34, 0.05, sx * 0.895, 0.96, 0.885);
-    C.box(TM.rubber, 0.7, 0.46, 0.015, sx * 0.9, 0.56, 0.9);
-    C.box(TM.reflector, 0.5, 0.11, 0.012, sx * 0.9, 0.87, 0.913);
-    C.box(TM.amberOff, 0.1, 0.08, 0.02, sx * 0.62, 1.06, 0.915);
-  }
-  C.box(TM.dark, 1.0, 0.12, 0.08, 0, 0.82, 0.9);
-  const LP = new Parts();
-  for (const sx of [-1, 1]) LP.box(TM.redDim, 0.3, 0.085, 0.02, sx * 0.97, 1.06, 0.915);
-  LP.build(root);
-  // wheels
-  for (const sx of [-1, 1]) {
-    const st = new THREE.Group(); st.position.set(sx * 1.03, 0.52, -3.9); root.add(st);
-    const w = makeWheel(false, sx); st.add(w); T.spin.push(w); T.steer.push(st);
-    const r = makeWheel(true, sx); r.position.set(sx * 0.9, 0.52, 0); root.add(r); T.spin.push(r); T.rear.push(r);
-  }
+  tractorChassis(T, C, root);
 
   // headlight beam (night / tunnels)
   T.spot = new THREE.SpotLight(0xfff0d6, 0, 110, 0.42, 0.55, 1.1);
@@ -458,4 +418,96 @@ function tractorFront(T, C, K, root, cab) {
   }
   const plate = new THREE.PlaneGeometry(0.44, 0.22).rotateY(Math.PI).translate(0, 0.6, -5.63);
   statPart('plateF', plate); root.add(new THREE.Mesh(plate, PLATE_MAT));
+}
+
+// ---- chassis, tanks, fenders, rear lamps and wheels (the parts that do not tilt with the cab) -------
+// A tractor wheel with its axle along x: polished aluminium disc with hand holes, ten nuts and a centre cap,
+// on a tyre with four tread grooves and rounded shoulders; `dual` puts two tyres side by side.
+// side: +1 right, -1 left (the disc faces outward). Parts are recorded as `name` (toRoot: the wheel's place).
+function tractorWheel(dual, side, name, toRoot) {
+  const g = new THREE.Group(), P = new Parts(), k = seg(20, 10);
+  P.part(name, toRoot);
+  const tw = dual ? 0.28 : 0.31, offs = dual ? [-0.16, 0.16] : [0], h = tw / 2;
+  const tread = []; for (let i = 0; i <= 8; i++) { const y = -h + 0.06 + (tw - 0.12) * i / 8; tread.push([i % 2 ? 0.507 : 0.52, y]); }
+  const tyre = [[0.33, -h], [0.47, -h - 0.004], [0.505, -h + 0.02], ...tread, [0.505, h - 0.02], [0.47, h + 0.004], [0.33, h]];
+  for (const o of offs) P.add(lathe(tyre, k), TM.tire, o, 0, 0, 0, 0, -Math.PI / 2);         // lathe axis y -> x
+  const outer = side * (dual ? 0.16 + h : h);
+  // disc: a shallow dish with a raised lip, drawn facing outward
+  const disc = [[0.33, -0.06], [0.33, 0.0], [0.315, 0.015], [0.30, -0.005], [0.16, 0.0], [0.14, 0.03], [0, 0.03]];   // rim lip to centre (faces outward)
+  P.add(lathe(disc, k), TM.rim, outer - side * 0.03, 0, 0, 0, 0, -side * Math.PI / 2);
+  P.add(lathe([[0.14, 0], [0.12, 0.04], [0.09, 0.07], [0, 0.07]], seg(16, 8)), TM.chrome, outer - side * 0.03, 0, 0, 0, 0, -side * Math.PI / 2);   // centre cap
+  for (let i = 0; i < 10; i++) {
+    const a = i / 10 * TAU, b = a + 0.31;
+    P.add(lathe([[0.019, 0], [0.018, 0.025], [0, 0.025]], 5), TM.chrome, outer - side * 0.03, Math.cos(a) * 0.2, Math.sin(a) * 0.2, 0, 0, -side * Math.PI / 2);   // nuts
+    P.add(new THREE.PlaneGeometry(0.035, 0.07).rotateY(side * Math.PI / 2).rotateX(b), TM.dark, outer - side * 0.028, Math.cos(b) * 0.265, Math.sin(b) * 0.265);   // hand holes, on the dish
+  }
+  P.part(null); P.build(g, { cast: true });
+  return g;
+}
+function tractorChassis(T, C, root) {
+  C.part('frame');
+  for (const sx of [-1, 1]) C.add(roundBox(0.10, 0.28, 6.3, 0.02), TM.frame, sx * 0.42, 0.92, -2.1);
+  for (const z of [-4.7, -3.1, -1.7, -0.3, 0.85]) C.add(roundBox(0.84, 0.10, 0.12, 0.02), TM.frame, 0, 0.92, z);
+  C.add(roundBox(1.0, 0.12, 0.08, 0.02), TM.dark, 0, 0.82, 0.9);                        // rear cross beam
+  C.part('catwalk');
+  C.add(roundBox(1.6, 0.03, 2.05, 0.01), TM.chequer, 0, 1.335, -2.08);
+  for (const sx of [-0.78, 0.78]) C.add(roundBox(0.05, 0.25, 2.0, 0.01), TM.frame, sx, 1.21, -2.08);
+  C.add(roundBox(0.3, 0.03, 0.26, 0.01), TM.chequer, -1.1, 0.62, -0.95); C.add(roundBox(0.3, 0.03, 0.26, 0.01), TM.chequer, -1.04, 0.98, -0.95);
+  C.add(roundBox(0.03, 0.5, 0.04, 0.008), TM.frame, -1.24, 0.8, -0.83);
+  // fifth wheel: a 0.94 m plate with the V-shaped throat opening to the rear, on its mounting
+  C.part('fifthWheel');
+  C.add(roundBox(1.0, 0.10, 1.0, 0.02), TM.dark, 0, 1.11, -0.35);
+  const rim = []; for (let i = 0; i <= 28; i++) { const a = (-65 + 310 * i / 28) * Math.PI / 180; rim.push([0.47 * Math.cos(a), 0.47 * Math.sin(a)]); }
+  C.add(xform(panel([...rim, [-0.03, -0.12], [0.03, -0.12]], 0.06, 0.008), 0, 0, 0, -Math.PI / 2, 0, 0), TM.dark, 0, 1.17, -0.35);   // throat at -y -> +z
+  C.add(roundBox(0.2, 0.02, 0.4, 0.006, 1), TM.black, 0, 1.235, -0.15);
+  // tanks and boxes along the frame: fuel on the left, battery box, urea tank, exhaust silencer, air tanks
+  C.part('tankFuel');
+  C.add(lathe([[0, 0], [0.28, 0], [0.30, 0.03], [0.30, 1.67], [0.28, 1.70], [0, 1.70]], seg(24, 10)), TM.alu, -0.84, 0.74, -3.05, Math.PI / 2, 0, 0);
+  for (const z of [-2.65, -1.75]) C.add(lathe([[0.302, -0.02], [0.308, 0], [0.302, 0.02]], seg(24, 10)), TM.black, -0.84, 0.74, z, Math.PI / 2, 0, 0);
+  C.add(lathe([[0, 0], [0.045, 0], [0.045, 0.03], [0, 0.035]], 12), TM.chrome, -0.84, 1.03, -1.6);
+  C.part('battery');
+  C.add(roundBox(0.46, 0.5, 0.8, 0.03), TM.black, 0.86, 0.8, -2.65);
+  C.part('tankUrea');
+  C.add(lathe([[0, 0], [0.17, 0], [0.18, 0.03], [0.18, 0.47], [0.17, 0.5], [0, 0.5]], seg(16, 8)), TM.dark, 0.84, 0.75, -1.85, Math.PI / 2, 0, 0);
+  C.part('muffler');
+  C.add(roundBox(0.55, 0.45, 0.55, 0.06), TM.dark, 0.72, 0.72, -1.0);
+  C.add(lathe([[0.12, 0], [0.12, 0.9]], seg(12, 6)), TM.dark, -0.64, 0.62, -1.35, Math.PI / 2, 0, 0);   // air tank
+  // side skirts between the axles: body colour, a chrome foot strip
+  C.part('skirts');
+  for (const sx of [-1, 1]) {
+    const skirt = panel(roundRectPts(2.62, 0.74, 0.06).map(([u, y]) => [u, y + 0.79]), 0.04, 0.008);   // outline in [-z, y], bottom 0.42
+    C.add(xform(skirt, 0, 0, 0, 0, Math.PI / 2, 0), TM.paint, sx > 0 ? 1.215 : -1.255, 0, -1.98);
+    C.add(roundBox(0.046, 0.028, 2.6, 0.008), TM.chrome, sx * 1.237, 0.445, -1.98);
+  }
+  // rear fenders: black shells over the duals with three ribs on top; end plates with lamps; mud flaps
+  C.part('fenders');
+  for (const sx of [-1, 1]) {
+    const path = []; for (let i = 0; i <= 14; i++) { const a = (25 + 130 * i / 14) * Math.PI / 180; path.push({ p: [sx * 0.895, 0.52 + 0.60 * Math.sin(a), -0.60 * Math.cos(a)] }); }
+    C.add(sweep([[0, -0.375], [0.03, -0.375], [0.03, 0.375], [0, 0.375]], path, { closed: true, up: [1, 0, 0], capStart: true, capEnd: true }), TM.rubber);
+    for (const a of [75, 90, 105]) { const r = a * Math.PI / 180; C.add(roundBox(0.70, 0.02, 0.04, 0.006, 1), TM.rubber, sx * 0.895, 0.52 + 0.632 * Math.sin(r), -0.632 * Math.cos(r), Math.PI / 2 - r, 0, 0); }
+  }
+  C.part('tailLamps');
+  for (const sx of [-1, 1]) {
+    C.add(roundBox(0.75, 0.34, 0.05, 0.02), TM.rubber, sx * 0.895, 0.96, 0.885);
+    C.add(roundBox(0.3, 0.085, 0.02, 0.008), TM.redDim, sx * 0.97, 1.06, 0.915);
+    C.add(roundBox(0.1, 0.08, 0.02, 0.008), TM.amberOff, sx * 0.62, 1.06, 0.915);
+    C.add(roundBox(0.08, 0.06, 0.02, 0.008), TM.white, sx * 0.76, 1.06, 0.915);
+  }
+  C.part('flaps');
+  for (const sx of [-1, 1]) {
+    C.add(roundBox(0.7, 0.46, 0.015, 0.006), TM.rubber, sx * 0.9, 0.56, 0.9);
+    C.add(roundBox(0.5, 0.11, 0.012, 0.004, 1), TM.reflector, sx * 0.9, 0.87, 0.913);    // the striped rear reflector (no lettering)
+  }
+  C.part('arches');
+  for (const sx of [-1, 1]) C.add(new THREE.CylinderGeometry(0.62, 0.62, 0.42, 18, 1, true, 0, Math.PI), TM.blackDS, sx * 1.03, 0.52, -3.9, 0, 0, Math.PI / 2);   // wheel-well liners
+  C.part(null);
+  const plate = new THREE.PlaneGeometry(0.44, 0.22).translate(-0.45, 0.72, 0.94);
+  statPart('plateR', plate); root.add(new THREE.Mesh(plate, PLATE_MAT));
+  // wheels: steered fronts, dual rears
+  for (const sx of [-1, 1]) {
+    const st = new THREE.Group(); st.position.set(sx * 1.03, 0.52, -3.9); st.updateMatrix(); root.add(st);
+    const w = tractorWheel(false, sx, 'wheelF', st.matrix); st.add(w); T.spin.push(w); T.steer.push(st);
+    const rm = new THREE.Matrix4().makeTranslation(sx * 0.9, 0.52, 0);
+    const r = tractorWheel(true, sx, 'wheelR', rm); r.position.set(sx * 0.9, 0.52, 0); root.add(r); T.spin.push(r); T.rear.push(r);
+  }
 }

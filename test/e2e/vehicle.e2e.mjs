@@ -196,3 +196,16 @@ test('外観：前まわりの部品があり、前端は今のまま、灯火�
   const r = await page.evaluate(async () => { GAME.lights = true; GAME.hazard = true; await __t.frames(3); return [TRK.heads.length, TRK.heads.every(m => m.material === TM.headOn), TRK.blinkL.length > 0 && TRK.blinkR.length > 0, TRK.wipers.length]; });
   assert.ok(r[0] >= 2 && r[1] && r[2] && r[3] === 2, JSON.stringify(r));
 }));
+test('外観：シャシーと車輪の部品があり、車輪は今までどおり回り、後輪は路面に残る', () => withGame({}, async page => {
+  await startJob(page); const P = await partsOf(page);
+  for (const k of ['frame', 'catwalk', 'fifthWheel', 'tankFuel', 'tankUrea', 'battery', 'muffler', 'skirts', 'fenders', 'tailLamps', 'flaps', 'plateR', 'wheelF', 'wheelR']) assert.ok(P[k] && P[k].tris > 0, k);
+  const f = P.fifthWheel.box; assert.ok(Math.abs((f[2] + f[5]) / 2 + 0.35) < 0.08 && Math.abs(f[4] - 1.23) < 0.03, String(f));
+  assert.ok(Math.abs(P.wheelF.box[4] - 1.04) < 0.02 && P.wheelF.box[1] > -0.01, String(P.wheelF.box)); assert.ok(P.fenders.box[3] <= 1.28 && P.skirts.box[1] >= 0.40, JSON.stringify([P.fenders.box, P.skirts.box]));
+  const r = await page.evaluate(async () => { const a = TRK.spin[0].rotation.x; INP.tGas = 1; for (let i = 0; i < 240; i++) simTick(1 / 60); await __t.frames(2); return [TRK.spin.length, TRK.steer.length, TRK.rear.length, Math.abs(TRK.spin[0].rotation.x - a) > 0.5]; });
+  assert.deepEqual(r, [4, 2, 2, true]);
+}));
+test('V10 外寸：トラクターの形は決まった箱に収まる', () => withGame({}, async page => {
+  const P = await partsOf(page), ext = Object.entries(P).filter(([k, p]) => p.group === 'exterior' && !['mirrors', 'lightBar', 'markers'].includes(k)).map(([, p]) => p.box);
+  const w = Math.max(...ext.map(b => b[3])) - Math.min(...ext.map(b => b[0])), front = Math.min(...ext.map(b => b[2])), top = Math.max(...ext.map(b => b[4]));
+  assert.ok(w >= 2.50 && w <= 2.60, `width ${w}`); assert.ok(front <= -5.60 && front >= -5.75, `front ${front}`); assert.ok(top >= 4.00 && top <= 4.10, `top ${top}`);
+}));
