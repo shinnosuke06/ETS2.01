@@ -138,6 +138,7 @@ function entryEdges(u, out = _ee) {
   return out;
 }
 const ENTRIES = ICS.slice(0, -1).map(ic => ({ ic, s0: ic.s + 150, s1: ic.s + 150 + ENTRY_LEN }));
+for (const e of ENTRIES) { e.uJoin = ENTRY_LEN; for (let u = 0; u < ENTRY_LEN; u += 1) if (entryEdges(u).xr >= -12.75) { e.uJoin = u; break; } }   // where the band meets the mainline
 function entryAt(s) {
   for (const e of ENTRIES) if (s >= e.s0 && s <= e.s1) return e;
   return null;
@@ -297,8 +298,8 @@ const SIGNS = [];
 function soundWallAt(s, side) {
   const p = regionAt(s, {});
   if (p.wall < 0.3 || tunnelAt(s, 30)) return false;
-  if (side < 0 && rampAt(s - 30) ) return false;
-  if (side < 0 && rampAt(s + 30)) return false;
+  if (side < 0 && (rampAt(s - 30) || rampAt(s + 30))) return false;
+  if (side < 0 && (entryAt(s - 30) || entryAt(s) || entryAt(s + 30))) return false;   // nor along an entrance band
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
 

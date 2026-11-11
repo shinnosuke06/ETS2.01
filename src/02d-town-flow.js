@@ -36,6 +36,7 @@ function _pick(list, rand) { return list.length ? list[Math.floor(rand() * list.
 function _carNext(L, lane, rand) { const opts = lane.next.filter(id => !L.lanes[id].plaza); return _pick(opts, rand); }
 
 function townCarsInit(L, n, rand) {
+  _townIndex(L).claim.clear();   // a new set of cars: claims held by the old ones go with them
   const cars = [], pool = L.lanes.filter(l => !l.turn && !l.plaza && l.len > 20);
   for (let k = 0; k < n; k++) {
     let r = rand(), type = TOWN_CAR_TYPES[0];
@@ -141,7 +142,8 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
         } else go = car.commit === lane.id;
       } else if (node.stop) {
         if (car.v < 0.3 && dist <= 4) car.stopT += dt;
-        go = car.commit === lane.id || (car.stopT >= 1 && !X.claim.get(node.id) && !_inJunction(L, X, cars, car, node.id, null));
+        const cl = X.claim.get(node.id), held = cl && !cl.hidden && cars.includes(cl);   // a claimant no longer driving here does not count
+        go = car.commit === lane.id || (car.stopT >= 1 && !held && !_inJunction(L, X, cars, car, node.id, null));
         if (go && car.commit !== lane.id) { car.commit = lane.id; X.claim.set(node.id, car); }
       }
       if (go && nx && nx.turn === 'right' && !car.turnOk) {

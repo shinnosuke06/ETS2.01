@@ -98,6 +98,7 @@ function* townMeshSteps(i) {
       }
     }
     for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {
+      if (Math.min(Math.abs(path[k - 1][0]), Math.abs(path[k][0])) > PLAZA_BAND_U - 0.5) continue;   // the ramp's own asphalt is there
       const a = path[k - 1], b = path[k], du = b[0] - a[0], dv = b[1] - a[1], s = Math.hypot(du, dv) || 1, nu = -dv / s * 6, nv = du / s * 6;
       const q = (u, v) => [u, v, Y(u, v) + 0.03];
       B.quad(q(a[0] - nu, a[1] - nv), q(b[0] - nu, b[1] - nv), q(b[0] + nu, b[1] + nv), q(a[0] + nu, a[1] + nv));

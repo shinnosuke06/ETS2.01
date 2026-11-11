@@ -75,6 +75,43 @@ const _DIRV = { 'v+': [0, 1], 'v-': [0, -1], 'u+': [1, 0], 'u-': [-1, 0] };
 const _TURNS = { 'v+': { straight: 'v+', left: 'u-', right: 'u+' }, 'v-': { straight: 'v-', left: 'u+', right: 'u-' },
   'u+': { straight: 'u+', left: 'v+', right: 'v-' }, 'u-': { straight: 'u-', left: 'v-', right: 'v+' } };
 
+// A wall polyline with each corner that sits at a junction's rounded kerb replaced by a curve round the kerb's centre,
+// from the foot of one side to the foot of the other (each side keeps its distance from the centre).
+function _roundWall(pts, kerbs) {
+  const out = [pts[0]];
+  for (let k = 1; k < pts.length - 1; k++) {
+    const p = pts[k], K = kerbs.find(c => Math.hypot(c.u - p[0], c.v - p[1]) < 15);
+    if (!K) { out.push(p); continue; }
+    const foot = (a, b) => { const du = b[0] - a[0], dv = b[1] - a[1], t = ((K.u - a[0]) * du + (K.v - a[1]) * dv) / (du * du + dv * dv); return [a[0] + du * t, a[1] + dv * t]; };
+    const f1 = foot(pts[k - 1], p), f2 = foot(p, pts[k + 1]);
+    const a1 = Math.atan2(f1[1] - K.v, f1[0] - K.u), r1 = Math.hypot(f1[0] - K.u, f1[1] - K.v), r2 = Math.hypot(f2[0] - K.u, f2[1] - K.v);
+    let da = Math.atan2(f2[1] - K.v, f2[0] - K.u) - a1;
+    while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+    for (let j = 0; j <= 8; j++) { const t = j / 8, an = a1 + da * t, rr = r1 + (r2 - r1) * t; out.push([K.u + rr * Math.cos(an), K.v + rr * Math.sin(an)]); }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+// The plaza's two roads in town coordinates. Between the town's edge (|u| = 60, and 5 m beyond) and the 20 m bends they
+// follow the ramp's and the entrance band's own lane centre (the route curves, and the band starts bending toward the
+// expressway at once), so a rig keeps to the same line across the seam; the bends join them to Main A. The ramp's
+// guardrails stop 15 m short of the bends (|u| = 40), where the plaza road is still 12 m wide for a trailer swinging in.
+const PLAZA_BAND_U = 40;   // |u| beyond which a plaza road is just the ramp's or the band's 5 m
+function _plazaPaths(site) {
+  const q = {}, at = (s, lat) => { const p = posAt(s, lat, {}); townUV(site, p.x, p.z, q); return [q.u, q.v]; };
+  const out = { exitPath: null, entryPath: null };
+  if (site.exit) {
+    const r = RAMPS.find(x => x.ic === site.ic), band = [];
+    for (let u = -65; u < -26; u += 5) band.push(at(site.s + u, rampCx(site.s + u - r.sDiv)));
+    out.exitPath = [...band, ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]];
+  }
+  if (site.entry) {
+    const e = ENTRIES.find(x => x.ic === site.ic), band = [];
+    for (let u = 30; u <= 65; u += 5) band.push(at(site.s + u, entryCx(site.s + u - e.s0)));
+    out.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), ...band];
+  }
+  return out;
+}
 function townLayout(i) {
   const site = TOWN_SITES[i], R = rng(9001 + 101 * i), town = regionAt(site.ic.s, {}).town;
   const streets = [], nodes = [], lanes = [], blocks = [], warehouses = [], buildings = [], fences = [];
@@ -152,14 +189,15 @@ function townLayout(i) {
   const plaza = { exitPath: null, entryPath: null, exitLane: null, entryLane: null,
     gates: { exit: { u: -5, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: 5, v: 30, dir: -1, state: 'closed', open: 0 } } };
   const aStart = (dir, k) => lanes.find(l => l.street === A.id && l.dir === dir && l.k === k && (dir === 'v+' ? l.edge0 : l.edge1));
+  const pp = _plazaPaths(site);
   if (site.exit) {
-    plaza.exitPath = [[-60, 0], ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]];
+    plaza.exitPath = pp.exitPath;
     const l = addLane({ pts: plaza.exitPath, street: null, limit: 20, k: 0, dir: 'v+', plaza: true });
     const to = aStart('v+', 0); if (to) l.next.push(to.id);
     plaza.exitLane = l.id;
   }
   if (site.entry) {
-    plaza.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), [60, 0]];
+    plaza.entryPath = pp.entryPath;
     const l = addLane({ pts: plaza.entryPath, street: null, limit: 20, k: 0, dir: 'u+', plaza: true });
     const from = aStart('v-', 0); if (from) from.next.push(l.id);
     plaza.entryLane = l.id;
@@ -199,6 +237,15 @@ function townLayout(i) {
     const c = side === 'u0' ? b.u0 : b.u1;
     return vStreets.find(V => Math.abs((side === 'u0' ? V.c + _ht(V) : V.c - _ht(V)) - c) < 0.5 && V.a0 <= b.v0 && V.a1 >= b.v1) || null;
   };
+  // the junctions' kerb circles at each rounded corner (the circle's centre, and the walk's outer edge as radius)
+  const kerbs = [];
+  for (const n of nodes) {
+    const V = streets[n.streets[0]], U = streets[n.streets[1]], walk = Math.min(V.walkW, U.walkW);
+    for (const [su, sv] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      if (!n.arms[sv > 0 ? 'v+' : 'v-'] || !n.arms[su > 0 ? 'u+' : 'u-']) continue;
+      kerbs.push({ u: n.u + su * (_hc(V) + TOWN_CORNER_R), v: n.v + sv * (_hc(U) + TOWN_CORNER_R), r: TOWN_CORNER_R - walk });
+    }
+  }
   const cands = blocks.filter(b => b.row === 1 && b.u1 - b.u0 >= 90 && b.v1 - b.v0 >= 97)
     .map(b => ({ b, key: Math.abs((b.u0 + b.u1) / 2) + R() * 40 })).sort((x, y) => x.key - y.key).map(x => x.b);
   const nWh = Math.min(cands.length, 2 + (R() < 0.5 ? 1 : 0));
@@ -224,9 +271,10 @@ function townLayout(i) {
     warehouses.push({ id: k, name: site.ic.jp + TOWN_WH_NAMES[k], block: blocks.indexOf(b), street: st.id, gate: { u: g[0], v: g[1], nu: e[0], nv: e[1], w: 14 }, yard, building: bld, docks,
       bay: { u: bay[0], v: bay[1], hu: e[0], hv: e[1] }, park: { u: park[0], v: park[1], hu: -e[0], hv: -e[1] }, gateLanes });
     buildings.push({ u: (bld.u0 + bld.u1) / 2, v: (bld.v0 + bld.v1) / 2, w: bld.u1 - bld.u0, d: bld.v1 - bld.v0, h: 10, rot: 0, kind: 'warehouse', wh: k });
-    // the yard wall, open for 14 m at the gate
+    // the yard wall, open for 14 m at the gate, bent round the junctions' rounded kerbs at the block's corners
     const a = P(1, -W / 2 + 1), c = P(1, W / 2 - 1), d2 = P(D - 1, W / 2 - 1), f = P(D - 1, -W / 2 + 1), gl = P(1, -7), gr = P(1, 7);
-    for (const [p, q] of [[a, gl], [gr, c], [c, d2], [d2, f], [f, a]]) fences.push({ u0: p[0], v0: p[1], u1: q[0], v1: q[1], kind: 'wall' });
+    const wl = _roundWall([gr, c, d2, f, a, gl], kerbs);
+    for (let j = 1; j < wl.length; j++) fences.push({ u0: wl[j - 1][0], v0: wl[j - 1][1], u1: wl[j][0], v1: wl[j][1], kind: 'wall' });
   }
 
   // ---- buildings and hedges in the other blocks ----
@@ -356,8 +404,9 @@ function townFallbackLayout(i) {
   const plaza = { exitPath: null, entryPath: null, exitLane: null, entryLane: null,
     gates: { exit: { u: -5, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: 5, v: 30, dir: -1, state: 'closed', open: 0 } } };
   const add = (pts, dir) => { const l = { id: lanes.length, pts, len: _len(pts), next: [], turn: null, stopD: null, stopNode: null, stopAxis: null, edge0: false, edge1: false, plaza: true, node0: null, node1: null, street: null, limit: 20, k: 0, dir }; lanes.push(l); return l; };
-  if (site.exit) { plaza.exitPath = [[-60, 0], ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]]; plaza.exitLane = add(plaza.exitPath, 'v+').id; }
-  if (site.entry) { plaza.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), [60, 0]]; plaza.entryLane = add(plaza.entryPath, 'u+').id; }
+  const pp = _plazaPaths(site);
+  if (site.exit) { plaza.exitPath = pp.exitPath; plaza.exitLane = add(plaza.exitPath, 'v+').id; }
+  if (site.entry) { plaza.entryPath = pp.entryPath; plaza.entryLane = add(plaza.entryPath, 'u+').id; }
   const yard = { u0: -35, u1: 35, v0: 45, v1: 115 }, fences = [];
   for (const [p, q] of [[[-35, 45], [-7, 45]], [[7, 45], [35, 45]], [[35, 45], [35, 115]], [[35, 115], [-35, 115]], [[-35, 115], [-35, 45]]]) fences.push({ u0: p[0], v0: p[1], u1: q[0], v1: q[1], kind: 'wall' });
   const wh = { id: 0, name: site.ic.jp + TOWN_WH_NAMES[0], block: -1, street: null, gate: { u: 0, v: 45, nu: 0, nv: 1, w: 14 }, yard, building: null, docks: [],
@@ -413,9 +462,10 @@ function* townGridSteps(L) {
   for (const st of L.streets) { const b = carr(st); _gFill(type, b[0], b[1], b[2], b[3], C.ROAD); }
   yield null;
   // the plaza roads (6 m either side of each path, so a trailer cutting the bend stays on them) and the booth islands
-  for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {   // each piece of the path as a 6 m capsule
-    const a = path[k - 1], b = path[k];
-    _gFill(type, Math.min(a[0], b[0]) - 6, Math.max(a[0], b[0]) + 6, Math.min(a[1], b[1]) - 6, Math.max(a[1], b[1]) + 6, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= 6);
+  for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {   // each piece of the path as a capsule
+    const band = Math.min(Math.abs(path[k - 1][0]), Math.abs(path[k][0])) > PLAZA_BAND_U - 0.5;   // on the ramp's or band's lane: just its 5 m
+    const a = band ? [path[k - 1][0], path[k - 1][1] + 0.3] : path[k - 1], b = band ? [path[k][0], path[k][1] + 0.3] : path[k], w = band ? 2.5 : 6;
+    _gFill(type, Math.min(a[0], b[0]) - w, Math.max(a[0], b[0]) + w, Math.min(a[1], b[1]) - w, Math.max(a[1], b[1]) + w, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= w);
   }
   for (const [u0, u1] of [[-1.2, 1.2], [-9.5, -7.5], [7.5, 9.5]]) _gFill(type, u0, u1, 24, 38, C.WALL);
   yield null;

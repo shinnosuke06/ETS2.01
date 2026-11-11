@@ -235,6 +235,14 @@ function handleActions() {
 }
 
 // ---- gates, exits, violations ------------------------------------------------------
+// The destination moves on to the next IC (the expressway is one-way): 15% off the pay, more time, a message.
+function nextDestination(why) {
+  const j = GAME.job;
+  j.missPen += Math.round(j.pay * 0.15 / 100) * 100;
+  j.to += 1; j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh);   // delivered to the same kind of warehouse in the next town
+  j.due += (j.b.kp - ICS[j.to - 1].kp) / 70 * 3600;
+  led(`${why}次の${j.b.jp}ICで降ります`, true, 5);
+}
 function gameLogic(dt) {
   const j = GAME.job;
   const r = rampAt(TR.s);
@@ -242,12 +250,8 @@ function gameLogic(dt) {
   // missed the destination exit
   const dr = destRamp();
   if (!TR.onRamp && TR.s > dr.sDiv + dr.uSep + 30 && TR.s < dr.sEnd + 200 && TR.lat > -12.6) {
-    if (j.to < ICS.length - 1) {
-      j.missPen += Math.round(j.pay * 0.15 / 100) * 100;
-      j.to += 1; j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh);   // delivered to the same kind of warehouse in the next town
-      j.due += (j.b.kp - ICS[j.to - 1].kp) / 70 * 3600;
-      led(`出口を通過。次の${j.b.jp}ICで降ります`, true, 5);
-    } else {
+    if (j.to < ICS.length - 1) nextDestination('出口を通過。');
+    else {
       led('出口を通過しました。手前に戻ります', true, 4);
       j.missPen += 5000;
       placeTruck(dr.sDiv - 500, X_TRV, 15, { coupled: TR.link !== 'free' });
@@ -307,6 +311,7 @@ function plazaGates(dt) {
       if (inLane && !g.passed && dg < -6) {
         g.passed = true;
         if (key === 'exit' && i !== j.to) led(`${site.ic.jp}ICは目的地ではありません。入口から高速に戻れます`, true, 5);
+        if (key === 'entry' && i === j.to && j.to < ICS.length - 1) nextDestination('納品せずに高速へ戻りました。');   // the destination is behind now
       }
       g.open = damp(g.open, g.state === 'closed' ? 0 : 1, g.state === 'broken' ? 14 : 4, dt);
       const pv = mesh && mesh.gates[key]; if (pv) pv.rotation.z = -g.open * (g.state === 'broken' ? 1.2 : 1.45);
@@ -522,7 +527,7 @@ function navState() {
   const gw = townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, {}), destWh = { x: gw.x, z: gw.z, name: j.whB.name };
   let target = null;
   if (TR.zone === 'town' && TR.town === j.to) { target = destWh; guide = `${destWh.name}まで ${Math.round(Math.hypot(TR.x - gw.x, TR.z - gw.z) / 10) * 10} m`; gd = ''; }
-  else if (TR.zone === 'town') {
+  else if (TR.zone === 'town' && TOWN_SITES[TR.town].entry) {   // the last IC has no entrance
     const site = TOWN_SITES[TR.town], g = jobLayout(TR.town).plaza.gates.entry, q = townXZ(site, g.u, g.v, {});
     target = { x: q.x, z: q.z }; guide = `${site.ic.jp} IC 入口まで ${Math.round(Math.hypot(TR.x - q.x, TR.z - q.z) / 10) * 10} m`; gd = '';
   }

@@ -63,3 +63,26 @@ test('高速沿いの家は道路にはみ出さない（家の四隅が本線�
   });
   assert.ok(r.n > 100 && r.worst >= 14.2, JSON.stringify(r)); assert.equal(r.inTown, 0, JSON.stringify(r));
 }));
+
+test('入口の帯の中に、本線の左のガードレール・地面・案内の門の柱が入らない（12 か所すべて）', () => withGame({}, async page => {
+  const r = await page.evaluate(() => {
+    const out = { posts: [], ground: [], gantry: [] }, m = new THREE.Matrix4(), p = new THREE.Vector3(), pr = {};
+    const gantryLeft = typeof gantryLeftX === 'function' ? gantryLeftX : () => -13.1;   // before: always at -13.1
+    for (const e of ENTRIES) {
+      placeTruck(e.s0 + 250, X_TRV, 0, { coupled: false }); updateChunks(e.s0 + 250, 99);
+      for (const c of chunks.values()) c.grp.traverse(o => {   // the mainline's left guardrail posts
+        if (!o.isInstancedMesh || o.material !== MAT.post) return;
+        for (let k = 0; k < o.count; k++) {
+          o.getMatrixAt(k, m); p.setFromMatrixPosition(m).add(c.grp.position); project(p.x, p.z, Math.floor(c.k * CHUNK / DS), pr);
+          const u = pr.s - e.s0; if (u > 0 && u < ENTRY_LEN && pr.lat > -12.6 && pr.lat < -12.3 && pr.lat < entryEdges(u).xr + 0.3) out.posts.push(`${e.ic.jp} +${Math.round(u)} ${pr.lat.toFixed(2)} ${entryEdges(u).xr.toFixed(2)}`);   // the band's inner edge reaches the post
+        }
+      });
+      for (let u = 0; u <= ENTRY_LEN; u += 10) {   // the ground starts beyond the band's outer edge
+        const s = e.s0 + u, xl = entryEdges(u).xl; if (leftInner(s) < -xl - 0.01) out.ground.push(`${e.ic.jp} +${u}`);
+        const g = gantryLeft(s); if (g > xl - 0.5 && u < ENTRY_LEN - 2) out.gantry.push(`${e.ic.jp} +${u} ${g.toFixed(1)} ${xl.toFixed(1)}`);
+      }
+    }
+    return out;
+  });
+  assert.deepEqual(r.posts.slice(0, 4), [], `${r.posts.length} posts in the lane`); assert.deepEqual(r.ground.slice(0, 4), []); assert.deepEqual(r.gantry.slice(0, 4), []);
+}));

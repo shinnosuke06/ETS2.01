@@ -47,7 +47,7 @@ test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 
     for (let s = r2.sDiv + 420; s <= r2.sEnd; s += 5) { const p = posAt(s, rampEdges(s - r2.sDiv).cx, {}); ex.push([p.x, p.z]); }
     placeTruck(r2.sDiv + 420, rampEdges(420).cx, 8, { coupled: true }); await __ready();
     const L2 = TOWNS_LOADED.get(2).layout;
-    __drive([...ex, ...__town(2, [...L2.plaza.exitPath.slice(2), [-4.875, 70]])], 15, 120);
+    __drive([...ex, ...__town(2, [...L2.plaza.exitPath.filter(p => p[0] > -24.5), [-4.875, 70]])], 15, 120);
     log.exitGate = L2.plaza.gates.exit.state; log.toll = GAME.job.toll;
     // onto a dock of the destination warehouse: lined up 12 m out, then straight back until the tail is at the bumpers
     const w = GAME.job.whB, d = w.docks[2], sp = TRAILERS[TR.trailerKey], site = TOWN_SITES[2], q = {};
@@ -97,7 +97,7 @@ test('T12 違う IC で降りて入口から戻っても、罰金はなく、料
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
     placeTruck(r1.sDiv + 420, rampEdges(420).cx, 8, { coupled: true }); await __ready();
     const L1 = TOWNS_LOADED.get(1).layout;
-    __drive([...ex, ...__town(1, [...L1.plaza.exitPath.slice(2), [-4.875, 60]])], 15, 120);
+    __drive([...ex, ...__town(1, [...L1.plaza.exitPath.filter(p => p[0] > -24.5), [-4.875, 60]])], 15, 120);
     const led1 = document.getElementById('ledText').textContent;
     __placeTown(1, 4.875, 80, 0, -1, 8); await __ready();
     __drive(__town(1, [[4.875, 80], ...L1.plaza.entryPath]), 15, 90, false);

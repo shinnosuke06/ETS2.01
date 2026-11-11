@@ -124,3 +124,16 @@ test('町の車は、あなたの車両のそばの車線の始まりには出�
   cars = SIM.townCarsInit(L, 1, rand);
   for (let k = 0; k < 200; k++) { cars[0].hidden = true; SIM.townCarsStep(L, cars, 1 / 60, 0, [box(starts[0])], rand); assert.notEqual(cars[0].lane, starts[0].id); }
 });
+
+test('町の車を作り直しても（画質の切り替え、町の作り直し）、止まれの交差点の順番待ちが残らず、10 分で全部の車が 50 m 以上進む', () => {
+  for (const i of [2, 5, 9]) {
+    const L = SIM.townLayout(i), X = SIM._townIndex(L), rand = SIM.rng(31 + i);
+    let cars = SIM.townCarsInit(L, 25, rand), t = 0;
+    for (let k = 0; k < 60 * 300 && X.claim.size === 0; k++) { SIM.townCarsStep(L, cars, 1 / 60, t, [], rand); t += 1 / 60; }
+    assert.ok(X.claim.size > 0, `a stop junction was being crossed in ${L.site.ic.jp}`);
+    cars = SIM.townCarsInit(L, 25, rand);   // the old cars are gone, the claim with them
+    const moved = new Map();
+    for (let k = 0; k < 10 * 600; k++) { SIM.townCarsStep(L, cars, 0.1, t, [], rand); t += 0.1; for (const c of cars) moved.set(c, (moved.get(c) || 0) + c.v * 0.1); }
+    const least = Math.min(...moved.values()); assert.ok(least >= 50, `a car moved only ${least.toFixed(1)} m in ${L.site.ic.jp}`);
+  }
+});

@@ -184,3 +184,31 @@ test('出口の帯は ic.s + 100 で終わり、行き止まりの壁はない�
   assert.ok(Math.abs(sim.entryEdges(300, {}).cx + 11.25) < 1e-9); assert.ok(Math.abs(sim.entryEdges(450, {}).xl + 12.2) < 1e-9);
   assert.equal(sim.entryAt(e.s0 + 10), e); assert.equal(sim.entryAt(e.s1 + 10), null);
 });
+
+test('T5 交差点の丸い角（半径 12 m）の車道と歩道には、どの町でも壁がない（倉庫の塀も角では丸く曲がる）', () => {
+  const sim = loadSim();
+  for (let i = 0; i < sim.TOWN_SITES.length; i++) {
+    sim.townLoad(i);
+    const T = sim.TOWNS_LOADED.get(i), L = T.layout, r = 12, bad = [];
+    for (const n of L.nodes) {
+      const V = L.streets[n.streets[0]], U = L.streets[n.streets[1]], walk = Math.min(V.walkW, U.walkW);
+      const hc = st => st.lanes * st.laneW;   // half the carriageway
+      for (const [su, sv] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+        if (!n.arms[sv > 0 ? 'v+' : 'v-'] || !n.arms[su > 0 ? 'u+' : 'u-']) continue;
+        const ku = n.u + su * hc(V), kv = n.v + sv * hc(U), cu = ku + su * r, cv = kv + sv * r;
+        for (let a = 0; a <= 1.0001; a += 0.05) for (const rad of [r - walk + 0.6, r - walk / 2, r - 0.2]) {
+          const t = Math.PI / 2 * a, u = cu - su * rad * Math.cos(t), v = cv - sv * rad * Math.sin(t);
+          if (sim.townCellAt(T.grid, u, v) === sim.TCELL.WALL) bad.push([n.id, su, sv, +u.toFixed(1), +v.toFixed(1)]);
+        }
+      }
+    }
+    assert.deepEqual(bad.slice(0, 5), [], `${L.site.ic.jp}: ${bad.length} wall cells in rounded corners`);
+    sim.townUnload(i);
+  }
+});
+
+test('入口の帯の左に防音壁を立てない（帯の前後 30 m も）', () => {
+  const sim = loadSim(), bad = [];
+  for (const e of sim.ENTRIES) for (let s = e.s0 - 30; s <= e.s1 + 30; s += 5) if (sim.soundWallAt(s, -1)) bad.push(`${e.ic.jp} +${Math.round(s - e.s0)}`);
+  assert.deepEqual(bad.slice(0, 6), [], `${bad.length} wall spots`);
+});

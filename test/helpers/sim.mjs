@@ -4,9 +4,9 @@ const SRC = new URL('../../src/', import.meta.url);
 export const PURE = ['01a-math.js', '02-route.js', '02b-towns.js', '02c-ground.js', '02d-town-flow.js', '09a-powertrain.js', '09b-rig.js', '09c-truck.js'];
 const NAMES = ['TAU', 'clamp', 'lerp', 'damp', 'wrapA', 'rng', 'S0', 'DS', 'X_TRV', 'ICS', 'RAMPS', 'TUNNELS', 'ROUTE_END',
   'posAt', 'project', 'elevAt', 'gradeAt', 'headingAt', 'drivable', 'rampAt', 'ROAD', 'roadBarrier', 'GROUND',
-  'ENTRIES', 'entryEdges', 'entryAt', 'SIGNS', 'rampEdges', 'TOWN_SITES', 'townSite', 'townUV', 'townXZ', 'townInside', 'townLayout', 'townLimitAt', 'townGraphDistance', 'townPlazaPoint', 'townGroundBlend', 'townHeight', 'TCELL',
-  'townLoad', 'townUnload', 'TOWNS_LOADED', 'townGrid', 'townGridSteps', 'townFallbackLayout', 'TOWN_U0', 'TOWN_V0', 'TOWN_CELL', 'TOWN_NU', 'TOWN_NV', 'placeTruckAt', 'parkTrailerAt', 'routeHint',
-  'signalState', 'townIdm', 'townCarsInit', 'townCarsStep', 'townCarPose', 'townPlayerBoxes', 'townRedLight', 'dockCheck', 'bayCheck', 'resolveBoxContact', 'townNearestLane',
+  'ENTRIES', 'entryEdges', 'entryAt', 'soundWallAt', 'SIGNS', 'rampEdges', 'TOWN_SITES', 'townSite', 'townUV', 'townXZ', 'townInside', 'townLayout', 'townLimitAt', 'townGraphDistance', 'townPlazaPoint', 'townGroundBlend', 'townHeight', 'TCELL',
+  'townLoad', 'townUnload', 'TOWNS_LOADED', 'townCellAt', 'townGrid', 'townGridSteps', 'townFallbackLayout', 'TOWN_U0', 'TOWN_V0', 'TOWN_CELL', 'TOWN_NU', 'TOWN_NV', 'placeTruckAt', 'parkTrailerAt', 'routeHint',
+  'signalState', 'townIdm', 'townCarsInit', 'townCarsStep', 'townCarPose', 'townPlayerBoxes', 'townRedLight', 'dockCheck', 'bayCheck', 'resolveBoxContact', 'townNearestLane', '_townIndex',
   'EVENTS', 'GEARS', 'VMAX', 'engineTorque', 'startGear', 'powertrainStep',
   'MU', 'RIGP', 'RIG', 'rigSetTrailer', 'rigPlace', 'rigParkTrailer', 'rigStep', 'rigPose', 'rigApplyImpulse', 'rigAxleLoads', 'rigSteerLimit',
   'TRAILERS', 'TR', 'steerLock', 'setRigTrailer', 'placeTruck', 'parkTrailer', 'stepTruck', 'physicsAdvance',

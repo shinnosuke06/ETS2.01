@@ -673,6 +673,7 @@ function entryEdges(u, out = _ee) {
   return out;
 }
 const ENTRIES = ICS.slice(0, -1).map(ic => ({ ic, s0: ic.s + 150, s1: ic.s + 150 + ENTRY_LEN }));
+for (const e of ENTRIES) { e.uJoin = ENTRY_LEN; for (let u = 0; u < ENTRY_LEN; u += 1) if (entryEdges(u).xr >= -12.75) { e.uJoin = u; break; } }   // where the band meets the mainline
 function entryAt(s) {
   for (const e of ENTRIES) if (s >= e.s0 && s <= e.s1) return e;
   return null;
@@ -832,8 +833,8 @@ const SIGNS = [];
 function soundWallAt(s, side) {
   const p = regionAt(s, {});
   if (p.wall < 0.3 || tunnelAt(s, 30)) return false;
-  if (side < 0 && rampAt(s - 30) ) return false;
-  if (side < 0 && rampAt(s + 30)) return false;
+  if (side < 0 && (rampAt(s - 30) || rampAt(s + 30))) return false;
+  if (side < 0 && (entryAt(s - 30) || entryAt(s) || entryAt(s + 30))) return false;   // nor along an entrance band
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
 
@@ -923,6 +924,43 @@ const _DIRV = { 'v+': [0, 1], 'v-': [0, -1], 'u+': [1, 0], 'u-': [-1, 0] };
 const _TURNS = { 'v+': { straight: 'v+', left: 'u-', right: 'u+' }, 'v-': { straight: 'v-', left: 'u+', right: 'u-' },
   'u+': { straight: 'u+', left: 'v+', right: 'v-' }, 'u-': { straight: 'u-', left: 'v-', right: 'v+' } };
 
+// A wall polyline with each corner that sits at a junction's rounded kerb replaced by a curve round the kerb's centre,
+// from the foot of one side to the foot of the other (each side keeps its distance from the centre).
+function _roundWall(pts, kerbs) {
+  const out = [pts[0]];
+  for (let k = 1; k < pts.length - 1; k++) {
+    const p = pts[k], K = kerbs.find(c => Math.hypot(c.u - p[0], c.v - p[1]) < 15);
+    if (!K) { out.push(p); continue; }
+    const foot = (a, b) => { const du = b[0] - a[0], dv = b[1] - a[1], t = ((K.u - a[0]) * du + (K.v - a[1]) * dv) / (du * du + dv * dv); return [a[0] + du * t, a[1] + dv * t]; };
+    const f1 = foot(pts[k - 1], p), f2 = foot(p, pts[k + 1]);
+    const a1 = Math.atan2(f1[1] - K.v, f1[0] - K.u), r1 = Math.hypot(f1[0] - K.u, f1[1] - K.v), r2 = Math.hypot(f2[0] - K.u, f2[1] - K.v);
+    let da = Math.atan2(f2[1] - K.v, f2[0] - K.u) - a1;
+    while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+    for (let j = 0; j <= 8; j++) { const t = j / 8, an = a1 + da * t, rr = r1 + (r2 - r1) * t; out.push([K.u + rr * Math.cos(an), K.v + rr * Math.sin(an)]); }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+// The plaza's two roads in town coordinates. Between the town's edge (|u| = 60, and 5 m beyond) and the 20 m bends they
+// follow the ramp's and the entrance band's own lane centre (the route curves, and the band starts bending toward the
+// expressway at once), so a rig keeps to the same line across the seam; the bends join them to Main A. The ramp's
+// guardrails stop 15 m short of the bends (|u| = 40), where the plaza road is still 12 m wide for a trailer swinging in.
+const PLAZA_BAND_U = 40;   // |u| beyond which a plaza road is just the ramp's or the band's 5 m
+function _plazaPaths(site) {
+  const q = {}, at = (s, lat) => { const p = posAt(s, lat, {}); townUV(site, p.x, p.z, q); return [q.u, q.v]; };
+  const out = { exitPath: null, entryPath: null };
+  if (site.exit) {
+    const r = RAMPS.find(x => x.ic === site.ic), band = [];
+    for (let u = -65; u < -26; u += 5) band.push(at(site.s + u, rampCx(site.s + u - r.sDiv)));
+    out.exitPath = [...band, ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]];
+  }
+  if (site.entry) {
+    const e = ENTRIES.find(x => x.ic === site.ic), band = [];
+    for (let u = 30; u <= 65; u += 5) band.push(at(site.s + u, entryCx(site.s + u - e.s0)));
+    out.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), ...band];
+  }
+  return out;
+}
 function townLayout(i) {
   const site = TOWN_SITES[i], R = rng(9001 + 101 * i), town = regionAt(site.ic.s, {}).town;
   const streets = [], nodes = [], lanes = [], blocks = [], warehouses = [], buildings = [], fences = [];
@@ -1000,14 +1038,15 @@ function townLayout(i) {
   const plaza = { exitPath: null, entryPath: null, exitLane: null, entryLane: null,
     gates: { exit: { u: -5, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: 5, v: 30, dir: -1, state: 'closed', open: 0 } } };
   const aStart = (dir, k) => lanes.find(l => l.street === A.id && l.dir === dir && l.k === k && (dir === 'v+' ? l.edge0 : l.edge1));
+  const pp = _plazaPaths(site);
   if (site.exit) {
-    plaza.exitPath = [[-60, 0], ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]];
+    plaza.exitPath = pp.exitPath;
     const l = addLane({ pts: plaza.exitPath, street: null, limit: 20, k: 0, dir: 'v+', plaza: true });
     const to = aStart('v+', 0); if (to) l.next.push(to.id);
     plaza.exitLane = l.id;
   }
   if (site.entry) {
-    plaza.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), [60, 0]];
+    plaza.entryPath = pp.entryPath;
     const l = addLane({ pts: plaza.entryPath, street: null, limit: 20, k: 0, dir: 'u+', plaza: true });
     const from = aStart('v-', 0); if (from) from.next.push(l.id);
     plaza.entryLane = l.id;
@@ -1047,6 +1086,15 @@ function townLayout(i) {
     const c = side === 'u0' ? b.u0 : b.u1;
     return vStreets.find(V => Math.abs((side === 'u0' ? V.c + _ht(V) : V.c - _ht(V)) - c) < 0.5 && V.a0 <= b.v0 && V.a1 >= b.v1) || null;
   };
+  // the junctions' kerb circles at each rounded corner (the circle's centre, and the walk's outer edge as radius)
+  const kerbs = [];
+  for (const n of nodes) {
+    const V = streets[n.streets[0]], U = streets[n.streets[1]], walk = Math.min(V.walkW, U.walkW);
+    for (const [su, sv] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      if (!n.arms[sv > 0 ? 'v+' : 'v-'] || !n.arms[su > 0 ? 'u+' : 'u-']) continue;
+      kerbs.push({ u: n.u + su * (_hc(V) + TOWN_CORNER_R), v: n.v + sv * (_hc(U) + TOWN_CORNER_R), r: TOWN_CORNER_R - walk });
+    }
+  }
   const cands = blocks.filter(b => b.row === 1 && b.u1 - b.u0 >= 90 && b.v1 - b.v0 >= 97)
     .map(b => ({ b, key: Math.abs((b.u0 + b.u1) / 2) + R() * 40 })).sort((x, y) => x.key - y.key).map(x => x.b);
   const nWh = Math.min(cands.length, 2 + (R() < 0.5 ? 1 : 0));
@@ -1072,9 +1120,10 @@ function townLayout(i) {
     warehouses.push({ id: k, name: site.ic.jp + TOWN_WH_NAMES[k], block: blocks.indexOf(b), street: st.id, gate: { u: g[0], v: g[1], nu: e[0], nv: e[1], w: 14 }, yard, building: bld, docks,
       bay: { u: bay[0], v: bay[1], hu: e[0], hv: e[1] }, park: { u: park[0], v: park[1], hu: -e[0], hv: -e[1] }, gateLanes });
     buildings.push({ u: (bld.u0 + bld.u1) / 2, v: (bld.v0 + bld.v1) / 2, w: bld.u1 - bld.u0, d: bld.v1 - bld.v0, h: 10, rot: 0, kind: 'warehouse', wh: k });
-    // the yard wall, open for 14 m at the gate
+    // the yard wall, open for 14 m at the gate, bent round the junctions' rounded kerbs at the block's corners
     const a = P(1, -W / 2 + 1), c = P(1, W / 2 - 1), d2 = P(D - 1, W / 2 - 1), f = P(D - 1, -W / 2 + 1), gl = P(1, -7), gr = P(1, 7);
-    for (const [p, q] of [[a, gl], [gr, c], [c, d2], [d2, f], [f, a]]) fences.push({ u0: p[0], v0: p[1], u1: q[0], v1: q[1], kind: 'wall' });
+    const wl = _roundWall([gr, c, d2, f, a, gl], kerbs);
+    for (let j = 1; j < wl.length; j++) fences.push({ u0: wl[j - 1][0], v0: wl[j - 1][1], u1: wl[j][0], v1: wl[j][1], kind: 'wall' });
   }
 
   // ---- buildings and hedges in the other blocks ----
@@ -1204,8 +1253,9 @@ function townFallbackLayout(i) {
   const plaza = { exitPath: null, entryPath: null, exitLane: null, entryLane: null,
     gates: { exit: { u: -5, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: 5, v: 30, dir: -1, state: 'closed', open: 0 } } };
   const add = (pts, dir) => { const l = { id: lanes.length, pts, len: _len(pts), next: [], turn: null, stopD: null, stopNode: null, stopAxis: null, edge0: false, edge1: false, plaza: true, node0: null, node1: null, street: null, limit: 20, k: 0, dir }; lanes.push(l); return l; };
-  if (site.exit) { plaza.exitPath = [[-60, 0], ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]]; plaza.exitLane = add(plaza.exitPath, 'v+').id; }
-  if (site.entry) { plaza.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), [60, 0]]; plaza.entryLane = add(plaza.entryPath, 'u+').id; }
+  const pp = _plazaPaths(site);
+  if (site.exit) { plaza.exitPath = pp.exitPath; plaza.exitLane = add(plaza.exitPath, 'v+').id; }
+  if (site.entry) { plaza.entryPath = pp.entryPath; plaza.entryLane = add(plaza.entryPath, 'u+').id; }
   const yard = { u0: -35, u1: 35, v0: 45, v1: 115 }, fences = [];
   for (const [p, q] of [[[-35, 45], [-7, 45]], [[7, 45], [35, 45]], [[35, 45], [35, 115]], [[35, 115], [-35, 115]], [[-35, 115], [-35, 45]]]) fences.push({ u0: p[0], v0: p[1], u1: q[0], v1: q[1], kind: 'wall' });
   const wh = { id: 0, name: site.ic.jp + TOWN_WH_NAMES[0], block: -1, street: null, gate: { u: 0, v: 45, nu: 0, nv: 1, w: 14 }, yard, building: null, docks: [],
@@ -1261,9 +1311,10 @@ function* townGridSteps(L) {
   for (const st of L.streets) { const b = carr(st); _gFill(type, b[0], b[1], b[2], b[3], C.ROAD); }
   yield null;
   // the plaza roads (6 m either side of each path, so a trailer cutting the bend stays on them) and the booth islands
-  for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {   // each piece of the path as a 6 m capsule
-    const a = path[k - 1], b = path[k];
-    _gFill(type, Math.min(a[0], b[0]) - 6, Math.max(a[0], b[0]) + 6, Math.min(a[1], b[1]) - 6, Math.max(a[1], b[1]) + 6, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= 6);
+  for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {   // each piece of the path as a capsule
+    const band = Math.min(Math.abs(path[k - 1][0]), Math.abs(path[k][0])) > PLAZA_BAND_U - 0.5;   // on the ramp's or band's lane: just its 5 m
+    const a = band ? [path[k - 1][0], path[k - 1][1] + 0.3] : path[k - 1], b = band ? [path[k][0], path[k][1] + 0.3] : path[k], w = band ? 2.5 : 6;
+    _gFill(type, Math.min(a[0], b[0]) - w, Math.max(a[0], b[0]) + w, Math.min(a[1], b[1]) - w, Math.max(a[1], b[1]) + w, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= w);
   }
   for (const [u0, u1] of [[-1.2, 1.2], [-9.5, -7.5], [7.5, 9.5]]) _gFill(type, u0, u1, 24, 38, C.WALL);
   yield null;
@@ -1467,6 +1518,7 @@ function _pick(list, rand) { return list.length ? list[Math.floor(rand() * list.
 function _carNext(L, lane, rand) { const opts = lane.next.filter(id => !L.lanes[id].plaza); return _pick(opts, rand); }
 
 function townCarsInit(L, n, rand) {
+  _townIndex(L).claim.clear();   // a new set of cars: claims held by the old ones go with them
   const cars = [], pool = L.lanes.filter(l => !l.turn && !l.plaza && l.len > 20);
   for (let k = 0; k < n; k++) {
     let r = rand(), type = TOWN_CAR_TYPES[0];
@@ -1572,7 +1624,8 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
         } else go = car.commit === lane.id;
       } else if (node.stop) {
         if (car.v < 0.3 && dist <= 4) car.stopT += dt;
-        go = car.commit === lane.id || (car.stopT >= 1 && !X.claim.get(node.id) && !_inJunction(L, X, cars, car, node.id, null));
+        const cl = X.claim.get(node.id), held = cl && !cl.hidden && cars.includes(cl);   // a claimant no longer driving here does not count
+        go = car.commit === lane.id || (car.stopT >= 1 && !held && !_inJunction(L, X, cars, car, node.id, null));
         if (go && car.commit !== lane.id) { car.commit = lane.id; X.claim.set(node.id, car); }
       }
       if (go && nx && nx.turn === 'right' && !car.turnOk) {
@@ -2172,9 +2225,15 @@ function innerAt(s, side) { // where terrain begins; inside tunnels it starts be
 }
 function leftInner(s) {
   const r = rampAt(s);
-  if (!r) return ROAD_IN;
-  const e = rampEdges(s - r.sDiv);
-  return Math.max(ROAD_IN, -e.xl);
+  if (r) return Math.max(ROAD_IN, -rampEdges(s - r.sDiv).xl);
+  const en = entryAt(s);
+  if (en) return Math.max(ROAD_IN, -entryEdges(s - en.s0).xl);   // beyond the entrance band
+  return ROAD_IN;
+}
+// The left post of a sign gantry: at the usual -13.1, or a metre beyond an entrance band's outer edge.
+function gantryLeftX(s) {
+  const en = entryAt(s);
+  return en ? Math.min(-13.1, entryEdges(s - en.s0).xl - 1.0) : -13.1;
 }
 
 const _tp = {};
@@ -2421,6 +2480,7 @@ function railRuns(ctx, side) {
     if (tunnelAt(s, 2)) return false;
     if (s > ROUTE_END) return false;
     if (side < 0) { const r = rampAt(s + 2) || rampAt(s - 2); if (r) { const u = s - r.sDiv; if (u > -6 && u < r.uSep + 14) return false; } }
+    if (side < 0) { const e = entryAt(s + 2) || entryAt(s - 2); if (e) { const u = s - e.s0; if (u > e.uJoin - 14 && u < ENTRY_LEN + 6) return false; } }   // the acceleration lane
     return true;
   });
 }
@@ -2719,13 +2779,13 @@ function buildRamps(ctx) {
     // grass between mainline and ramp after the nose
     const gf = Math.max(f, Math.ceil((r.sDiv + r.uSep) / DS));
     if (t > gf) addMesh(ctx, stripGeo(O, gf, t, (i, s) => rampEdges(s - r.sDiv, E).xr + 0.05, X_PAVE, { y: 0.0, uFn: (i, s, a, b) => [a / 6, b / 6], vScale: 6 }), MAT.grassFill, { receive: true });
-    // guardrails along the ramp
-    const lf = Math.max(f, Math.ceil((r.sDiv + 110) / DS));
-    if (t > lf) {
-      addMesh(ctx, sweepGeo(O, lf, t, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xl, vScale: 4 }), MAT.guard);
+    // guardrails along the ramp, ending 15 m before the plaza's bend (the town's road is wider there)
+    const lf = Math.max(f, Math.ceil((r.sDiv + 110) / DS)), rtEnd = Math.min(t, Math.floor((r.sEnd - 15) / DS));
+    if (rtEnd > lf) {
+      addMesh(ctx, sweepGeo(O, lf, rtEnd, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xl, vScale: 4 }), MAT.guard);
     }
     const rf = Math.max(f, Math.ceil((r.sDiv + r.uSep + 14) / DS));
-    if (t > rf) addMesh(ctx, sweepGeo(O, rf, t, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xr, vScale: 4 }), MAT.guard);
+    if (rtEnd > rf) addMesh(ctx, sweepGeo(O, rf, rtEnd, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xr, vScale: 4 }), MAT.guard);
     // nose cushion drum
     const sn = r.sDiv + r.uSep + 8;
     if (sn >= s0 && sn < s1) {
@@ -2757,10 +2817,11 @@ function buildEntries(ctx) {
     const gt = Math.min(t, Math.floor((en.s0 + en.uJoin) / DS));
     if (gt > f) addMesh(ctx, stripGeo(O, f, gt, (i, s) => entryEdges(s - en.s0, E).xr + 0.05, X_PAVE, { y: 0.0, uFn: (i, s, a, b) => [a / 6, b / 6], vScale: 6 }), MAT.grassFill, { receive: true });
     // guardrails: the outer one up to where the lane closes in, the inner one up to the nose
-    const lt = Math.min(t, Math.floor((en.s0 + 400) / DS));
-    if (lt > f) addMesh(ctx, sweepGeo(O, f, lt, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xl, vScale: 4 }), MAT.guard);
+    // (both start 15 m past the plaza's bend, where the town's road is wider)
+    const lt = Math.min(t, Math.floor((en.s0 + 400) / DS)), gf0 = Math.max(f, Math.ceil((en.s0 + 15) / DS));
+    if (lt > gf0) addMesh(ctx, sweepGeo(O, gf0, lt, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xl, vScale: 4 }), MAT.guard);
     const rt = Math.min(t, Math.floor((en.s0 + en.uJoin - 14) / DS));
-    if (rt > f) addMesh(ctx, sweepGeo(O, f, rt, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xr, vScale: 4 }), MAT.guard);
+    if (rt > gf0) addMesh(ctx, sweepGeo(O, gf0, rt, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xr, vScale: 4 }), MAT.guard);
     const sn = en.s0 + en.uJoin - 8;
     if (sn >= s0 && sn < s1) {
       const e = entryEdges(en.uJoin - 8), c = localPt(O, sn, (e.xr + X_PAVE) / 2, 0);
@@ -2837,8 +2898,9 @@ function buildSigns(ctx) {
       }
       case 'exitAdv': {
         placeAt(grp, O, sg.s, 0, 0);
-        postsFor(P, [-13.1, -0.75], 8.0, 0.2);
-        P.box(MAT.steel, 12.6, 0.3, 0.3, -6.9, 7.75, 0); P.box(MAT.steel, 12.6, 0.3, 0.3, -6.9, 7.2, 0);
+        const xL = gantryLeftX(sg.s), bw = -0.5 - xL, bc = (xL - 0.7) / 2;   // the beam reaches the left post
+        postsFor(P, [xL, -0.75], 8.0, 0.2);
+        P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.75, 0); P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.2, 0);
         P.build(grp);
         const ic = sg.ic, d = sg.d;
         const mat = cachedTex('exit:' + ic.jp + d, 1024, 460, (g, w, h) => {
@@ -2921,8 +2983,9 @@ function buildSigns(ctx) {
       }
       case 'led': {
         placeAt(grp, O, sg.s, 0, 0);
-        postsFor(P, [-13.1, -0.75], 8.0, 0.2);
-        P.box(MAT.steel, 12.6, 0.3, 0.3, -6.9, 7.75, 0);
+        const xL = gantryLeftX(sg.s);
+        postsFor(P, [xL, -0.75], 8.0, 0.2);
+        P.box(MAT.steel, -0.5 - xL, 0.3, 0.3, (xL - 0.7) / 2, 7.75, 0);
         P.box(MAT.black, 7.4, 1.6, 0.4, -6.9, 6.5, 0);
         P.build(grp);
         const mat = cachedTex('led:' + sg.msg, 1024, 200, (g, w, h) => {
@@ -3053,6 +3116,7 @@ function* townMeshSteps(i) {
       }
     }
     for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {
+      if (Math.min(Math.abs(path[k - 1][0]), Math.abs(path[k][0])) > PLAZA_BAND_U - 0.5) continue;   // the ramp's own asphalt is there
       const a = path[k - 1], b = path[k], du = b[0] - a[0], dv = b[1] - a[1], s = Math.hypot(du, dv) || 1, nu = -dv / s * 6, nv = du / s * 6;
       const q = (u, v) => [u, v, Y(u, v) + 0.03];
       B.quad(q(a[0] - nu, a[1] - nv), q(b[0] - nu, b[1] - nv), q(b[0] + nu, b[1] + nv), q(a[0] + nu, a[1] + nv));
@@ -6950,6 +7014,14 @@ function handleActions() {
 }
 
 // ---- gates, exits, violations ------------------------------------------------------
+// The destination moves on to the next IC (the expressway is one-way): 15% off the pay, more time, a message.
+function nextDestination(why) {
+  const j = GAME.job;
+  j.missPen += Math.round(j.pay * 0.15 / 100) * 100;
+  j.to += 1; j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh);   // delivered to the same kind of warehouse in the next town
+  j.due += (j.b.kp - ICS[j.to - 1].kp) / 70 * 3600;
+  led(`${why}次の${j.b.jp}ICで降ります`, true, 5);
+}
 function gameLogic(dt) {
   const j = GAME.job;
   const r = rampAt(TR.s);
@@ -6957,12 +7029,8 @@ function gameLogic(dt) {
   // missed the destination exit
   const dr = destRamp();
   if (!TR.onRamp && TR.s > dr.sDiv + dr.uSep + 30 && TR.s < dr.sEnd + 200 && TR.lat > -12.6) {
-    if (j.to < ICS.length - 1) {
-      j.missPen += Math.round(j.pay * 0.15 / 100) * 100;
-      j.to += 1; j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh);   // delivered to the same kind of warehouse in the next town
-      j.due += (j.b.kp - ICS[j.to - 1].kp) / 70 * 3600;
-      led(`出口を通過。次の${j.b.jp}ICで降ります`, true, 5);
-    } else {
+    if (j.to < ICS.length - 1) nextDestination('出口を通過。');
+    else {
       led('出口を通過しました。手前に戻ります', true, 4);
       j.missPen += 5000;
       placeTruck(dr.sDiv - 500, X_TRV, 15, { coupled: TR.link !== 'free' });
@@ -7022,6 +7090,7 @@ function plazaGates(dt) {
       if (inLane && !g.passed && dg < -6) {
         g.passed = true;
         if (key === 'exit' && i !== j.to) led(`${site.ic.jp}ICは目的地ではありません。入口から高速に戻れます`, true, 5);
+        if (key === 'entry' && i === j.to && j.to < ICS.length - 1) nextDestination('納品せずに高速へ戻りました。');   // the destination is behind now
       }
       g.open = damp(g.open, g.state === 'closed' ? 0 : 1, g.state === 'broken' ? 14 : 4, dt);
       const pv = mesh && mesh.gates[key]; if (pv) pv.rotation.z = -g.open * (g.state === 'broken' ? 1.2 : 1.45);
@@ -7237,7 +7306,7 @@ function navState() {
   const gw = townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, {}), destWh = { x: gw.x, z: gw.z, name: j.whB.name };
   let target = null;
   if (TR.zone === 'town' && TR.town === j.to) { target = destWh; guide = `${destWh.name}まで ${Math.round(Math.hypot(TR.x - gw.x, TR.z - gw.z) / 10) * 10} m`; gd = ''; }
-  else if (TR.zone === 'town') {
+  else if (TR.zone === 'town' && TOWN_SITES[TR.town].entry) {   // the last IC has no entrance
     const site = TOWN_SITES[TR.town], g = jobLayout(TR.town).plaza.gates.entry, q = townXZ(site, g.u, g.v, {});
     target = { x: q.x, z: q.z }; guide = `${site.ic.jp} IC 入口まで ${Math.round(Math.hypot(TR.x - q.x, TR.z - q.z) / 10) * 10} m`; gd = '';
   }

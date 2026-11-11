@@ -30,7 +30,7 @@ test('T7 バンとタンクで、広場の出口・入口の曲がりと交差�
   for (const trailer of ['van', 'tank']) {
     const runs = [];
     { const T = town(); T.start(trailer, -55, 0, 1, 0); runs.push(['exit', followPath(T.sim, T.world([...T.L.plaza.exitPath.slice(1), [-4.875, 95]]), 15)]); }
-    { const T = town(); T.start(trailer, 4.875, 100, 0, -1); runs.push(['entry', followPath(T.sim, T.world([[4.875, 100], ...T.L.plaza.entryPath, [58, 0]]), 15)]); }
+    { const T = town(); T.start(trailer, 4.875, 100, 0, -1); runs.push(['entry', followPath(T.sim, T.world([[4.875, 100], ...T.L.plaza.entryPath]), 15)]); }
     { const T = town(), p = leftTurn(T, LEFT_R); T.start(trailer, p[0][0], p[0][1], 0, 1); runs.push(['left', followPath(T.sim, T.world(p), 15)]); }
     { const T = town(), p = rightTurn(T, RIGHT_R); T.start(trailer, p[0][0], p[0][1], 0, 1); runs.push(['right', followPath(T.sim, T.world(p), 15)]); }
     for (const [name, r] of runs) assert.ok(r.done && r.maxPen < 0.05 && r.rails === 0 && !r.jack, `${trailer} ${name} ${JSON.stringify(r)}`);
@@ -70,4 +70,33 @@ test('町の中に置いても壊れた扱いにならない（lat が −200 �
   for (let k = 0; k < 240; k++) sim.stepTruck(1 / 240, { throttle: 0.2, brake: 0, steer: 0 });
   assert.ok(sim.TR.lat < -200, `lat ${sim.TR.lat}`); assert.ok(!sim.EVENTS.some(e => e.t === 'reset')); assert.equal(sim.TR.zone, 'town'); assert.equal(sim.TR.town, 2);
   assert.ok(sim.TR.tv > 200 && sim.TR.tv < 210 && Math.abs(sim.TR.tu) < 0.5, `town position ${sim.TR.tu}, ${sim.TR.tv}`);
+});
+
+// Across the seams where a town meets the expressway: the game's own plaza lanes, then the entrance band (or, coming in,
+// the exit ramp, then the plaza lane), in every town, without touching a wall.
+test('T7 町と高速のつなぎ目：どの町でも、広場の道から入口の帯へ、出口ランプから広場の道へ、壁に当てずに通れる（バン。タンクは 3 町）', () => {
+  const fails = [];
+  for (let i = 0; i < 13; i++) for (const trailer of [2, 4, 9].includes(i) ? ['van', 'tank'] : ['van']) {
+    const sim = loadSim(); sim.townLoad(i);
+    const L = sim.TOWNS_LOADED.get(i).layout, site = L.site, W = ([u, v]) => { const p = sim.townXZ(site, u, v, {}); return [p.x, p.z]; };
+    const along = (s, lat) => { const p = sim.posAt(s, lat, {}); return [p.x, p.z]; };
+    if (L.plaza.entryPath) {                       // Main A toward the plaza, the entrance bend, the band to 150 m past its start
+      sim.setRigTrailer(trailer, 12000); sim.RIG.assistOn = true;
+      const p0 = W([4.875, 100]); sim.placeTruckAt(p0[0], p0[1], site.hu + Math.atan2(-1, 0), 15 / 3.6, { coupled: true });
+      const e = sim.ENTRIES.find(x => x.ic === site.ic), band = [];
+      for (let s = site.s + 70; s <= e.s0 + 150; s += 5) band.push(along(s, sim.entryEdges(s - e.s0).cx));
+      const r = followPath(sim, [W([4.875, 100]), ...L.plaza.entryPath.map(W), ...band], 15);
+      if (!(r.done && r.maxPen < 0.05 && r.rails === 0 && !r.jack)) fails.push(`${site.ic.jp} entry ${trailer} ${JSON.stringify(r)}`);
+    }
+    if (L.plaza.exitPath) {                        // the exit ramp's last 150 m, the plaza lane's bend, Main A
+      sim.setRigTrailer(trailer, 12000); sim.RIG.assistOn = true;
+      const r0 = sim.RAMPS.find(x => x.ic === site.ic), s0 = site.s - 215;
+      const cxAt = s => along(s, sim.rampEdges(s - r0.sDiv).cx), p0 = cxAt(s0), pa = cxAt(s0 - 6), pb = cxAt(s0 + 6);
+      sim.placeTruckAt(p0[0], p0[1], Math.atan2(pb[0] - pa[0], pb[1] - pa[1]), 15 / 3.6, { coupled: true });   // along the ramp, which still slides sideways here
+      const ramp = []; for (let s = s0; s < site.s - 70; s += 5) ramp.push(along(s, sim.rampEdges(s - r0.sDiv).cx));
+      const r = followPath(sim, [...ramp, ...L.plaza.exitPath.map(W), W([-4.875, 95])], 15);
+      if (!(r.done && r.maxPen < 0.05 && r.rails === 0 && !r.jack)) fails.push(`${site.ic.jp} exit ${trailer} ${JSON.stringify(r)}`);
+    }
+  }
+  assert.deepEqual(fails, []);
 });

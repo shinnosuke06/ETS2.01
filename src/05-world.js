@@ -25,9 +25,15 @@ function innerAt(s, side) { // where terrain begins; inside tunnels it starts be
 }
 function leftInner(s) {
   const r = rampAt(s);
-  if (!r) return ROAD_IN;
-  const e = rampEdges(s - r.sDiv);
-  return Math.max(ROAD_IN, -e.xl);
+  if (r) return Math.max(ROAD_IN, -rampEdges(s - r.sDiv).xl);
+  const en = entryAt(s);
+  if (en) return Math.max(ROAD_IN, -entryEdges(s - en.s0).xl);   // beyond the entrance band
+  return ROAD_IN;
+}
+// The left post of a sign gantry: at the usual -13.1, or a metre beyond an entrance band's outer edge.
+function gantryLeftX(s) {
+  const en = entryAt(s);
+  return en ? Math.min(-13.1, entryEdges(s - en.s0).xl - 1.0) : -13.1;
 }
 
 const _tp = {};
@@ -274,6 +280,7 @@ function railRuns(ctx, side) {
     if (tunnelAt(s, 2)) return false;
     if (s > ROUTE_END) return false;
     if (side < 0) { const r = rampAt(s + 2) || rampAt(s - 2); if (r) { const u = s - r.sDiv; if (u > -6 && u < r.uSep + 14) return false; } }
+    if (side < 0) { const e = entryAt(s + 2) || entryAt(s - 2); if (e) { const u = s - e.s0; if (u > e.uJoin - 14 && u < ENTRY_LEN + 6) return false; } }   // the acceleration lane
     return true;
   });
 }
@@ -572,13 +579,13 @@ function buildRamps(ctx) {
     // grass between mainline and ramp after the nose
     const gf = Math.max(f, Math.ceil((r.sDiv + r.uSep) / DS));
     if (t > gf) addMesh(ctx, stripGeo(O, gf, t, (i, s) => rampEdges(s - r.sDiv, E).xr + 0.05, X_PAVE, { y: 0.0, uFn: (i, s, a, b) => [a / 6, b / 6], vScale: 6 }), MAT.grassFill, { receive: true });
-    // guardrails along the ramp
-    const lf = Math.max(f, Math.ceil((r.sDiv + 110) / DS));
-    if (t > lf) {
-      addMesh(ctx, sweepGeo(O, lf, t, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xl, vScale: 4 }), MAT.guard);
+    // guardrails along the ramp, ending 15 m before the plaza's bend (the town's road is wider there)
+    const lf = Math.max(f, Math.ceil((r.sDiv + 110) / DS)), rtEnd = Math.min(t, Math.floor((r.sEnd - 15) / DS));
+    if (rtEnd > lf) {
+      addMesh(ctx, sweepGeo(O, lf, rtEnd, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xl, vScale: 4 }), MAT.guard);
     }
     const rf = Math.max(f, Math.ceil((r.sDiv + r.uSep + 14) / DS));
-    if (t > rf) addMesh(ctx, sweepGeo(O, rf, t, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xr, vScale: 4 }), MAT.guard);
+    if (rtEnd > rf) addMesh(ctx, sweepGeo(O, rf, rtEnd, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => rampEdges(s - r.sDiv, E).xr, vScale: 4 }), MAT.guard);
     // nose cushion drum
     const sn = r.sDiv + r.uSep + 8;
     if (sn >= s0 && sn < s1) {
@@ -610,10 +617,11 @@ function buildEntries(ctx) {
     const gt = Math.min(t, Math.floor((en.s0 + en.uJoin) / DS));
     if (gt > f) addMesh(ctx, stripGeo(O, f, gt, (i, s) => entryEdges(s - en.s0, E).xr + 0.05, X_PAVE, { y: 0.0, uFn: (i, s, a, b) => [a / 6, b / 6], vScale: 6 }), MAT.grassFill, { receive: true });
     // guardrails: the outer one up to where the lane closes in, the inner one up to the nose
-    const lt = Math.min(t, Math.floor((en.s0 + 400) / DS));
-    if (lt > f) addMesh(ctx, sweepGeo(O, f, lt, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xl, vScale: 4 }), MAT.guard);
+    // (both start 15 m past the plaza's bend, where the town's road is wider)
+    const lt = Math.min(t, Math.floor((en.s0 + 400) / DS)), gf0 = Math.max(f, Math.ceil((en.s0 + 15) / DS));
+    if (lt > gf0) addMesh(ctx, sweepGeo(O, gf0, lt, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xl, vScale: 4 }), MAT.guard);
     const rt = Math.min(t, Math.floor((en.s0 + en.uJoin - 14) / DS));
-    if (rt > f) addMesh(ctx, sweepGeo(O, f, rt, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xr, vScale: 4 }), MAT.guard);
+    if (rt > gf0) addMesh(ctx, sweepGeo(O, gf0, rt, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xr, vScale: 4 }), MAT.guard);
     const sn = en.s0 + en.uJoin - 8;
     if (sn >= s0 && sn < s1) {
       const e = entryEdges(en.uJoin - 8), c = localPt(O, sn, (e.xr + X_PAVE) / 2, 0);
@@ -690,8 +698,9 @@ function buildSigns(ctx) {
       }
       case 'exitAdv': {
         placeAt(grp, O, sg.s, 0, 0);
-        postsFor(P, [-13.1, -0.75], 8.0, 0.2);
-        P.box(MAT.steel, 12.6, 0.3, 0.3, -6.9, 7.75, 0); P.box(MAT.steel, 12.6, 0.3, 0.3, -6.9, 7.2, 0);
+        const xL = gantryLeftX(sg.s), bw = -0.5 - xL, bc = (xL - 0.7) / 2;   // the beam reaches the left post
+        postsFor(P, [xL, -0.75], 8.0, 0.2);
+        P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.75, 0); P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.2, 0);
         P.build(grp);
         const ic = sg.ic, d = sg.d;
         const mat = cachedTex('exit:' + ic.jp + d, 1024, 460, (g, w, h) => {
@@ -774,8 +783,9 @@ function buildSigns(ctx) {
       }
       case 'led': {
         placeAt(grp, O, sg.s, 0, 0);
-        postsFor(P, [-13.1, -0.75], 8.0, 0.2);
-        P.box(MAT.steel, 12.6, 0.3, 0.3, -6.9, 7.75, 0);
+        const xL = gantryLeftX(sg.s);
+        postsFor(P, [xL, -0.75], 8.0, 0.2);
+        P.box(MAT.steel, -0.5 - xL, 0.3, 0.3, (xL - 0.7) / 2, 7.75, 0);
         P.box(MAT.black, 7.4, 1.6, 0.4, -6.9, 6.5, 0);
         P.build(grp);
         const mat = cachedTex('led:' + sg.msg, 1024, 200, (g, w, h) => {

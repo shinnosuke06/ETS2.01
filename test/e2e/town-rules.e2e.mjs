@@ -238,3 +238,16 @@ test('町の車の上に車両を置いても（レッカーのあとなど）�
   });
   assert.deepEqual(r, { fines: 0, inside: 0 }); assert.deepEqual(errors, []);
 }));
+
+test('目的の町で納品せずに入口から高速へ戻ると、次の IC が目的地になり（報酬 15% 減）、その町の倉庫に届ければよい', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    __placeTown(2, 4.875, 80, 0, -1, 10); await __ready();          // Atsugi, job 1's destination: Main A toward the plaza
+    const L2 = TOWNS_LOADED.get(2).layout;
+    __drive(__town(2, [[4.875, 80], ...L2.plaza.entryPath]), 15, 90, false);
+    return { to: GAME.job.to, miss: GAME.job.missPen, pay: GAME.job.pay, wh: GAME.job.whB.name, led: document.getElementById('ledText').textContent, gate: L2.plaza.gates.entry.state };
+  });
+  assert.equal(r.gate, 'open'); assert.equal(r.to, 3, JSON.stringify(r)); assert.equal(r.miss, Math.round(r.pay * 0.15 / 100) * 100);
+  assert.match(r.wh, /^大井松田/); assert.match(r.led, /次の大井松田ICで降ります/); assert.deepEqual(errors, []);
+}));
