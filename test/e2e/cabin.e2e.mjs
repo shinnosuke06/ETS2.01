@@ -64,6 +64,28 @@ test('V4 上限：画質ごとの三角形、部品の数、素材の数', async
     const s = await page.evaluate(async () => { GAME.cam = 'cab'; await __t.frames(3); return vehicleStats(); });
     assert.ok(s.interior.tris <= inMax && s.exterior.tris <= exMax, `${q} ${s.interior.tris} ${s.exterior.tris}`); assert.ok(s.exterior.tris >= exMax * 0.4, `${q} too coarse`);
     assert.ok(s.interior.meshes + s.exterior.meshes <= 110, `${q} meshes ${s.interior.meshes + s.exterior.meshes}`); assert.ok(s.interior.mats <= 24 && s.exterior.mats <= 30, `${q} mats ${s.interior.mats} ${s.exterior.mats}`); assert.deepEqual(errors, []); }); });
+// from the driver's eye looking ahead, and turned toward each mirror (the game moves the head then),
+// points on each live mirror's glass: how many are seen
+test('運転席から、左右の映る鏡がほとんど隠れずに見える', () => withGame({}, async page => {
+  await startJob(page);
+  const r = await page.evaluate(async () => { GAME.cam = 'cab'; await __t.frames(2); TRK.root.updateMatrixWorld(true);
+    const rc = new THREE.Raycaster(), out = {}, inv = new THREE.Matrix4().copy(TRK.root.matrixWorld).invert();
+    for (const k of ['L', 'R']) for (const n of ['ahead', 'turned']) {
+      const m = TRK.mirrors[k].glass, c = new THREE.Vector3(0, 0, 0.071).applyMatrix4(m.matrixWorld).applyMatrix4(inv);
+      INP.lookYaw = n === 'ahead' ? 0 : Math.atan2(-(c.x - 0.55), -(c.z + 4.28)); await __t.frames(1);
+      TRK.root.updateMatrixWorld(true); const eye = INT.eye.getWorldPosition(new THREE.Vector3());
+      let seen = 0, all = 0;
+      for (const [cy, h] of [[0.105, 0.37], [-0.24, 0.19]]) for (let j = 0; j < 5; j++) for (let i = 0; i < 9; i++) {
+        const p = new THREE.Vector3(-0.115 + (i + 0.5) * 0.23 / 9, cy + h / 2 - (j + 0.5) * h / 5, 0.071).applyMatrix4(m.matrixWorld);
+        rc.set(eye, p.clone().sub(eye).normalize()); rc.far = eye.distanceTo(p) + 0.01; all++;
+        const hit = rc.intersectObject(TRK.root, true).find(x => __t.shown(x.object) && x.object.material !== TM.glassIn && x.object.material !== TM.glassOut);
+        if (hit && hit.object === m) seen++;
+      }
+      out[k + ' ' + n] = +(seen / all).toFixed(2);
+    }
+    INP.lookYaw = 0; return out; });
+  assert.ok(Object.values(r).every(v => v >= 0.95), JSON.stringify(r));
+}));
 test('夜の赤い間接照明は、足元と頭上の両方で点く', () => withGame({}, async page => {
   const r = await page.evaluate(() => { setCabAmbient(false); const off = IM.ambient.color.r; setCabAmbient(true); const P = vehicleStats().parts; return [off, IM.ambient.color.r, !!P.shelf, !!P.floor]; });
   assert.ok(r[1] > r[0] * 2 && r[2] && r[3], String(r));

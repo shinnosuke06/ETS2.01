@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// 4x2 tractor modelled on the S-series photos (right-hand drive, as sold in Japan)
+// 4x2 cab-over tractor modelled on the reference photos (right-hand drive, as sold in Japan)
 // and the two trailers. Materials are in 06b-materials.js. Local frame: -Z forward, +X right, +Y up; tractor
 // origin = rear axle on the ground. Maker badges are left blank on purpose.
 // ---------------------------------------------------------------------------

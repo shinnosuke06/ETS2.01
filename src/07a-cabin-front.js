@@ -158,8 +158,10 @@ function cabDoor(I, S, sx) {
 function cabPillars(I, S) {
   I.part('pillars'); S.part('pillars');
   for (const sx of [-1, 1]) {
-    // A-pillar trim, wide enough to meet both the windscreen's wrapped corner and the door window's front edge
-    I.add(roundBox(0.07, 1.05, 0.30, 0.03), IM.upper, sx * 1.14, 2.83, -5.10, 0.153, 0, 0);
+    // A-pillar trim: meets the windscreen's wrapped corner and overlaps the door window's front edge. On the
+    // passenger side the overlap is 2 cm, no more, so the driver still sees all of that mirror past it.
+    const d = sx < 0 ? 0.25 : 0.30;
+    I.add(roundBox(0.07, 1.05, d, 0.03), IM.upper, sx * 1.14, 2.83, -5.25 + d / 2, 0.153, 0, 0);
     I.add(roundBox(0.07, 2.30, 0.13, 0.025), IM.upper, sx * 1.15, 2.62, -4.12);                // B-pillar behind the door
   }
   I.add(roundBox(2.30, 0.10, 0.08, 0.02), IM.upper, 0, 3.31, -5.15);                          // windscreen header

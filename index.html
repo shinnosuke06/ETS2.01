@@ -188,7 +188,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
     <div class="sign hero">
       <div class="route">東名高速道路 · TOMEI EXPRESSWAY</div>
       <h1>ニッポン長距離便</h1>
-      <p>スカニアSシリーズ風の大型トラックで、東京から名古屋まで荷物を運ぶ。車内視点で、ミラーと計器を見ながら走ろう。</p>
+      <p>欧州製キャブオーバー風の大型トラックで、東京から名古屋まで荷物を運ぶ。車内視点で、ミラーと計器を見ながら走ろう。</p>
     </div>
     <div class="panels">
       <div class="panel">
@@ -2751,7 +2751,7 @@ makeVehicleMaterials(qualityName);
 
 // ==== 06c-tractor.js ====
 // ---------------------------------------------------------------------------
-// 4x2 tractor modelled on the S-series photos (right-hand drive, as sold in Japan)
+// 4x2 cab-over tractor modelled on the reference photos (right-hand drive, as sold in Japan)
 // and the two trailers. Materials are in 06b-materials.js. Local frame: -Z forward, +X right, +Y up; tractor
 // origin = rear axle on the ground. Maker badges are left blank on purpose.
 // ---------------------------------------------------------------------------
@@ -3613,8 +3613,10 @@ function cabDoor(I, S, sx) {
 function cabPillars(I, S) {
   I.part('pillars'); S.part('pillars');
   for (const sx of [-1, 1]) {
-    // A-pillar trim, wide enough to meet both the windscreen's wrapped corner and the door window's front edge
-    I.add(roundBox(0.07, 1.05, 0.30, 0.03), IM.upper, sx * 1.14, 2.83, -5.10, 0.153, 0, 0);
+    // A-pillar trim: meets the windscreen's wrapped corner and overlaps the door window's front edge. On the
+    // passenger side the overlap is 2 cm, no more, so the driver still sees all of that mirror past it.
+    const d = sx < 0 ? 0.25 : 0.30;
+    I.add(roundBox(0.07, 1.05, d, 0.03), IM.upper, sx * 1.14, 2.83, -5.25 + d / 2, 0.153, 0, 0);
     I.add(roundBox(0.07, 2.30, 0.13, 0.025), IM.upper, sx * 1.15, 2.62, -4.12);                // B-pillar behind the door
   }
   I.add(roundBox(2.30, 0.10, 0.08, 0.02), IM.upper, 0, 3.31, -5.15);                          // windscreen header
@@ -5883,11 +5885,12 @@ function updateVisuals(dt) {
 }
 
 const _cv = new THREE.Vector3(), _ct = new THREE.Vector3();
+let chaseFov = 55;   // the outside views' angle for the screen's shape (onResize); a reference view may set its own
 function updateCamera(dt) {
   // dev hook: { p: [x, y, z], t: [x, y, z] } in tractor-local coordinates, optional fov (degrees) and
   // inCab (a view from inside the cab: near clipping close in, the small cab parts drawn)
   const ov = window.__camOverride;
-  const fov = ov && ov.fov || 55, near = ov && ov.inCab ? 0.05 : 0.3;
+  const fov = ov && ov.fov || chaseFov, near = ov && ov.inCab ? 0.05 : 0.3;
   if (chaseCam.fov !== fov || chaseCam.near !== near) { chaseCam.fov = fov; chaseCam.near = near; chaseCam.updateProjectionMatrix(); }
   if (ov) {
     const m = TRK.root.matrixWorld;
@@ -5949,7 +5952,7 @@ function onResize() {
   renderer.setSize(w, h, false);
   const asp = w / h;
   cabCam.aspect = asp; cabCam.fov = asp < 1 ? 80 : asp < 1.5 ? 70 : 64; cabCam.updateProjectionMatrix();
-  chaseCam.aspect = asp; chaseCam.fov = asp < 1 ? 70 : 55; chaseCam.updateProjectionMatrix();
+  chaseFov = asp < 1 ? 70 : 55; chaseCam.aspect = asp; chaseCam.fov = chaseFov; chaseCam.updateProjectionMatrix();
 }
 window.addEventListener('resize', onResize);
 document.addEventListener('visibilitychange', () => {

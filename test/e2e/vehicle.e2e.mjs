@@ -92,3 +92,11 @@ test('基準の視点 9 つを当てられ、車内の視点では細かい部�
 test('画質 高・中・低のどれでも、連結して走り出せる', async () => { for (const q of ['high', 'mid', 'low']) await withGame({ storage: { 'nlh.quality': q } }, async (page, errors) => { await startJob(page);
   const r = await page.evaluate(() => { INP.actions.push('couple'); for (let i = 0; i < 150; i++) simTick(1 / 60); INP.tGas = 1; for (let i = 0; i < 600; i++) simTick(1 / 60); return [TR.link, TR.v > 5]; });
   assert.deepEqual(r, ['coupled', true]); assert.deepEqual(errors, []); }); });
+test('縦持ちの外の視点は広い画角のまま（基準の視点を外すと元に戻る）', () => withGame({ width: 390, height: 844, touch: true }, async page => {
+  await startJob(page);
+  const r = await page.evaluate(async () => { GAME.cam = 'chase'; await __t.frames(2); const chase = chaseCam.fov;
+    window.__camOverride = { p: [0, 3, 8], t: [0, 2, 0], fov: 40 }; await __t.frames(2); const ov = chaseCam.fov;
+    window.__camOverride = null; await __t.frames(2); return [chase, ov, chaseCam.fov]; });
+  assert.deepEqual(r, [70, 40, 70]);
+}));
+

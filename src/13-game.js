@@ -503,11 +503,12 @@ function updateVisuals(dt) {
 }
 
 const _cv = new THREE.Vector3(), _ct = new THREE.Vector3();
+let chaseFov = 55;   // the outside views' angle for the screen's shape (onResize); a reference view may set its own
 function updateCamera(dt) {
   // dev hook: { p: [x, y, z], t: [x, y, z] } in tractor-local coordinates, optional fov (degrees) and
   // inCab (a view from inside the cab: near clipping close in, the small cab parts drawn)
   const ov = window.__camOverride;
-  const fov = ov && ov.fov || 55, near = ov && ov.inCab ? 0.05 : 0.3;
+  const fov = ov && ov.fov || chaseFov, near = ov && ov.inCab ? 0.05 : 0.3;
   if (chaseCam.fov !== fov || chaseCam.near !== near) { chaseCam.fov = fov; chaseCam.near = near; chaseCam.updateProjectionMatrix(); }
   if (ov) {
     const m = TRK.root.matrixWorld;
@@ -569,7 +570,7 @@ function onResize() {
   renderer.setSize(w, h, false);
   const asp = w / h;
   cabCam.aspect = asp; cabCam.fov = asp < 1 ? 80 : asp < 1.5 ? 70 : 64; cabCam.updateProjectionMatrix();
-  chaseCam.aspect = asp; chaseCam.fov = asp < 1 ? 70 : 55; chaseCam.updateProjectionMatrix();
+  chaseFov = asp < 1 ? 70 : 55; chaseCam.aspect = asp; chaseCam.fov = chaseFov; chaseCam.updateProjectionMatrix();
 }
 window.addEventListener('resize', onResize);
 document.addEventListener('visibilitychange', () => {
