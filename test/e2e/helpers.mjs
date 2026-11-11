@@ -31,7 +31,7 @@ export async function openGame({ width = 1280, height = 720, touch = false, stor
   await page.route('https://fonts.googleapis.com/**', r => r.fulfill({ body: '', contentType: 'text/css' }));
   await page.route('https://fonts.gstatic.com/**', r => r.abort());
   try {
-    await page.goto(ORIGIN);
+    await page.goto(ORIGIN, { timeout: 60000 });   // the page builds the whole game before "load"; slow when the machine is busy
     await page.waitForFunction(() => !document.getElementById('startBtn').disabled, null, { timeout: 60000 });
   } catch (e) {
     await browser.close();   // an open browser would keep the test runner alive forever
