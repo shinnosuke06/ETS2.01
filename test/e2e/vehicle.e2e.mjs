@@ -117,3 +117,16 @@ test('縦持ち（視野 80°）でも、計器が画面に入り、前の道路
   assert.ok(Math.abs(r[0]) < 0.9 && Math.abs(r[1]) < 0.9, String(r));
   const road = await firstHit(page, 80, 390 / 844, [[0, 0.1], [-0.5, 0.1], [0.4, 0.1]]); for (const h of road) assert.ok(h === null || h.glass, JSON.stringify(road));
 }));
+test('室内の前：ハンドルは直径 0.45、ドアとピラーは室内に収まる', () => withGame({}, async page => {
+  const P = await partsOf(page);
+  for (const k of ['wheel', 'stalks', 'pedals', 'doorR', 'doorL', 'pillars', 'grabs']) { assert.ok(P[k] && P[k].tris > 0, k); assert.ok(cabin(P[k].box), `${k} ${P[k].box}`); }
+  const w = P.wheel.box, d = Math.max(w[3] - w[0], w[4] - w[1], w[5] - w[2]); assert.ok(Math.abs(d - 0.45) < 0.02, String(d)); assert.ok(Math.abs((w[0] + w[3]) / 2 - 0.55) < 0.03, String(w));
+  assert.ok(P.doorR.box[3] > 1.1 && P.doorL.box[0] < -1.1, JSON.stringify([P.doorR.box, P.doorL.box])); assert.ok(P.wheel.tris <= 5000 && P.doorR.tris <= 4500, JSON.stringify([P.wheel.tris, P.doorR.tris]));
+}));
+test('ハンドルとペダルは、今までどおり動く', () => withGame({}, async page => {
+  await startJob(page);
+  const r = await page.evaluate(async () => {
+    const a = [INT.wheel.rotation.z, INT.gas.rotation.x, INT.brake.rotation.x]; INP.tWheelHeld = true; INP.tWheel = 1.5; INP.tGas = 1; for (let i = 0; i < 30; i++) simTick(1 / 60); await __t.frames(2);
+    return [a, [INT.wheel.rotation.z, INT.gas.rotation.x, INT.brake.rotation.x]]; });
+  assert.ok(Math.abs(r[1][0] - r[0][0]) > 0.5 && Math.abs(r[1][1] - r[0][1]) > 0.1, JSON.stringify(r));
+}));

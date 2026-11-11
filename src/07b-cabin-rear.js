@@ -4,6 +4,13 @@
 // omamori charm that swings. buildInterior puts the whole cab together.
 // ---------------------------------------------------------------------------
 function buildCabinRear(I, S, R) {
+  // side walls behind the doors and the tied-back curtains (to be rebuilt with the back of the cab)
+  for (const sx of [-1, 1]) {
+    I.box(IM.head, 0.05, 2.36, 0.95, sx * 1.165, 2.62, -3.63);
+    for (let k = 0; k < 3; k++) I.add(new THREE.CylinderGeometry(0.045, 0.05, 0.98, 8), IM.curtain, sx * (1.06 - k * 0.04), 2.78, -5.13 + k * 0.035, 0.164, 0, 0);
+    for (let k = 0; k < 2; k++) I.add(new THREE.CylinderGeometry(0.055, 0.06, 1.15, 8), IM.curtain, sx * (1.07 - k * 0.05), 2.95, -4.06 + k * 0.03);
+    S.box(IM.black, 0.13, 0.03, 0.1, sx * 1.07, 2.7, -4.05);
+  }
   // centre console between the seats: cup holders, phone tray, storage
   I.box(IM.lower, 0.36, 0.3, 0.52, -0.03, 1.62, -4.56);
   I.box(IM.lower, 0.38, 0.03, 0.54, -0.03, 1.785, -4.56);
@@ -70,7 +77,6 @@ function buildCabinRear(I, S, R) {
   // fire extinguisher by the passenger seat, footrest
   S.add(new THREE.CylinderGeometry(0.06, 0.06, 0.36, 14), IM.red, -1.0, 1.63, -4.25);
   S.box(IM.black, 0.06, 0.05, 0.05, -1.0, 1.83, -4.25);
-  S.box(IM.lower, 0.12, 0.05, 0.22, 0.22, 1.5, -4.92, -0.5, 0, 0);
 
 
   // omamori charm hanging from the overhead console

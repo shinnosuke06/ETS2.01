@@ -11,63 +11,10 @@ function buildCabinFront(I, S, R) {
   cabCentreStack(I, S, R);
   cabSidePanel(I, S);
 
-  // ---- pillars, doors, curtains --------------------------------------------------------------
-  for (const sx of [-1, 1]) {
-    I.box(IM.door, 0.09, 1.07, 0.11, sx * 1.15, 2.78, -5.22, 0.164, 0, 0);
-    S.box(IM.black, 0.03, 0.35, 0.04, sx * 1.1, 2.75, -5.15, 0.164, 0, 0);
-    // door trim follows the dropped window line at the front
-    I.box(IM.door, 0.05, 0.68, 0.36, sx * 1.17, 1.78, -5.02);
-    I.box(IM.door, 0.05, 0.87, 0.68, sx * 1.17, 1.875, -4.49);
-    I.box(IM.door, 0.08, 0.04, 0.36, sx * 1.15, 2.12, -5.02);
-    I.box(IM.door, 0.08, 0.04, 0.24, sx * 1.15, 2.215, -4.82, -1.03, 0, 0);
-    I.box(IM.door, 0.08, 0.04, 0.66, sx * 1.15, 2.31, -4.49);
-    I.box(IM.lower, 0.1, 0.055, 0.45, sx * 1.11, 2.14, -4.52);
-    S.box(IM.silver, 0.03, 0.03, 0.15, sx * 1.105, 2.2, -4.72);
-    S.box(IM.black, 0.05, 0.015, 0.1, sx * 1.11, 2.172, -4.42);
-    S.add(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 20), IM.black, sx * 1.143, 1.72, -4.95, 0, 0, Math.PI / 2);
-    S.add(new THREE.TorusGeometry(0.076, 0.006, 6, 20), IM.silver, sx * 1.145, 1.72, -4.95, 0, Math.PI / 2, 0);
-    I.box(IM.lower, 0.07, 0.15, 0.6, sx * 1.13, 1.58, -4.58);
-    I.box(IM.door, 0.05, 0.64, 1.06, sx * 1.17, 3.47, -4.68);
-    I.box(IM.door, 0.07, 2.36, 0.13, sx * 1.15, 2.62, -4.14);
-    I.box(IM.head, 0.05, 2.36, 0.95, sx * 1.165, 2.62, -3.63);
-    S.box(IM.ambient, 0.012, 0.012, 0.9, sx * 1.135, 1.5, -4.62);
-    for (let k = 0; k < 3; k++) I.add(new THREE.CylinderGeometry(0.045, 0.05, 0.98, 8), IM.curtain, sx * (1.06 - k * 0.04), 2.78, -5.13 + k * 0.035, 0.164, 0, 0);
-    for (let k = 0; k < 2; k++) I.add(new THREE.CylinderGeometry(0.055, 0.06, 1.15, 8), IM.curtain, sx * (1.07 - k * 0.05), 2.95, -4.06 + k * 0.03);
-    S.box(IM.black, 0.13, 0.03, 0.1, sx * 1.07, 2.7, -4.05);
-  }
-  I.box(IM.door, 2.3, 0.1, 0.08, 0, 3.31, -5.15);
-  S.box(IM.metal, 2.2, 0.01, 0.01, 0, 3.26, -5.12);
-
-  // steering wheel: axis points up and toward the driver
-  const wf = new THREE.Group(); wf.position.set(0.55, 2.03, -4.64); wf.rotation.x = -0.96; R.shell.add(wf);
-  const W = new Parts();
-  W.box(IM.lower, 0.12, 0.12, 0.38, 0, 0, -0.24);
-  W.add(new THREE.CylinderGeometry(0.012, 0.01, 0.17, 8), IM.black, -0.13, 0.02, -0.085, 0, 0, Math.PI / 2 + 0.15);
-  W.box(IM.button, 0.03, 0.02, 0.02, -0.215, 0.032, -0.085);
-  W.add(new THREE.CylinderGeometry(0.012, 0.01, 0.15, 8), IM.black, 0.12, 0.0, -0.09, 0, 0, Math.PI / 2 - 0.1);
-  W.build(wf, { cast: true, receive: true });
-  R.wheel = new THREE.Group(); wf.add(R.wheel);
-  const SW = new Parts();
-  SW.add(new THREE.TorusGeometry(0.218, 0.022, 12, 48), IM.leather, 0, 0, 0);
-  SW.add(new THREE.CylinderGeometry(0.078, 0.088, 0.06, 24), IM.black, 0, -0.012, -0.025, Math.PI / 2, 0, 0);
-  SW.box(IM.leather, 0.165, 0.13, 0.04, 0, -0.008, 0.008);
-  SW.add(new THREE.TorusGeometry(0.024, 0.0045, 6, 24), IM.silver, 0, 0.0, 0.03);
-  for (const sx of [-1, 1]) {
-    SW.box(IM.lower, 0.13, 0.075, 0.025, sx * 0.135, -0.015, -0.006);
-    SW.box(IM.silver, 0.13, 0.006, 0.006, sx * 0.135, -0.054, 0.006);
-    for (let k = 0; k < 4; k++) SW.box(IM.button, 0.018, 0.014, 0.008, sx * (0.11 + (k % 2) * 0.028), 0.0 - Math.floor(k / 2) * 0.022, 0.009);
-    SW.box(IM.silver, 0.012, 0.03, 0.008, sx * 0.175, -0.01, 0.009);
-  }
-  SW.box(IM.silver, 0.045, 0.13, 0.02, 0, -0.14, -0.008);
-  SW.build(R.wheel, { cast: true, receive: true });
-  R.wheelFrame = wf;
-
-  // pedals
-  R.gas = new THREE.Group(); R.gas.position.set(0.72, 1.47, -5.0); R.fine.add(R.gas);
-  R.gas.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.26, 0.015).translate(0, 0.13, 0), IM.black), { castShadow: true }));
-  R.brake = new THREE.Group(); R.brake.position.set(0.42, 1.98, -4.98); R.fine.add(R.brake);
-  R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.32, 0.03).translate(0, -0.16, 0), IM.metal));
-  R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.09, 0.02).translate(0, -0.34, 0.03), IM.black));
+  for (const sx of [-1, 1]) cabDoor(I, S, sx);
+  cabPillars(I, S);
+  cabWheel(R);
+  cabPedals(R);
 }
 
 // ---- floor and dashboard ---------------------------------------------------------
@@ -179,4 +126,87 @@ function cabSidePanel(I, S) {
   S.add(roundBox(0.034, 0.012, 0.03, 0.004, 1), IM.silver, -0.06, -0.11, 0.105);
   for (const P of [I, S]) P.pop();
   I.part(null); S.part(null);
+}
+
+// ---- doors and pillars -------------------------------------------------------------------
+// A flat outline [[z, y], ...] made into a door-card panel `thick` deep, standing at x0 and reaching toward +x.
+function _sideCard(zy, thick, bevel = 0.006) {
+  const g = panel(zy.map(([z, y]) => [-z, y]), thick, bevel);
+  return xform(g, 0, 0, 0, 0, Math.PI / 2, 0);   // outline x -> -z, extrusion -> +x
+}
+// Door trim following the door window (inner glass outline: sill at y 2.32, dropping to 2.12 at the front).
+function cabDoor(I, S, sx) {
+  const name = sx > 0 ? 'doorR' : 'doorL', xin = sx * 1.125, x0 = sx > 0 ? 1.125 : -1.17;   // inner face, and the card's -x side
+  I.part(name); S.part(name);
+  I.add(_sideCard([[-5.22, 1.47], [-4.16, 1.47], [-4.16, 2.27], [-4.74, 2.27], [-4.86, 2.08], [-5.14, 2.08], [-5.22, 1.98]], 0.045), IM.door, x0, 0, 0);
+  I.add(_sideCard([[-4.96, 3.17], [-4.16, 3.17], [-4.16, 3.78], [-4.92, 3.78]], 0.04), IM.door, sx > 0 ? 1.13 : -1.17, 0, 0);   // above the window
+  // sill along the window line
+  S.add(tube([[sx * 1.135, 2.09, -5.15], [sx * 1.135, 2.09, -4.88], [sx * 1.135, 2.28, -4.75], [sx * 1.135, 2.28, -4.16]], 0.016, 8), IM.lower);
+  // armrest with a leather top, door pull, window switches on the driver's side
+  I.add(roundBox(0.08, 0.05, 0.42, 0.018), IM.lower, sx * 1.095, 2.09, -4.50);
+  S.add(roundBox(0.07, 0.014, 0.38, 0.006), IM.leather, sx * 1.093, 2.118, -4.50);
+  S.add(roundBox(0.025, 0.03, 0.13, 0.008), IM.silver, sx * 1.105, 2.20, -4.76);
+  if (sx > 0) for (let k = 0; k < 4; k++) S.add(roundBox(0.02, 0.008, 0.028, 0.003, 1), IM.button, sx * 1.08, 2.128, -4.66 + k * 0.035);
+  // speaker grille low on the door, pocket, red courtesy light along the bottom
+  S.add(lathe([[0, 0], [0.075, 0], [0.075, 0.012], [0, 0.014]], 24), IM.black, xin - sx * 0.001, 1.72, -4.95, 0, 0, sx * Math.PI / 2);
+  S.add(lathe([[0.072, 0], [0.08, 0.004], [0.072, 0.008]], 24), IM.silver, xin - sx * 0.002, 1.72, -4.95, 0, 0, sx * Math.PI / 2);
+  I.add(roundBox(0.06, 0.15, 0.55, 0.015), IM.lower, sx * 1.10, 1.60, -4.60);
+  S.add(roundBox(0.012, 0.012, 0.9, 0.004, 1), IM.ambient, sx * 1.12, 1.5, -4.62);
+  I.part(null); S.part(null);
+}
+function cabPillars(I, S) {
+  I.part('pillars'); S.part('pillars');
+  for (const sx of [-1, 1]) {
+    I.add(roundBox(0.07, 1.07, 0.11, 0.025), IM.door, sx * 1.14, 2.78, -5.16, 0.164, 0, 0);    // A-pillar between windscreen and door
+    I.add(roundBox(0.07, 2.30, 0.13, 0.025), IM.door, sx * 1.15, 2.62, -4.12);                // B-pillar behind the door
+  }
+  I.add(roundBox(2.30, 0.10, 0.08, 0.02), IM.door, 0, 3.31, -5.15);                          // windscreen header
+  S.add(roundBox(2.2, 0.01, 0.01, 0.004, 1), IM.metal, 0, 3.26, -5.11);
+  I.part('grabs'); S.part('grabs');
+  for (const sx of [-1, 1]) S.add(tube([[sx * 1.13, 1.95, -4.22], [sx * 1.09, 2.0, -4.22], [sx * 1.09, 2.65, -4.22], [sx * 1.13, 2.70, -4.22]], 0.014, 10), IM.silver);
+  I.part(null); S.part(null);
+}
+
+// ---- steering wheel, column and stalks, pedals ------------------------------------------------
+// The wheel frame wf: axis points up and toward the driver. R.wheel turns inside it.
+function cabWheel(R) {
+  const wf = new THREE.Group(); wf.position.set(0.55, 2.03, -4.64); wf.rotation.x = -0.96; wf.updateMatrix(); R.shell.add(wf);
+  const W = new Parts();
+  W.part('stalks', wf.matrix);
+  W.add(roundBox(0.12, 0.11, 0.36, 0.03), IM.lower, 0, -0.01, -0.23);                         // column shroud
+  for (const sx of [-1, 1]) {
+    W.add(tube([[sx * 0.06, 0.02, -0.085], [sx * 0.13, 0.025, -0.09], [sx * 0.21, 0.03, -0.095]], 0.009, 8), IM.black);
+    W.add(roundBox(0.03, 0.022, 0.022, 0.008), IM.black, sx * 0.215, 0.03, -0.095);
+  }
+  W.part(null); W.build(wf, { cast: true, receive: true });
+  R.wheel = new THREE.Group(); wf.add(R.wheel);
+  const SW = new Parts(), N = seg(48, 16), ring = [];
+  for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2; ring.push([0.208 * Math.cos(a), 0.208 * Math.sin(a), 0]); }
+  SW.part('wheel', wf.matrix);
+  SW.add(tube(ring, 0.017, 10, true), IM.leather);                                         // rim: 0.45 across
+  SW.add(lathe([[0, 0], [0.07, 0], [0.085, 0.03], [0.07, 0.06], [0, 0.065]], 24), IM.black, 0, 0, -0.06, Math.PI / 2, 0, 0);   // hub
+  SW.add(roundBox(0.16, 0.12, 0.045, 0.02), IM.leather, 0, 0, 0.012);                    // centre pad, plain
+  for (const sx of [-1, 1]) {
+    SW.add(roundBox(0.12, 0.07, 0.025, 0.012), IM.lower, sx * 0.13, -0.01, -0.005);       // side spokes with four buttons each
+    for (let k = 0; k < 4; k++) SW.add(roundBox(0.018, 0.014, 0.008, 0.003, 1), IM.button, sx * (0.11 + (k % 2) * 0.028), 0.0 - Math.floor(k / 2) * 0.022, 0.009);
+    SW.add(roundBox(0.12, 0.005, 0.005, 0.002, 1), IM.silver, sx * 0.13, -0.046, 0.008);
+  }
+  SW.add(roundBox(0.05, 0.13, 0.022, 0.01), IM.lower, 0, -0.13, -0.008);                  // lower spoke
+  SW.part(null); SW.build(R.wheel, { cast: true, receive: true });
+  R.wheelFrame = wf;
+}
+function cabPedals(R) {
+  R.gas = new THREE.Group(); R.gas.position.set(0.72, 1.47, -5.0); R.gas.updateMatrix(); R.fine.add(R.gas);
+  const G = new Parts(); G.part('pedals', R.gas.matrix);
+  G.add(roundBox(0.085, 0.26, 0.016, 0.006), IM.black, 0, 0.13, 0);
+  G.add(roundBox(0.075, 0.22, 0.006, 0.003, 1), IM.mat, 0, 0.13, 0.009);
+  G.part(null); G.build(R.gas, { cast: true });
+  R.brake = new THREE.Group(); R.brake.position.set(0.42, 1.98, -4.98); R.brake.updateMatrix(); R.fine.add(R.brake);
+  const B = new Parts(); B.part('pedals', R.brake.matrix);
+  B.add(tube([[0, 0, 0], [0, -0.30, 0.02]], 0.014, 8), IM.metal);
+  B.add(roundBox(0.14, 0.09, 0.02, 0.008), IM.black, 0, -0.34, 0.03);
+  B.part(null); B.build(R.brake, { cast: true });
+  const F = new Parts(); F.part('pedals');
+  F.add(roundBox(0.12, 0.05, 0.22, 0.01), IM.lower, 0.22, 1.50, -4.92, -0.5, 0, 0);       // footrest
+  F.part(null); F.build(R.fine);
 }
