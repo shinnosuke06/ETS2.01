@@ -90,7 +90,7 @@ test('基準の視点 9 つを当てられ、車内の視点では細かい部�
   assert.deepEqual(errors, []);
 }));
 test('画質 高・中・低のどれでも、連結して走り出せる', async () => { for (const q of ['high', 'mid', 'low']) await withGame({ storage: { 'nlh.quality': q } }, async (page, errors) => { await startJob(page);
-  const r = await page.evaluate(() => { INP.actions.push('couple'); for (let i = 0; i < 150; i++) simTick(1 / 60); INP.tGas = 1; for (let i = 0; i < 600; i++) simTick(1 / 60); return [TR.link, TR.v > 5]; });
+  const r = await page.evaluate(() => { INP.actions.push('couple'); for (let i = 0; i < 150; i++) simTick(1 / 60); INP.tGas = 1; for (let i = 0; i < 300; i++) simTick(1 / 60); return [TR.link, TR.v > 1.5]; });   // 5 s: the yard's wall is about 45 m ahead
   assert.deepEqual(r, ['coupled', true]); assert.deepEqual(errors, []); }); });
 test('縦持ちの外の視点は広い画角のまま（基準の視点を外すと元に戻る）', () => withGame({ width: 390, height: 844, touch: true }, async page => {
   await startJob(page);
