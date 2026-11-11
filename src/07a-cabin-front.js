@@ -104,7 +104,7 @@ function cabCentreStack(I, S, R) {
     S.add(lathe(knob, 24), IM.button, x, -0.2, 0.02, Math.PI / 2, 0, 0);
     S.add(lathe([[0.029, 0], [0.03, 0.004], [0.029, 0.008]], 24), IM.silver, x, -0.2, 0.02, Math.PI / 2, 0, 0);
   }
-  S.add(roundBox(0.11, 0.022, 0.006, 0.002, 1), IM.lcdAmber, 0, -0.265, 0.022);
+  S.add(roundBox(0.11, 0.022, 0.006, 0.002, 1), IM.ledAmber, 0, -0.265, 0.022);
   for (const P of [I, S]) P.pop().pop();
   I.part(null); S.part(null);
   // the navigation screen (the game draws on it)
@@ -138,13 +138,13 @@ function _sideCard(zy, thick, bevel = 0.006) {
 function cabDoor(I, S, sx) {
   const name = sx > 0 ? 'doorR' : 'doorL', xin = sx * 1.125, x0 = sx > 0 ? 1.125 : -1.17;   // inner face, and the card's -x side
   I.part(name); S.part(name);
-  I.add(_sideCard([[-5.22, 1.47], [-4.16, 1.47], [-4.16, 2.27], [-4.74, 2.27], [-4.86, 2.08], [-5.14, 2.08], [-5.22, 1.98]], 0.045), IM.door, x0, 0, 0);
-  I.add(_sideCard([[-4.96, 3.17], [-4.16, 3.17], [-4.16, 3.78], [-4.92, 3.78]], 0.04), IM.door, sx > 0 ? 1.13 : -1.17, 0, 0);   // above the window
+  I.add(_sideCard([[-5.22, 1.47], [-4.16, 1.47], [-4.16, 2.27], [-4.74, 2.27], [-4.86, 2.08], [-5.14, 2.08], [-5.22, 1.98]], 0.045), IM.upper, x0, 0, 0);
+  I.add(_sideCard([[-4.96, 3.17], [-4.16, 3.17], [-4.16, 3.78], [-4.92, 3.78]], 0.04), IM.upper, sx > 0 ? 1.13 : -1.17, 0, 0);   // above the window
   // sill along the window line
   S.add(tube([[sx * 1.135, 2.09, -5.15], [sx * 1.135, 2.09, -4.88], [sx * 1.135, 2.28, -4.75], [sx * 1.135, 2.28, -4.16]], 0.016, 8), IM.lower);
   // armrest with a leather top, door pull, window switches on the driver's side
   I.add(roundBox(0.08, 0.05, 0.42, 0.018), IM.lower, sx * 1.095, 2.09, -4.50);
-  S.add(roundBox(0.07, 0.014, 0.38, 0.006), IM.leather, sx * 1.093, 2.118, -4.50);
+  S.add(roundBox(0.07, 0.014, 0.38, 0.006), IM.seatPlain, sx * 1.093, 2.118, -4.50);
   S.add(roundBox(0.025, 0.03, 0.13, 0.008), IM.silver, sx * 1.105, 2.20, -4.76);
   if (sx > 0) for (let k = 0; k < 4; k++) S.add(roundBox(0.02, 0.008, 0.028, 0.003, 1), IM.button, sx * 1.08, 2.128, -4.66 + k * 0.035);
   // speaker grille low on the door, pocket, red courtesy light along the bottom
@@ -157,11 +157,11 @@ function cabDoor(I, S, sx) {
 function cabPillars(I, S) {
   I.part('pillars'); S.part('pillars');
   for (const sx of [-1, 1]) {
-    I.add(roundBox(0.07, 1.07, 0.11, 0.025), IM.door, sx * 1.14, 2.78, -5.16, 0.164, 0, 0);    // A-pillar between windscreen and door
-    I.add(roundBox(0.07, 2.30, 0.13, 0.025), IM.door, sx * 1.15, 2.62, -4.12);                // B-pillar behind the door
+    I.add(roundBox(0.07, 1.07, 0.11, 0.025), IM.upper, sx * 1.14, 2.78, -5.16, 0.164, 0, 0);    // A-pillar between windscreen and door
+    I.add(roundBox(0.07, 2.30, 0.13, 0.025), IM.upper, sx * 1.15, 2.62, -4.12);                // B-pillar behind the door
   }
-  I.add(roundBox(2.30, 0.10, 0.08, 0.02), IM.door, 0, 3.31, -5.15);                          // windscreen header
-  S.add(roundBox(2.2, 0.01, 0.01, 0.004, 1), IM.metal, 0, 3.26, -5.11);
+  I.add(roundBox(2.30, 0.10, 0.08, 0.02), IM.upper, 0, 3.31, -5.15);                          // windscreen header
+  S.add(roundBox(2.2, 0.01, 0.01, 0.004, 1), IM.silver, 0, 3.26, -5.11);
   I.part('grabs'); S.part('grabs');
   for (const sx of [-1, 1]) S.add(tube([[sx * 1.13, 1.95, -4.22], [sx * 1.09, 2.0, -4.22], [sx * 1.09, 2.65, -4.22], [sx * 1.13, 2.70, -4.22]], 0.014, 10), IM.silver);
   I.part(null); S.part(null);
@@ -183,9 +183,9 @@ function cabWheel(R) {
   const SW = new Parts(), N = seg(48, 16), ring = [];
   for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2; ring.push([0.208 * Math.cos(a), 0.208 * Math.sin(a), 0]); }
   SW.part('wheel', wf.matrix);
-  SW.add(tube(ring, 0.017, 10, true), IM.leather);                                         // rim: 0.45 across
+  SW.add(tube(ring, 0.017, 10, true), IM.seatPlain);                                         // rim: 0.45 across
   SW.add(lathe([[0, 0], [0.07, 0], [0.085, 0.03], [0.07, 0.06], [0, 0.065]], 24), IM.black, 0, 0, -0.06, Math.PI / 2, 0, 0);   // hub
-  SW.add(roundBox(0.16, 0.12, 0.045, 0.02), IM.leather, 0, 0, 0.012);                    // centre pad, plain
+  SW.add(roundBox(0.16, 0.12, 0.045, 0.02), IM.seatPlain, 0, 0, 0.012);                    // centre pad, plain
   for (const sx of [-1, 1]) {
     SW.add(roundBox(0.12, 0.07, 0.025, 0.012), IM.lower, sx * 0.13, -0.01, -0.005);       // side spokes with four buttons each
     for (let k = 0; k < 4; k++) SW.add(roundBox(0.018, 0.014, 0.008, 0.003, 1), IM.button, sx * (0.11 + (k % 2) * 0.028), 0.0 - Math.floor(k / 2) * 0.022, 0.009);
@@ -203,7 +203,7 @@ function cabPedals(R) {
   G.part(null); G.build(R.gas, { cast: true });
   R.brake = new THREE.Group(); R.brake.position.set(0.42, 1.98, -4.98); R.brake.updateMatrix(); R.fine.add(R.brake);
   const B = new Parts(); B.part('pedals', R.brake.matrix);
-  B.add(tube([[0, 0, 0], [0, -0.30, 0.02]], 0.014, 8), IM.metal);
+  B.add(tube([[0, 0, 0], [0, -0.30, 0.02]], 0.014, 8), IM.silver);
   B.add(roundBox(0.14, 0.09, 0.02, 0.008), IM.black, 0, -0.34, 0.03);
   B.part(null); B.build(R.brake, { cast: true });
   const F = new Parts(); F.part('pedals');

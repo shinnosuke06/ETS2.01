@@ -4,65 +4,22 @@
 // omamori charm that swings. buildInterior puts the whole cab together.
 // ---------------------------------------------------------------------------
 function buildCabinRear(I, S, R) {
-  // side walls behind the doors and the tied-back curtains (to be rebuilt with the back of the cab)
-  for (const sx of [-1, 1]) {
-    I.box(IM.head, 0.05, 2.36, 0.95, sx * 1.165, 2.62, -3.63);
-    for (let k = 0; k < 3; k++) I.add(new THREE.CylinderGeometry(0.045, 0.05, 0.98, 8), IM.curtain, sx * (1.06 - k * 0.04), 2.78, -5.13 + k * 0.035, 0.164, 0, 0);
-    for (let k = 0; k < 2; k++) I.add(new THREE.CylinderGeometry(0.055, 0.06, 1.15, 8), IM.curtain, sx * (1.07 - k * 0.05), 2.95, -4.06 + k * 0.03);
-    S.box(IM.black, 0.13, 0.03, 0.1, sx * 1.07, 2.7, -4.05);
-  }
   cabConsole(I, S);
   cabSeat(I, S, 0.55, 1, 'seatD');
   cabSeat(I, S, -0.6, -1, 'seatP');
 
-  // ---- bed with drawers, rear wall with TV and control panel, rear cabinets -----------
-  I.box(IM.mattress, 2.3, 0.15, 0.62, 0, 2.06, -3.5);
-  I.box(IM.lower, 2.32, 0.05, 0.04, 0, 1.985, -3.81);
-  I.box(IM.drawer, 2.3, 0.5, 0.04, 0, 1.73, -3.82);
-  for (const x of [-0.55, 0.55]) {
-    for (const y of [1.93, 1.53]) S.box(IM.black, 0.92, 0.006, 0.006, x, y, -3.842);
-    for (const dx of [-0.46, 0.46]) S.box(IM.black, 0.006, 0.4, 0.006, x + dx, 1.73, -3.842);
-    S.box(IM.black, 0.24, 0.03, 0.02, x, 1.87, -3.85);
-  }
-  I.box(IM.head, 0.5, 0.1, 0.34, -0.85, 2.18, -3.45);
-  I.box(new THREE.MeshPhongMaterial({ color: 0x29355c, shininess: 4 }), 0.6, 0.08, 0.4, 0.72, 2.17, -3.42);
-  I.box(IM.head, 2.36, 2.36, 0.04, 0, 2.62, -3.17);
-  S.box(IM.gloss, 0.5, 0.3, 0.03, -0.55, 2.62, -3.19);
-  S.add(new THREE.PlaneGeometry(0.46, 0.26), IM.tv, -0.55, 2.62, -3.174);
-  S.box(IM.black, 0.13, 0.19, 0.025, 0.78, 2.56, -3.19);
-  S.add(new THREE.PlaneGeometry(0.09, 0.055), IM.lcdBlue, 0.78, 2.6, -3.177);
-  for (let k = 0; k < 3; k++) S.box(IM.button, 0.025, 0.02, 0.01, 0.75 + k * 0.03, 2.5, -3.177);
-  S.box(IM.black, 0.24, 0.15, 0.03, 0.78, 2.33, -3.19);
-  for (const x of [-0.95, 0.95]) S.box(IM.black, 0.1, 0.05, 0.04, x, 2.95, -3.2);
-  I.add(extrudeX([[-3.62, 3.78], [-3.62, 3.28], [-3.55, 3.2], [-3.19, 3.2], [-3.19, 3.78]], -1.16, 1.16, 0.01), IM.cabinet);
-  for (const x of [-0.58, 0, 0.58]) S.box(IM.black, 0.006, 0.5, 0.006, x, 3.48, -3.623);
-  S.box(IM.ambient, 2.2, 0.01, 0.01, 0, 3.195, -3.58);
-
-  // ---- ceiling and the overhead cabinets above the windscreen ------------------------------
-  I.box(IM.head, 2.36, 0.04, 2.15, 0, 3.8, -4.22);
-  S.box(IM.cabinet, 0.66, 0.02, 0.66, 0, 3.775, -4.05);
-  for (const x of [-0.5, 0.5]) S.box(IM.silver, 0.12, 0.02, 0.07, x, 3.775, -4.62);
-  I.add(extrudeX([[-5.16, 3.79], [-5.16, 3.44], [-5.05, 3.33], [-4.70, 3.33], [-4.60, 3.42], [-4.60, 3.79]], -1.16, 1.16, 0.01), IM.cabinet);
-  for (const x of [-0.75, -0.25, 0.25, 0.75]) S.box(IM.black, 0.006, 0.12, 0.004, x, 3.378, -4.648, 0.83, 0, 0);
-  S.add(new THREE.PlaneGeometry(0.4, 0.07), IM.gloss, 0, 3.374, -4.648, 0.83, 0, 0);
-  S.add(new THREE.PlaneGeometry(0.12, 0.028), IM.lcdGreen, -0.08, 3.373, -4.646, 0.83, 0, 0);
-  for (let k = 0; k < 4; k++) S.add(new THREE.PlaneGeometry(0.018, 0.012), IM.button, 0.06 + k * 0.03, 3.373, -4.646, 0.83, 0, 0);
-  S.box(IM.ambient, 2.2, 0.01, 0.01, 0, 3.326, -4.7);
-  for (const x of [-0.9, 0.9]) S.box(IM.ambient, 0.12, 0.012, 0.03, x, 3.328, -4.85);
-
-  // sun visors: the driver's is down against the afternoon sun
-  I.box(IM.cabinet, 0.86, 0.022, 0.3, 0.55, 3.166, -5.06, 1.1, 0, 0);
-  I.box(IM.cabinet, 0.86, 0.022, 0.3, -0.55, 3.285, -4.99, 0.15, 0, 0);
-  // fire extinguisher by the passenger seat, footrest
-  S.add(new THREE.CylinderGeometry(0.06, 0.06, 0.36, 14), IM.red, -1.0, 1.63, -4.25);
-  S.box(IM.black, 0.06, 0.05, 0.05, -1.0, 1.83, -4.25);
-
+  cabShelf(I, S);
+  cabVisors(I);
+  cabCeiling(I, S);
+  cabBed(I, S);
+  cabCurtains(I, S);
+  cabSmall(I, S);
 
   // omamori charm hanging from the overhead console
-  R.charm = new THREE.Group(); R.charm.position.set(0.08, 3.33, -4.66); R.fine.add(R.charm);
-  R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.002, 0.1, 0.002).translate(0, -0.05, 0), IM.gold));
+  R.charm = new THREE.Group(); R.charm.position.set(0.08, 3.30, -4.66); R.fine.add(R.charm);
+  R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.002, 0.1, 0.002).translate(0, -0.05, 0), IM.ledAmber));
   R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.052, 0.008).translate(0, -0.128, 0), IM.red));
-  R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.037, 0.008, 0.009).translate(0, -0.112, 0), IM.gold));
+  R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.037, 0.008, 0.009).translate(0, -0.112, 0), IM.ledAmber));
   R.charmState = { ax: 0, vx: 0, az: 0, vz: 0 };
 }
 
@@ -136,8 +93,105 @@ function cabConsole(I, S) {
     S.add(lathe([[0, 0], [0.041, 0], [0.041, 0.004], [0, 0.004]], 20), IM.black, x, 1.939, -4.47);
   }
   S.add(lathe([[0, 0], [0.033, 0], [0.033, 0.12], [0.03, 0.13], [0, 0.13]], 16), IM.can, -0.11, 1.90, -4.47);
-  I.add(roundBox(0.36, 0.03, 0.22, 0.012), IM.leather, -0.025, 1.955, -4.27);                  // lid
+  I.add(roundBox(0.36, 0.03, 0.22, 0.012), IM.seatPlain, -0.025, 1.955, -4.27);                  // lid
   S.add(roundBox(0.30, 0.006, 0.006, 0.002, 1), IM.silver, -0.025, 1.94, -4.165);
+  I.part(null); S.part(null);
+}
+
+
+// ---- the sleeping area and everything overhead -------------------------------------------------------
+// A section [z, y] lofted across the cab from x0 to x1 (sections listed counter-clockwise seen from +x).
+function _acrossCab(zy, x0, x1, n) {
+  const rings = [];
+  for (let i = 0; i <= n; i++) { const x = x0 + (x1 - x0) * i / n; rings.push(zy.map(([z, y]) => [x, y, z])); }
+  return loft(rings, { capStart: true, capEnd: true });
+}
+// Above the windscreen: three lockers, two device slots, reading lamps and a red light strip underneath.
+function cabShelf(I, S) {
+  I.part('shelf'); S.part('shelf');
+  const sec = [[-4.62, 3.40], [-4.66, 3.35], [-4.75, 3.32], [-5.05, 3.32], [-5.14, 3.36], [-5.16, 3.45], [-5.16, 3.79], [-4.60, 3.79], [-4.60, 3.45]];
+  I.add(shade(_acrossCab(sec, -1.12, 1.12, 1), (x, y, z, nx, ny) => (ny < -0.5 ? 0.7 : 1)), IM.cabinet);
+  for (const x of [-0.72, 0, 0.72]) {
+    S.add(roundBox(0.68, 0.30, 0.014, 0.008), IM.cabinet, x, 3.62, -4.594);
+    S.add(roundBox(0.12, 0.012, 0.012, 0.004, 1), IM.silver, x, 3.50, -4.585);
+  }
+  for (const x of [0.35, -0.12]) {
+    S.add(roundBox(0.20, 0.006, 0.06, 0.003, 1), IM.gloss, x, 3.317, -4.80);
+    S.add(roundBox(0.08, 0.004, 0.02, 0.001, 1), IM.ledGreen, x - 0.04, 3.315, -4.80);
+  }
+  for (const x of [-0.85, 0.85]) S.add(roundBox(0.10, 0.01, 0.05, 0.004, 1), IM.silver, x, 3.316, -4.72);
+  S.add(roundBox(2.1, 0.008, 0.012, 0.003, 1), IM.ambient, 0, 3.316, -4.66);
+  I.part(null); S.part(null);
+}
+function cabVisors(I) {
+  I.part('visors');
+  I.add(roundBox(0.80, 0.28, 0.022, 0.01), IM.cabinet, 0.55, 3.16, -5.08, -0.25, 0, 0);       // driver's, down
+  I.add(roundBox(0.80, 0.022, 0.28, 0.01), IM.cabinet, -0.55, 3.30, -4.98);                   // passenger's, up
+  I.part(null);
+}
+// The headlining follows the roof's gentle arch; roof hatch and two dome lights.
+function cabCeiling(I, S) {
+  I.part('ceiling'); S.part('ceiling');
+  const n = seg(16, 6), arch = [];
+  for (let i = 0; i <= n; i++) { const x = -1.17 + 2.34 * i / n; arch.push([x, 3.79 + 0.055 * (1 - (x / 1.17) ** 2)]); }
+  const ring = [...arch.map(([x, y]) => [x, y - 0.02]), ...arch.slice().reverse().map(([x, y]) => [x, y])];
+  const rings = []; for (const z of [-5.10, -4.6, -4.1, -3.6, -3.20]) rings.push(ring.map(([x, y]) => [x, y, z]));
+  I.add(loft(rings, { capStart: true, capEnd: true }), IM.head);
+  I.add(roundBox(0.66, 0.025, 0.66, 0.03), IM.cabinet, 0, 3.80, -4.05);                     // roof hatch
+  for (const x of [-0.5, 0.5]) S.add(roundBox(0.12, 0.012, 0.07, 0.01), IM.silver, x, 3.79, -4.40);
+  I.part(null); S.part(null);
+}
+// Bed with a rounded mattress, the drawers under it (the middle one a fridge), the rear wall with its
+// panel, screen and lamps, three lockers above, the side walls of the sleeper.
+function cabBed(I, S) {
+  I.part('bed');
+  I.add(roundBox(2.30, 0.15, 0.62, 0.04), IM.mattress, 0, 2.055, -3.50);
+  I.add(roundBox(2.32, 0.05, 0.04, 0.01), IM.lower, 0, 1.985, -3.81);
+  I.part('drawers'); S.part('drawers');
+  I.add(roundBox(2.30, 0.48, 0.04, 0.01), IM.drawer, 0, 1.72, -3.82);
+  for (const [x, fridge] of [[-0.76, false], [0, true], [0.76, false]]) {
+    S.add(roundBox(0.72, 0.40, 0.02, 0.012), fridge ? IM.lower : IM.drawer, x, 1.71, -3.845);
+    S.add(roundBox(0.22, 0.025, 0.02, 0.008), fridge ? IM.silver : IM.black, x, 1.87, -3.858);
+  }
+  I.part('rearWall'); S.part('rearWall');
+  I.add(roundBox(2.36, 1.70, 0.04, 0.01), IM.head, 0, 2.95, -3.175);
+  for (const sx of [-1, 1]) I.add(roundBox(0.04, 1.70, 0.92, 0.01), IM.head, sx * 1.16, 2.95, -3.65);
+  S.add(roundBox(0.5, 0.30, 0.03, 0.01), IM.gloss, -0.55, 2.62, -3.20);                       // screen
+  S.add(roundBox(0.14, 0.20, 0.025, 0.008), IM.black, 0.78, 2.52, -3.20);                     // control panel
+  S.add(roundBox(0.09, 0.055, 0.004, 0.001, 1), IM.lcdBlue, 0.78, 2.56, -3.186);
+  for (let k = 0; k < 3; k++) S.add(roundBox(0.025, 0.02, 0.01, 0.003, 1), IM.button, 0.75 + k * 0.03, 2.46, -3.186);
+  for (const x of [-0.95, 0.95]) S.add(roundBox(0.10, 0.05, 0.04, 0.01), IM.black, x, 2.95, -3.21);
+  S.add(roundBox(2.2, 0.01, 0.01, 0.003, 1), IM.ambient, 0, 3.195, -3.60);
+  I.part('lockers'); S.part('lockers');
+  I.add(_acrossCab([[-3.19, 3.20], [-3.55, 3.20], [-3.62, 3.28], [-3.62, 3.78], [-3.19, 3.78]], -1.10, 1.10, 1), IM.cabinet);
+  for (const x of [-0.74, 0, 0.74]) {
+    S.add(roundBox(0.70, 0.46, 0.012, 0.008), IM.cabinet, x, 3.52, -3.627);
+    S.add(roundBox(0.14, 0.012, 0.012, 0.004, 1), IM.silver, x, 3.31, -3.636);
+  }
+  I.part(null); S.part(null);
+}
+// Curtains tied back at the pillars behind the doors: folded columns with a strap at the waist.
+function cabCurtains(I, S) {
+  I.part('curtains'); S.part('curtains');
+  const k = seg(18, 10), n = seg(14, 5);
+  for (const sx of [-1, 1]) {
+    const rings = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, y = 1.95 + 1.75 * t, w = 0.65 + 0.35 * Math.abs(t - 0.45) / 0.55;   // gathered at the strap
+      rings.push(Array.from({ length: k }, (_, j) => { const a = j / k * Math.PI * 2, r = (0.055 + 0.012 * Math.sin(6 * a)) * w; return [sx * 1.08 + r * Math.cos(a), y, -4.04 - r * Math.sin(a)]; }));
+    }
+    I.add(loft(rings, { capStart: true, capEnd: true, crease: 75 }), IM.curtain);
+    S.add(roundBox(0.11, 0.035, 0.10, 0.015), IM.black, sx * 1.08, 2.74, -4.04);
+  }
+  I.part(null); S.part(null);
+}
+// Fire extinguisher by the passenger seat, a pillow and a folded blanket on the bed.
+function cabSmall(I, S) {
+  I.part('small'); S.part('small');
+  S.add(lathe([[0, 0], [0.06, 0], [0.06, 0.32], [0.04, 0.35], [0, 0.36]], 16), IM.red, -1.0, 1.45, -4.25);
+  S.add(roundBox(0.06, 0.05, 0.05, 0.01), IM.black, -1.0, 1.83, -4.25);
+  I.add(roundBox(0.50, 0.10, 0.34, 0.045), IM.head, -0.85, 2.18, -3.42);
+  I.add(roundBox(0.60, 0.08, 0.40, 0.03), IM.can, 0.72, 2.17, -3.42);
   I.part(null); S.part(null);
 }
 

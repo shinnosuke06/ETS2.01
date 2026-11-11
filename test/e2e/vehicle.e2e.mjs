@@ -139,3 +139,16 @@ test('室内の後ろ：背の高いシートが 2 脚、間にコンソール�
 test('運転席の背もたれと頭の部分は、目の後ろにある（目をふさがない）', () => withGame({}, async page => {
   const P = await partsOf(page); assert.ok(P.seatDBack && P.seatDBack.box[2] > -4.28 + 0.08, JSON.stringify(P.seatDBack));
 }));
+test('室内の後ろ：頭上の棚、ベッド、後ろの収納が決まった高さにある', () => withGame({}, async page => {
+  const P = await partsOf(page);
+  for (const k of ['shelf', 'visors', 'ceiling', 'bed', 'drawers', 'rearWall', 'lockers', 'curtains', 'small']) { assert.ok(P[k] && P[k].tris > 0, k); assert.ok(cabin(P[k].box), `${k} ${P[k].box}`); }
+  assert.ok(P.shelf.box[1] >= 3.30 && P.lockers.box[1] >= 3.20 && Math.abs(P.bed.box[4] - 2.13) < 0.06, JSON.stringify([P.shelf.box, P.lockers.box, P.bed.box]));
+}));
+test('V4 室内の上限：三角形と素材の数。画質を下げると三角形が減る', async () => { const tris = [];
+  for (const [q, max] of [['high', 100000], ['mid', 60000], ['low', 35000]]) await withGame({ storage: { 'nlh.quality': q } }, async page => {
+    const s = await page.evaluate(() => vehicleStats().interior); tris.push(s.tris); assert.ok(s.tris <= max, `${q} ${s.tris}`); assert.ok(s.mats <= 24, `${q} mats ${s.mats}`); });
+  assert.ok(tris[0] > tris[1] && tris[1] > tris[2], String(tris)); });
+test('夜の赤い間接照明は、足元と頭上の両方で点く', () => withGame({}, async page => {
+  const r = await page.evaluate(() => { setCabAmbient(false); const off = IM.ambient.color.r; setCabAmbient(true); const P = vehicleStats().parts; return [off, IM.ambient.color.r, !!P.shelf, !!P.floor]; });
+  assert.ok(r[1] > r[0] * 2 && r[2] && r[3], String(r));
+}));
