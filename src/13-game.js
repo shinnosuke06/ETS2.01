@@ -408,6 +408,7 @@ function updateVisuals(dt) {
   const squat = 0.06 * clamp(TR.kp / (10000 * 9.81), 0, 1), towing = TR.link !== 'free';
   T.position.set(TR.x, TR.y - squat, TR.z);
   T.rotation.set(TR.pitch + squat / WB, TR.h + Math.PI, 0);
+  updateVehicleEnv(T);
   for (const w of TRK.rear) w.position.y = 0.52 + squat;
   TRK.cabPivot.rotation.set(TR.cab.p, 0, TR.cab.r);
   TRK.cabPivot.position.y = 1.25 + TR.cab.hy;
@@ -507,6 +508,7 @@ function updateLighting(dt) {
   GAME.todT -= dt;
   if (GAME.todT <= 0 || Math.abs(GAME.tunnelBlend - GAME.lastTB) > 0.03) {
     applyTimeOfDay((GAME.clock / 3600) % 24, GAME.tunnelBlend);
+    setVehicleLight(1 - TOD.night, GAME.tunnelBlend);
     GAME.todT = 0.5; GAME.lastTB = GAME.tunnelBlend;
   }
   const ext = GAME.cam === 'cab' && GAME.state === 'drive' ? 11 : 24;

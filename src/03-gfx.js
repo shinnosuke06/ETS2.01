@@ -2,9 +2,9 @@
 // Renderer, quality presets, procedural textures and shared materials.
 // ---------------------------------------------------------------------------
 const QUALITY_PRESETS = {
-  high: { dpr: 2, shadow: 2048, mirror: [256, 400], mirrorEvery: 1, trees: 1.0, houses: 1.0, traffic: 34, far: 1500 },
-  mid: { dpr: 1.5, shadow: 1024, mirror: [192, 300], mirrorEvery: 2, trees: 0.7, houses: 0.8, traffic: 26, far: 1250 },
-  low: { dpr: 1, shadow: 0, mirror: [128, 200], mirrorEvery: 3, trees: 0.45, houses: 0.6, traffic: 18, far: 1000 },
+  high: { dpr: 2, shadow: 2048, mirror: [256, 400], mirrorEvery: 1, trees: 1.0, houses: 1.0, traffic: 34, far: 1500, detail: 1.0, pbr: true, tex: 512 },
+  mid: { dpr: 1.5, shadow: 1024, mirror: [192, 300], mirrorEvery: 2, trees: 0.7, houses: 0.8, traffic: 26, far: 1250, detail: 0.6, pbr: true, tex: 256 },
+  low: { dpr: 1, shadow: 0, mirror: [128, 200], mirrorEvery: 3, trees: 0.45, houses: 0.6, traffic: 18, far: 1000, detail: 0.35, pbr: false, tex: 256 },
 };
 let qualityName = lsGet('nlh.quality', IS_TOUCH ? 'mid' : 'high');
 if (!QUALITY_PRESETS[qualityName]) qualityName = 'mid';

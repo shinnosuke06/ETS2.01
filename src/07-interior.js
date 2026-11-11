@@ -6,107 +6,6 @@
 // tall leather seats, bed with drawers, overhead and rear cabinets, red ambient
 // LEDs at night, curtains and a 交通安全 omamori charm that swings.
 // ---------------------------------------------------------------------------
-const INTERIOR_THEMES = {
-  black: { label: 'ブラック', upper: 0x3b3d41, lower: 0x1c1d1f, head: 0xcac7c0, cabinet: 0xd3d0c9, door: 0x2f3134, stitch: '#61656a', mattress: 0x34373d, drawer: 0x2c2e31, curtain: 0x1a1b1d, ambient: 0xff1e2c, quilt: false },
-  beige: { label: 'ベージュ', upper: 0xd6cfbf, lower: 0x1e1f21, head: 0xe6e1d5, cabinet: 0xdfd8c9, door: 0xd2cbbb, stitch: '#4a4a4a', mattress: 0xd9cdb6, drawer: 0xd8d3c8, curtain: 0x2b2c2e, ambient: 0xffcf8a, quilt: false },
-  red: { label: 'レッド', upper: 0x9b111b, lower: 0x141415, head: 0x8a0f18, cabinet: 0x930f19, door: 0x930f19, stitch: '#d0202c', mattress: 0x1a1a1b, drawer: 0x930f19, curtain: 0x121213, ambient: 0xff1e2c, quilt: true },
-};
-let interiorName = lsGet('nlh.interior', 'black');
-if (!INTERIOR_THEMES[interiorName]) interiorName = 'black';
-
-TEX.headW = (() => {
-  const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
-  g.fillStyle = '#f2f2f0'; g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 4000, 1, 200, 245, 0.2, 0.5, 211);
-  const t = canvasTex(c, { repeat: true }); t.repeat.set(4, 4); return t;
-})();
-TEX.leather = (() => { const c = makeCanvas(256, 256); const t = canvasTex(c, { repeat: false }); t.userData = { c }; return t; })();
-function drawLeather(stitch) {
-  const c = TEX.leather.userData.c, g = c.getContext('2d'), W = 256;
-  g.fillStyle = '#1b1b1c'; g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 5000, 1, 10, 50, 0.3, 0.6, 221);
-  for (let y = 0; y < W; y += 32) { // stitched horizontal channels
-    const grd = g.createLinearGradient(0, y, 0, y + 32);
-    grd.addColorStop(0, 'rgba(255,255,255,.06)'); grd.addColorStop(0.5, 'rgba(255,255,255,0)'); grd.addColorStop(1, 'rgba(0,0,0,.35)');
-    g.fillStyle = grd; g.fillRect(0, y, W, 32);
-    g.fillStyle = '#0b0b0c'; g.fillRect(0, y + 30, W, 3);
-    g.fillStyle = stitch; for (let x = 4; x < W; x += 9) { g.fillRect(x, y + 26, 5, 1.4); g.fillRect(x, y + 35, 5, 1.4); }
-  }
-  g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(0, 0, 18, W); g.fillRect(W - 18, 0, 18, W);
-  TEX.leather.needsUpdate = true;
-}
-let _quilt = null;
-function quiltTexture(hex) {
-  const c = _quilt ? _quilt.userData.c : makeCanvas(256, 256), g = c.getContext('2d'), W = 256;
-  const col = new THREE.Color(hex);
-  g.fillStyle = '#' + col.getHexString(); g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 3000, 1, 0, 60, 0.15, 0.3, 231);
-  g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 3;
-  for (let k = -W; k < 2 * W; k += 32) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + W, W); g.stroke(); g.beginPath(); g.moveTo(k, W); g.lineTo(k + W, 0); g.stroke(); }
-  g.strokeStyle = 'rgba(255,255,255,.16)'; g.lineWidth = 1; g.setLineDash([3, 3]);
-  for (let k = -W; k < 2 * W; k += 32) { g.beginPath(); g.moveTo(k + 3, 0); g.lineTo(k + 3 + W, W); g.stroke(); g.beginPath(); g.moveTo(k + 3, W); g.lineTo(k + 3 + W, 0); g.stroke(); }
-  g.setLineDash([]);
-  if (!_quilt) { _quilt = canvasTex(c, { repeat: true }); _quilt.userData = { c }; _quilt.repeat.set(3, 3); }
-  _quilt.needsUpdate = true;
-  return _quilt;
-}
-
-const IM = {
-  upper: new THREE.MeshPhongMaterial({ color: 0x3b3d41, specular: 0x1c1c1c, shininess: 14, bumpMap: TEX.grain, bumpScale: 0.003 }),
-  lower: new THREE.MeshPhongMaterial({ color: 0x1c1d1f, specular: 0x1a1a1a, shininess: 12, bumpMap: TEX.grain, bumpScale: 0.003 }),
-  head: new THREE.MeshPhongMaterial({ map: TEX.headW, color: 0xcac7c0, shininess: 2, specular: 0x050505 }),
-  cabinet: new THREE.MeshPhongMaterial({ color: 0xd3d0c9, specular: 0x1a1a1a, shininess: 10, bumpMap: TEX.grain, bumpScale: 0.002 }),
-  door: new THREE.MeshPhongMaterial({ color: 0x2f3134, specular: 0x1a1a1a, shininess: 10, bumpMap: TEX.grain, bumpScale: 0.003 }),
-  drawer: new THREE.MeshPhongMaterial({ color: 0x2c2e31, specular: 0x222222, shininess: 18 }),
-  seat: new THREE.MeshPhongMaterial({ map: TEX.leather, specular: 0x3a3a3a, shininess: 28 }),
-  seatPlain: new THREE.MeshPhongMaterial({ color: 0x18181a, specular: 0x3a3a3a, shininess: 30, bumpMap: TEX.grain, bumpScale: 0.002 }),
-  mattress: new THREE.MeshPhongMaterial({ map: TEX.headW, color: 0x34373d, shininess: 3, specular: 0x050505 }),
-  leather: new THREE.MeshPhongMaterial({ color: 0x1b1b1c, specular: 0x3a3a3a, shininess: 35, bumpMap: TEX.grain, bumpScale: 0.002 }),
-  floor: new THREE.MeshPhongMaterial({ map: TEX.floor, shininess: 10, specular: 0x111111, emissive: 0x000000 }),
-  mat: new THREE.MeshPhongMaterial({ color: 0x121314, specular: 0x222222, shininess: 20, emissive: 0x000000 }),
-  metal: new THREE.MeshPhongMaterial({ color: 0xa5a9ad, specular: 0xffffff, shininess: 90, envMap: ENV, reflectivity: 0.35, combine: THREE.MixOperation }),
-  silver: new THREE.MeshPhongMaterial({ color: 0xc4c8cb, specular: 0xffffff, shininess: 100, envMap: ENV, reflectivity: 0.45, combine: THREE.MixOperation }),
-  black: new THREE.MeshPhongMaterial({ color: 0x0f1011, specular: 0x333333, shininess: 40 }),
-  gloss: new THREE.MeshPhongMaterial({ color: 0x0a0b0c, specular: 0x888888, shininess: 120 }),
-  button: new THREE.MeshPhongMaterial({ color: 0x1f2022, specular: 0x444444, shininess: 50 }),
-  red: new THREE.MeshPhongMaterial({ color: 0xb3141b, specular: 0x333333, shininess: 30 }),
-  gold: new THREE.MeshPhongMaterial({ color: 0xd8b04a, specular: 0xffffff, shininess: 80 }),
-  curtain: new THREE.MeshPhongMaterial({ map: TEX.fabric, color: 0x1a1b1d, shininess: 3 }),
-  can: new THREE.MeshPhongMaterial({ color: 0x23365a, specular: 0xffffff, shininess: 70 }),
-  ambient: new THREE.MeshBasicMaterial({ color: 0xff1e2c }),
-  tv: new THREE.MeshBasicMaterial({ color: 0x0b1016 }),
-  ledGreen: new THREE.MeshBasicMaterial({ color: 0x3dff8a }),
-  ledAmber: new THREE.MeshBasicMaterial({ color: 0xffa21a }),
-  lcdGreen: new THREE.MeshBasicMaterial({ color: 0x46c07a }),
-  lcdAmber: new THREE.MeshBasicMaterial({ color: 0xd88a1c }),
-  lcdBlue: new THREE.MeshBasicMaterial({ color: 0x3a8ad8 }),
-};
-TEX.fabric.repeat.set(2, 2);
-TEX.floor.repeat.set(4, 4);
-const CAB_AMBIENT = { base: new THREE.Color(0xff1e2c), on: null };
-
-function applyInteriorTheme(name) {
-  const th = INTERIOR_THEMES[name]; if (!th) return;
-  interiorName = name; lsSet('nlh.interior', name);
-  drawLeather(th.stitch);
-  const q = th.quilt ? quiltTexture(th.upper) : null;
-  for (const [m, c, plainMap] of [[IM.upper, th.upper, null], [IM.head, th.head, TEX.headW], [IM.cabinet, th.cabinet, null], [IM.door, th.door, null]]) {
-    const want = th.quilt ? q : plainMap;
-    if (m.map !== want) { m.map = want; m.needsUpdate = true; }
-    m.color.setHex(th.quilt ? (m === IM.head ? 0xe0d0d0 : 0xffffff) : c);
-  }
-  IM.lower.color.setHex(th.lower); IM.drawer.color.setHex(th.drawer);
-  IM.mattress.color.setHex(th.mattress); IM.curtain.color.setHex(th.curtain);
-  CAB_AMBIENT.base.setHex(th.ambient); CAB_AMBIENT.on = null;
-}
-function setCabAmbient(on) {
-  if (CAB_AMBIENT.on === on) return;
-  CAB_AMBIENT.on = on;
-  IM.ambient.color.copy(CAB_AMBIENT.base).multiplyScalar(on ? 1 : 0.28);
-  const e = CAB_AMBIENT.base.clone().multiplyScalar(on ? 0.13 : 0);
-  IM.floor.emissive.copy(e); IM.mat.emissive.copy(e);
-}
-
 function buildInterior(T) {
   const cab = T.cab;
   const I = new Parts(); // casts and receives shadows
@@ -317,6 +216,6 @@ function buildInterior(T) {
   R.charmState = { ax: 0, vx: 0, az: 0, vz: 0 };
 
   R.eye = new THREE.Object3D(); R.eye.position.set(0.55, 2.62, -4.28); cab.add(R.eye);
-  applyInteriorTheme(interiorName);
+  fillVertexColors(cab);
   return R;
 }

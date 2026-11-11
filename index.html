@@ -223,7 +223,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <span class="lbl">内装</span>
           <div class="seg" id="intSeg" role="group" aria-label="内装">
             <button type="button" data-v="black" aria-pressed="true">ブラック</button>
-            <button type="button" data-v="beige" aria-pressed="false">ベージュ</button>
+            <button type="button" data-v="beige" aria-pressed="false">ライトグレー</button>
             <button type="button" data-v="red" aria-pressed="false">レッド</button>
           </div>
         </div>
@@ -285,7 +285,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <div class="row"><span class="lbl">内装</span>
         <div class="seg" id="intSeg2" role="group" aria-label="内装">
           <button type="button" data-v="black" aria-pressed="true">ブラック</button>
-          <button type="button" data-v="beige" aria-pressed="false">ベージュ</button>
+          <button type="button" data-v="beige" aria-pressed="false">ライトグレー</button>
           <button type="button" data-v="red" aria-pressed="false">レッド</button>
         </div>
       </div>
@@ -820,9 +820,9 @@ const ROAD = { project, posAt, elevAt, gradeAt, headingAt, drivable, rampAt, bar
 // Renderer, quality presets, procedural textures and shared materials.
 // ---------------------------------------------------------------------------
 const QUALITY_PRESETS = {
-  high: { dpr: 2, shadow: 2048, mirror: [256, 400], mirrorEvery: 1, trees: 1.0, houses: 1.0, traffic: 34, far: 1500 },
-  mid: { dpr: 1.5, shadow: 1024, mirror: [192, 300], mirrorEvery: 2, trees: 0.7, houses: 0.8, traffic: 26, far: 1250 },
-  low: { dpr: 1, shadow: 0, mirror: [128, 200], mirrorEvery: 3, trees: 0.45, houses: 0.6, traffic: 18, far: 1000 },
+  high: { dpr: 2, shadow: 2048, mirror: [256, 400], mirrorEvery: 1, trees: 1.0, houses: 1.0, traffic: 34, far: 1500, detail: 1.0, pbr: true, tex: 512 },
+  mid: { dpr: 1.5, shadow: 1024, mirror: [192, 300], mirrorEvery: 2, trees: 0.7, houses: 0.8, traffic: 26, far: 1250, detail: 0.6, pbr: true, tex: 256 },
+  low: { dpr: 1, shadow: 0, mirror: [128, 200], mirrorEvery: 3, trees: 0.45, houses: 0.6, traffic: 18, far: 1000, detail: 0.35, pbr: false, tex: 256 },
 };
 let qualityName = lsGet('nlh.quality', IS_TOUCH ? 'mid' : 'high');
 if (!QUALITY_PRESETS[qualityName]) qualityName = 'mid';
@@ -2111,68 +2111,212 @@ function buildSigns(ctx) {
   }
 }
 
-// ==== 06-truck.js ====
+// ==== 06a-modelkit.js ====
 // ---------------------------------------------------------------------------
-// 4x2 tractor modelled on the Scania S-series (right-hand drive, as sold in Japan)
-// and a 13.6 m van trailer. Local frame: -Z forward, +X right, +Y up; tractor
-// origin = rear axle on the ground. Maker badges are left blank on purpose.
+// Model kit: curved parts for the tractor and its cab. Uses THREE only (no DOM),
+// so the Node tests can check the shapes. Every builder returns a non-indexed
+// BufferGeometry with position, normal and uv (in metres), faces pointing outward.
 // ---------------------------------------------------------------------------
-const TM = {
-  paint: new THREE.MeshPhongMaterial({ color: 0x8e1b20, specular: 0x666666, shininess: 80, envMap: ENV, reflectivity: 0.2, combine: THREE.MixOperation }),
-  paintDark: new THREE.MeshPhongMaterial({ color: 0x2a2c2f, specular: 0x333333, shininess: 40 }),
-  chrome: new THREE.MeshPhongMaterial({ color: 0xe2e6e9, specular: 0xffffff, shininess: 120, envMap: ENV, reflectivity: 0.75, combine: THREE.MixOperation }),
-  black: new THREE.MeshPhongMaterial({ color: 0x131415, specular: 0x222222, shininess: 25 }),
-  blackDS: new THREE.MeshPhongMaterial({ color: 0x131415, specular: 0x222222, shininess: 25, side: THREE.DoubleSide }),
-  dark: new THREE.MeshPhongMaterial({ color: 0x2c2e31, specular: 0x222222, shininess: 20 }),
-  frame: new THREE.MeshPhongMaterial({ color: 0x1c1d1f, specular: 0x111111, shininess: 10 }),
-  bumper: new THREE.MeshPhongMaterial({ color: 0x34373a, specular: 0x333333, shininess: 30 }),
-  alu: new THREE.MeshPhongMaterial({ color: 0xc9cdd1, specular: 0xbbbbbb, shininess: 80, envMap: ENV, reflectivity: 0.35, combine: THREE.MixOperation }),
-  white: new THREE.MeshPhongMaterial({ color: 0xeef0f0, specular: 0x444444, shininess: 40 }),
-  tire: new THREE.MeshLambertMaterial({ color: 0x18181a }),
-  rim: new THREE.MeshPhongMaterial({ color: 0xd2d6d9, specular: 0xffffff, shininess: 90, envMap: ENV, reflectivity: 0.4, combine: THREE.MixOperation }),
-  glassOut: new THREE.MeshPhongMaterial({ color: 0x0e171c, specular: 0xffffff, shininess: 110, envMap: ENV, reflectivity: 0.55, combine: THREE.MixOperation, transparent: true, opacity: 0.82, depthWrite: false }),
-  glassIn: new THREE.MeshBasicMaterial({ color: 0xcfe0ea, transparent: true, opacity: 0.05, depthWrite: false }),
-  headOff: new THREE.MeshPhongMaterial({ color: 0xd8dde0, specular: 0xffffff, shininess: 100, envMap: ENV, reflectivity: 0.5, combine: THREE.MixOperation }),
-  headOn: new THREE.MeshBasicMaterial({ color: 0xfff7e4 }),
-  drl: new THREE.MeshBasicMaterial({ color: 0xf2faff }),
-  amberOff: new THREE.MeshPhongMaterial({ color: 0x9a6512, specular: 0x888888, shininess: 80 }),
-  amberOn: new THREE.MeshBasicMaterial({ color: 0xffa51c }),
-  redOff: new THREE.MeshPhongMaterial({ color: 0x5c0e0e, specular: 0x888888, shininess: 80 }),
-  redDim: new THREE.MeshBasicMaterial({ color: 0xa8170f }),
-  redOn: new THREE.MeshBasicMaterial({ color: 0xff2b18 }),
-  whiteOn: new THREE.MeshBasicMaterial({ color: 0xffffff }),
-  marker: new THREE.MeshBasicMaterial({ color: 0xffa21a }),
-  mirrorStatic: new THREE.MeshPhongMaterial({ color: 0x8e98a0, specular: 0xffffff, shininess: 120, envMap: ENV, reflectivity: 0.9, combine: THREE.MixOperation }),
+let DETAIL = 1;   // segment multiplier from the quality setting: high 1, mid 0.6, low 0.35
+function setDetail(k) { DETAIL = k; }
+function seg(n, min = 2) { return Math.max(min, Math.round(n * DETAIL)); }
+
+const _kv = {
+  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  len: a => Math.hypot(a[0], a[1], a[2]),
+  norm: a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+  dist: (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]),
 };
-TM.trailerBody = new THREE.MeshPhongMaterial({ map: TEX.alu, specular: 0x777777, shininess: 50 });
-TEX.alu.repeat.set(1, 1);
 
-function plateTexture(top, bottom) {
-  const c = makeCanvas(256, 128), g = c.getContext('2d');
-  g.fillStyle = '#1e6a3b'; roundRect(g, 0, 0, 256, 128, 10); g.fill();
-  g.strokeStyle = '#d9e8dc'; g.lineWidth = 3; roundRect(g, 4, 4, 248, 120, 8); g.stroke();
-  g.fillStyle = '#f4f7f2'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = font(30); g.fillText(top, 128, 32);
-  g.font = font(64); g.fillText(bottom, 140, 88);
-  g.font = font(26); g.fillText('か', 30, 92);
-  return canvasTex(c);
+// Triangles (flat arrays) -> geometry with crease-aware normals.
+function _kitFinish(pos, uv, crease) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return creaseNormals(g, crease);
 }
-const PLATE_MAT = new THREE.MeshBasicMaterial({ map: plateTexture('品川 100', '23-45') });
 
-const LOGO_TEX = (() => {
-  const W = 1024, H = 190, c = makeCanvas(W, H), g = c.getContext('2d');
-  g.clearRect(0, 0, W, H);
-  g.fillStyle = '#c8231c'; g.beginPath(); g.arc(96, 92, 66, 0, TAU); g.fill();
-  g.fillStyle = '#1c2b52'; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
-  g.font = `400 104px "Dela Gothic One",${JP_FONT}`; g.fillText('日之出運輸', 190, 116);
-  g.font = font(30); g.fillText('HINODE TRANSPORT', 196, 160);
-  g.font = font(26, 400); g.textAlign = 'right'; g.fillText('東京 · 静岡 · 名古屋', W - 24, 160);
-  g.fillStyle = '#c8231c'; g.fillRect(190, 176, W - 214, 8);
-  return canvasTex(c, { aniso: 8 });
-})();
-const LOGO_MAT = new THREE.MeshPhongMaterial({ map: LOGO_TEX, transparent: true, shininess: 30, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+// Smooth normals across edges flatter than `deg`, hard edges elsewhere. Drops triangles with no area.
+// Returns a new non-indexed geometry with position, normal, uv (zeros if the input had none) and color if present.
+function creaseNormals(geo, deg = 40) {
+  const src = geo.index ? geo.toNonIndexed() : geo;
+  const P = src.attributes.position.array, UV = src.attributes.uv ? src.attributes.uv.array : null, C = src.attributes.color ? src.attributes.color.array : null;
+  const nT = Math.floor(P.length / 9), fn = [], area = [], keep = [];
+  for (let t = 0; t < nT; t++) {
+    const o = t * 9, ux = P[o + 3] - P[o], uy = P[o + 4] - P[o + 1], uz = P[o + 5] - P[o + 2], wx = P[o + 6] - P[o], wy = P[o + 7] - P[o + 1], wz = P[o + 8] - P[o + 2];
+    const cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx, l = Math.hypot(cx, cy, cz);
+    if (l > 1e-10) { keep.push(t); fn.push(cx / l, cy / l, cz / l); area.push(l / 2); }
+  }
+  const K = keep.length, pos = new Float32Array(K * 9), nor = new Float32Array(K * 9), uv = new Float32Array(K * 6), col = C ? new Float32Array(K * 9) : null;
+  for (let k = 0; k < K; k++) {
+    const t = keep[k];
+    pos.set(P.subarray(t * 9, t * 9 + 9), k * 9);
+    if (UV) uv.set(UV.subarray(t * 6, t * 6 + 6), k * 6);
+    if (col) col.set(C.subarray(t * 9, t * 9 + 9), k * 9);
+  }
+  // faces meeting at each position
+  const at = new Map(), key = i => `${Math.round(pos[i] * 1e4)},${Math.round(pos[i + 1] * 1e4)},${Math.round(pos[i + 2] * 1e4)}`;
+  for (let k = 0; k < K; k++) for (let c = 0; c < 3; c++) {
+    const s = key(k * 9 + c * 3); let l = at.get(s); if (!l) at.set(s, l = []); l.push(k);
+  }
+  const cosT = Math.cos(deg * Math.PI / 180);
+  for (let k = 0; k < K; k++) {
+    const fx = fn[k * 3], fy = fn[k * 3 + 1], fz = fn[k * 3 + 2];
+    for (let c = 0; c < 3; c++) {
+      const i = k * 9 + c * 3;
+      let nx = 0, ny = 0, nz = 0;
+      for (const f of at.get(key(i))) {
+        const gx = fn[f * 3], gy = fn[f * 3 + 1], gz = fn[f * 3 + 2];
+        if (gx * fx + gy * fy + gz * fz >= cosT - 1e-9) { nx += gx * area[f]; ny += gy * area[f]; nz += gz * area[f]; }
+      }
+      const l = Math.hypot(nx, ny, nz);
+      if (l > 1e-12) { nor[i] = nx / l; nor[i + 1] = ny / l; nor[i + 2] = nz / l; } else { nor[i] = fx; nor[i + 1] = fy; nor[i + 2] = fz; }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  if (col) g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  if (src !== geo) src.dispose();
+  return g;
+}
 
-// ---- body colours and extra materials (modelled on Scania S-series photos) ----
+// Join rings of equal point count, in order. A ring listed counter-clockwise when seen from where the rings
+// are heading (looking back along them) gives outward faces. Caps fan from each end ring's centroid.
+function loft(rings, { closed = true, capStart = false, capEnd = false, crease = 40, flip = false } = {}) {
+  const V = _kv, M = rings.length, N = rings[0].length, pos = [], uv = [];
+  const U = rings.map(R => { const u = [0]; for (let j = 1; j <= N; j++) { if (j === N && !closed) break; u.push(u[j - 1] + V.dist(R[j - 1], R[j % N])); } return u; });
+  const W = [new Array(N).fill(0)];
+  for (let i = 1; i < M; i++) W.push(rings[i].map((p, j) => W[i - 1][j] + V.dist(rings[i - 1][j], p)));
+  const tri = (a, ua, b, ub, c, uc) => {
+    if (flip) { const t = b; b = c; c = t; const s = ub; ub = uc; uc = s; }
+    pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]); uv.push(ua[0], ua[1], ub[0], ub[1], uc[0], uc[1]);
+  };
+  const J = closed ? N : N - 1;
+  for (let i = 0; i < M - 1; i++) for (let j = 0; j < J; j++) {
+    const j1 = (j + 1) % N, a = rings[i][j], b = rings[i][j1], c = rings[i + 1][j1], d = rings[i + 1][j];
+    const ua = [U[i][j], W[i][j]], ub = [U[i][j + 1], W[i][j1]], uc = [U[i + 1][j + 1], W[i + 1][j1]], ud = [U[i + 1][j], W[i + 1][j]];
+    tri(a, ua, b, ub, c, uc); tri(a, ua, c, uc, d, ud);
+  }
+  const cap = (R, end) => {
+    const C = [0, 0, 0]; for (const p of R) { C[0] += p[0] / N; C[1] += p[1] / N; C[2] += p[2] / N; }
+    let n = [0, 0, 0];                                     // Newell normal: along the direction the rings head
+    for (let j = 0; j < N; j++) { const p = R[j], q = R[(j + 1) % N]; n[0] += (p[1] - q[1]) * (p[2] + q[2]); n[1] += (p[2] - q[2]) * (p[0] + q[0]); n[2] += (p[0] - q[0]) * (p[1] + q[1]); }
+    n = V.norm(n);
+    let e1 = V.sub(R[0], C); if (V.len(e1) < 1e-9) e1 = Math.abs(n[1]) < 0.9 ? V.cross([0, 1, 0], n) : V.cross([1, 0, 0], n);
+    e1 = V.norm(e1); const e2 = V.cross(n, e1), uvOf = p => { const d = V.sub(p, C); return [V.dot(d, e1), V.dot(d, e2)]; }, uc = uvOf(C);
+    for (let j = 0; j < J; j++) {
+      const p = R[j], q = R[(j + 1) % N];
+      if (end) tri(C, uc, p, uvOf(p), q, uvOf(q)); else tri(C, uc, q, uvOf(q), p, uvOf(p));
+    }
+  };
+  if (capStart) cap(rings[0], false);
+  if (capEnd) cap(rings[M - 1], true);
+  return _kitFinish(pos, uv, crease);
+}
+
+// Move a cross-section along a path. At each point t is the path direction, side = up x t and
+// vert = t x side; a profile point (a, b) goes to p + s * (a * side + b * vert), turned by `tilt` about t.
+// Heading along +z with up +y, (a, b) is (x, y). `closed`: the profile is a loop. `transport`: carry the
+// frame along the path without twisting (for tubes) instead of re-deriving it from `up` at every point.
+function sweep(profile, path, { closed = false, up = [0, 1, 0], crease = 40, capStart = false, capEnd = false, flip = false, transport = false } = {}) {
+  const V = _kv, n = path.length, rings = [];
+  let side = null;
+  for (let i = 0; i < n; i++) {
+    const p = path[i].p, t = V.norm(V.sub(path[Math.min(n - 1, i + 1)].p, path[Math.max(0, i - 1)].p));
+    let sd = null;
+    if (transport && side) { sd = V.sub(side, t.map(x => x * V.dot(side, t))); if (V.len(sd) < 1e-6) sd = null; }
+    if (!sd) {
+      for (const u of [up, [0, 0, 1], [1, 0, 0]]) { sd = V.cross(u, t); if (V.len(sd) > 1e-6) break; }
+    }
+    sd = V.norm(sd); side = sd;
+    const vt = V.cross(t, sd), s = path[i].s == null ? 1 : path[i].s, tl = path[i].tilt || 0, ct = Math.cos(tl), st = Math.sin(tl);
+    rings.push(profile.map(([a, b]) => {
+      const a2 = (a * ct - b * st) * s, b2 = (a * st + b * ct) * s;
+      return [p[0] + a2 * sd[0] + b2 * vt[0], p[1] + a2 * sd[1] + b2 * vt[1], p[2] + a2 * sd[2] + b2 * vt[2]];
+    }));
+  }
+  return loft(rings, { closed, capStart, capEnd, crease, flip });
+}
+
+// Rounded rectangle outline centred on the origin, counter-clockwise, k segments per corner.
+function _kitRR(w, h, r, k) {
+  const out = [], hw = w / 2 - r, hh = h / 2 - r;
+  for (const [cx, cy, a0] of [[hw, -hh, -90], [hw, hh, 0], [-hw, hh, 90], [-hw, -hh, 180]]) {
+    for (let i = 0; i <= k; i++) { const a = (a0 + 90 * i / k) * Math.PI / 180; out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
+  }
+  return out;
+}
+function roundRectPts(w, h, r, s = 4) { return _kitRR(w, h, r, seg(s, 1)); }
+
+// Box with every edge and corner rounded by r (a box grown by a ball), centred on the origin.
+function roundBox(w, h, d, r, s = 3) {
+  const k = seg(s, 1), rings = [], iw = w - 2 * r, ih = h - 2 * r, hz = d / 2 - r;
+  const ring = (z, rho) => _kitRR(iw + 2 * rho, ih + 2 * rho, rho, k).map(([x, y]) => [x, y, z]);
+  for (let i = 0; i <= k; i++) { const phi = (90 - 90 * i / k) * Math.PI / 180; rings.push(ring(-(hz + r * Math.sin(phi)), r * Math.cos(phi))); }
+  for (let i = 0; i <= k; i++) { const phi = (90 * i / k) * Math.PI / 180; rings.push(ring(hz + r * Math.sin(phi), r * Math.cos(phi))); }
+  return loft(rings, { capStart: true, capEnd: true });
+}
+
+// A flat outline [[x, y], ...] pushed out from z = 0 to z = depth, its edges rounded by `bevel`.
+// The outline keeps its size: the bevel is cut from inside it.
+function panel(outline, depth, bevel = 0.004) {
+  const shape = new THREE.Shape();
+  shape.moveTo(outline[0][0], outline[0][1]);
+  for (let i = 1; i < outline.length; i++) shape.lineTo(outline[i][0], outline[i][1]);
+  shape.closePath();
+  const bt = Math.min(bevel, depth / 3), core = Math.max(1e-4, depth - 2 * bt);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: core, bevelEnabled: bt > 0, bevelThickness: bt, bevelSize: bt, bevelOffset: -bt, bevelSegments: seg(2, 1), steps: 1, curveSegments: 1 });
+  g.translate(0, 0, bt);
+  const out = creaseNormals(g, 40); g.dispose();
+  return out;
+}
+
+// Turn a profile [[r, y], ...] (bottom to top) about the y axis. Ends are open unless the profile reaches r = 0.
+function lathe(profile, n = 24, { crease } = {}) {
+  const k = seg(n, 3);
+  const rings = profile.map(([r, y]) => Array.from({ length: k }, (_, j) => { const a = j / k * Math.PI * 2; return [r * Math.cos(a), y, -r * Math.sin(a)]; }));
+  return loft(rings, { closed: true, crease: crease == null ? Math.max(40, 360 / k + 5) : crease });
+}
+
+// Round tube of radius r through points [[x, y, z], ...]. Open tubes get end caps.
+function tube(points, r, n = 8, closed = false) {
+  const k = seg(n, 3), prof = Array.from({ length: k }, (_, j) => { const a = j / k * Math.PI * 2; return [r * Math.cos(a), r * Math.sin(a)]; });
+  const pts = closed ? [...points, points[0]] : points;
+  return sweep(prof, pts.map(p => ({ p })), { closed: true, transport: true, capStart: !closed, capEnd: !closed, crease: Math.min(130, 360 / k + 5) });
+}
+
+// Write a grey level per vertex (0..1, from fn(x, y, z, nx, ny, nz)) as vertex colour: darkens gaps and recesses.
+function shade(geo, fn) {
+  const P = geo.attributes.position, N = geo.attributes.normal, c = new Float32Array(P.count * 3);
+  for (let i = 0; i < P.count; i++) {
+    const v = clamp(fn(P.getX(i), P.getY(i), P.getZ(i), N ? N.getX(i) : 0, N ? N.getY(i) : 0, N ? N.getZ(i) : 0), 0, 1);
+    c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = v;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return geo;
+}
+
+// Triangles in a geometry, or in every mesh under an object.
+function triCount(o) {
+  if (o.isBufferGeometry) return (o.index ? o.index.count : o.attributes.position.count) / 3;
+  let n = 0;
+  o.traverse(m => { if (m.isMesh && m.geometry) n += triCount(m.geometry); });
+  return n;
+}
+
+// ==== 06b-materials.js ====
+// ---------------------------------------------------------------------------
+// Vehicle materials: TM (tractor and trailers) and IM (cab interior), the
+// patterns and environment pictures that light them, and the paint, interior
+// and trim choices. makeVehicleMaterials(quality) refills TM and IM in place:
+// high and mid use physically based materials lit by two environment pictures
+// (outside: sky and ground; cab: bright windows, dark floor and back wall),
+// low keeps the light Lambert / Phong materials.
+// ---------------------------------------------------------------------------
 const PAINTS = {
   white: { label: '白', color: 0xf0f1ef },
   blue: { label: '青', color: 0x1b5fb5 },
@@ -2181,12 +2325,21 @@ const PAINTS = {
 };
 let paintName = lsGet('nlh.paint', 'white');
 if (!PAINTS[paintName]) paintName = 'white';
-function applyPaint(name) {
-  if (!PAINTS[name]) return;
-  paintName = name; lsSet('nlh.paint', name);
-  TM.paint.color.setHex(PAINTS[name].color);
-  TM.paint.reflectivity = name === 'white' ? 0.12 : 0.24;
-}
+
+// The saved name 'beige' is kept for old saves; the cab it describes is light grey (photo 2).
+const INTERIOR_THEMES = {
+  black: { label: 'ブラック', upper: 0x3b3d41, lower: 0x1c1d1f, head: 0xcac7c0, cabinet: 0xd3d0c9, door: 0x2f3134, stitch: '#61656a', mattress: 0x34373d, drawer: 0x2c2e31, curtain: 0x1a1b1d, ambient: 0xff1e2c, quilt: false },
+  beige: { label: 'ライトグレー', upper: 0xcfd0cc, lower: 0x1e1f21, head: 0xe3e3df, cabinet: 0xd9d9d4, door: 0xc9cac6, stitch: '#4a4a4a', mattress: 0xcbc8c0, drawer: 0xd4d4cf, curtain: 0x2b2c2e, ambient: 0xffcf8a, quilt: false },
+  red: { label: 'レッド', upper: 0x9b111b, lower: 0x141415, head: 0x8a0f18, cabinet: 0x930f19, door: 0x930f19, stitch: '#d0202c', mattress: 0x1a1a1b, drawer: 0x930f19, curtain: 0x121213, ambient: 0xff1e2c, quilt: true },
+};
+let interiorName = lsGet('nlh.interior', 'black');
+if (!INTERIOR_THEMES[interiorName]) interiorName = 'black';
+
+const TRIMS = ['normal', 'custom'];
+let trimName = lsGet('nlh.trim', 'normal');
+if (!TRIMS.includes(trimName)) trimName = 'normal';
+
+// ---- shared pictures (made once) ------------------------------------------------
 TEX.mesh = (() => { // black honeycomb grille mesh
   const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
   g.fillStyle = '#030303'; g.fillRect(0, 0, W, W);
@@ -2216,16 +2369,337 @@ TEX.reflector = (() => { // 大型後部反射器: red / fluorescent orange diag
   g.strokeStyle = '#a00d12'; g.lineWidth = 6; g.strokeRect(3, 3, W - 6, H - 6);
   return canvasTex(c);
 })();
-TM.gloss = new THREE.MeshPhongMaterial({ color: 0x0b0c0d, specular: 0x777777, shininess: 110, envMap: ENV, reflectivity: 0.25, combine: THREE.MixOperation });
-TM.rubber = new THREE.MeshPhongMaterial({ color: 0x17181a, specular: 0x222222, shininess: 12 });
-TM.mesh = new THREE.MeshPhongMaterial({ map: TEX.mesh, specular: 0x333333, shininess: 30 });
-TM.chequer = new THREE.MeshPhongMaterial({ map: TEX.chequer, specular: 0xffffff, shininess: 70, envMap: ENV, reflectivity: 0.2, combine: THREE.MixOperation });
-TM.reflector = new THREE.MeshPhongMaterial({ map: TEX.reflector, specular: 0x888888, shininess: 60 });
-TM.ledRed = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
-TM.hoseY = new THREE.MeshPhongMaterial({ color: 0xf0c018, specular: 0x666666, shininess: 50 });
-TM.hoseR = new THREE.MeshPhongMaterial({ color: 0xc81e1e, specular: 0x666666, shininess: 50 });
-TM.hoseB = new THREE.MeshPhongMaterial({ color: 0x1b1b1c, specular: 0x444444, shininess: 40 });
-TM.rim.color.setHex(0xe4e7e9); TM.rim.reflectivity = 0.55;
+TEX.headW = (() => {
+  const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
+  g.fillStyle = '#f2f2f0'; g.fillRect(0, 0, W, W);
+  speckle(g, W, W, 4000, 1, 200, 245, 0.2, 0.5, 211);
+  const t = canvasTex(c, { repeat: true }); t.repeat.set(4, 4); return t;
+})();
+TEX.alu.repeat.set(1, 1);
+TEX.fabric.repeat.set(2, 2);
+TEX.floor.repeat.set(4, 4);
+
+// ---- vehicle materials ----------------------------------------------------------
+const TM = {}, IM = {};
+// pbr: physically based materials in use. envOut / envCab: prefiltered environment pictures. fallback: pbr was
+// asked for but could not be set up. base: each lit material's environment strength at noon, and whether it is in the cab.
+// cabRot: turns the cab's environment lookups into the tractor's frame, so the windows stay in front as the road turns.
+const VEH = { pbr: false, fallback: false, envOut: null, envCab: null, rts: [], tex: [], base: new Map(), pat: {}, cabRot: { value: new THREE.Matrix3() } };
+const CAB_AMBIENT = { base: new THREE.Color(0xff1e2c), on: null };
+
+function _vehCube(size, faces) {   // faces: draw functions for +x, -x, +y, -y, +z, -z
+  const t = new THREE.CubeTexture(faces.map(fn => { const c = makeCanvas(size, size); fn(c.getContext('2d'), size); return c; }));
+  t.needsUpdate = true;
+  return t;
+}
+function _vehEnvironment() {
+  const sky = sun => (g, S) => {
+    const grd = g.createLinearGradient(0, 0, 0, S);
+    grd.addColorStop(0, '#5f97dd'); grd.addColorStop(0.5, '#e6eef4'); grd.addColorStop(0.55, '#70745f'); grd.addColorStop(1, '#3c4034');
+    g.fillStyle = grd; g.fillRect(0, 0, S, S);
+    if (sun) { const r = g.createRadialGradient(S * 0.5, S * 0.3, 0, S * 0.5, S * 0.3, S * 0.35); r.addColorStop(0, 'rgba(255,250,235,0.9)'); r.addColorStop(1, 'rgba(255,250,235,0)'); g.fillStyle = r; g.fillRect(0, 0, S, S); }
+  };
+  const flat = col => (g, S) => { g.fillStyle = col; g.fillRect(0, 0, S, S); };
+  const win = (x0, y0, x1, y1) => (g, S) => { g.fillStyle = '#16171a'; g.fillRect(0, 0, S, S); g.fillStyle = '#dfe9f2'; g.fillRect(S * x0, S * y0, S * (x1 - x0), S * (y1 - y0)); };
+  const out = _vehCube(128, [sky(true), sky(false), flat('#6aa0e2'), flat('#3a3f36'), sky(false), sky(false)]);
+  // the cab in the tractor's frame: windscreen ahead (-z), door windows to the sides, headlining above, dark floor and back wall
+  const cab = _vehCube(64, [win(0.25, 0.2, 0.75, 0.65), win(0.25, 0.2, 0.75, 0.65), flat('#3a3a3c'), flat('#16171a'), flat('#16171a'), win(0, 0, 1, 0.6)]);
+  const pm = new THREE.PMREMGenerator(renderer);
+  try {
+    const a = pm.fromCubemap(out), b = pm.fromCubemap(cab);
+    VEH.rts = [a, b]; VEH.envOut = a.texture; VEH.envCab = b.texture;
+  } finally { pm.dispose(); out.dispose(); cab.dispose(); }
+}
+
+// A pattern: a colour picture (optional) and, for pbr, a normal map made from a height picture.
+// If any of it cannot be drawn, the pattern is left out entirely and the material shows plain colour.
+function _vehPattern(S, { rep = 1, colorRep = rep, height = null, color = null }) {
+  try {
+    let normal = null, map = null;
+    if (VEH.pbr && height) {
+      const c = makeCanvas(S, S), g = c.getContext('2d');
+      g.fillStyle = '#808080'; g.fillRect(0, 0, S, S); height(g, S);
+      const src = g.getImageData(0, 0, S, S).data, img = g.createImageData(S, S), d = img.data;
+      const h = (x, y) => src[(((y + S) % S) * S + ((x + S) % S)) * 4] / 255;
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const nx = -(h(x + 1, y) - h(x - 1, y)), ny = h(x, y + 1) - h(x, y - 1), l = Math.hypot(nx, ny, 1), i = (y * S + x) * 4;
+        d[i] = (nx / l * 0.5 + 0.5) * 255; d[i + 1] = (ny / l * 0.5 + 0.5) * 255; d[i + 2] = (0.5 / l + 0.5) * 255; d[i + 3] = 255;
+      }
+      g.putImageData(img, 0, 0);
+      normal = canvasTex(c, { repeat: true }); normal.repeat.set(rep, rep);
+    }
+    if (color) {
+      const c = makeCanvas(S, S); color(c.getContext('2d'), S);
+      map = canvasTex(c, { repeat: true }); map.repeat.set(colorRep, colorRep); map.userData = { c };
+    }
+    for (const t of [normal, map]) if (t) VEH.tex.push(t);
+    return { normal, map };
+  } catch (e) { return { normal: null, map: null }; }
+}
+// Leather with stitched horizontal channels (seat centres); drawn again when the interior changes.
+function _drawLeather(c, stitch) {
+  const g = c.getContext('2d'), W = c.width, k = W / 256;
+  g.fillStyle = '#1b1b1c'; g.fillRect(0, 0, W, W);
+  speckle(g, W, W, 5000 * k * k, k, 10, 50, 0.3, 0.6, 221);
+  for (let y = 0; y < W; y += 32 * k) {
+    const grd = g.createLinearGradient(0, y, 0, y + 32 * k);
+    grd.addColorStop(0, 'rgba(255,255,255,.06)'); grd.addColorStop(0.5, 'rgba(255,255,255,0)'); grd.addColorStop(1, 'rgba(0,0,0,.35)');
+    g.fillStyle = grd; g.fillRect(0, y, W, 32 * k);
+    g.fillStyle = '#0b0b0c'; g.fillRect(0, y + 30 * k, W, 3 * k);
+    g.fillStyle = stitch; for (let x = 4 * k; x < W; x += 9 * k) { g.fillRect(x, y + 26 * k, 5 * k, 1.4 * k); g.fillRect(x, y + 35 * k, 5 * k, 1.4 * k); }
+  }
+}
+// Diamond quilting (the red interior's walls, ceiling and doors).
+function _drawQuilt(c, hex) {
+  const g = c.getContext('2d'), W = c.width, k = W / 256;
+  g.fillStyle = '#' + new THREE.Color(hex).getHexString(); g.fillRect(0, 0, W, W);
+  speckle(g, W, W, 3000 * k * k, k, 0, 60, 0.15, 0.3, 231);
+  const lines = (dx, style, lw, dash) => {
+    g.strokeStyle = style; g.lineWidth = lw * k; g.setLineDash(dash.map(d => d * k));
+    for (let x = -W; x < 2 * W; x += 32 * k) { g.beginPath(); g.moveTo(x + dx, 0); g.lineTo(x + dx + W, W); g.stroke(); g.beginPath(); g.moveTo(x + dx, W); g.lineTo(x + dx + W, 0); g.stroke(); }
+  };
+  lines(0, 'rgba(0,0,0,.45)', 3, []); lines(3 * k, 'rgba(255,255,255,.16)', 1, [3, 3]); g.setLineDash([]);
+}
+function _vehPatterns(S) {
+  const dots = (n, r, lo, hi, seed) => (g, W) => speckle(g, W, W, n * (W / 256) ** 2, r * W / 256, lo, hi, 0.5, 1, seed);
+  return {
+    plastic: _vehPattern(S, { rep: 6, height: dots(9000, 1.2, 90, 170, 301) }),
+    leather: _vehPattern(S, { rep: 8, colorRep: 1, height: dots(2500, 3, 60, 200, 311), color: (g, W) => _drawLeather(g.canvas, INTERIOR_THEMES[interiorName].stitch) }),
+    quilt: _vehPattern(S, { rep: 3, height: (g, W) => {
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, W); g.strokeStyle = '#000000'; g.lineWidth = W / 18;
+      for (let x = -W; x < 2 * W; x += W / 8) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + W, W); g.stroke(); g.beginPath(); g.moveTo(x, W); g.lineTo(x + W, 0); g.stroke(); }
+      g.filter = `blur(${W / 64}px)`; g.drawImage(g.canvas, 0, 0); g.filter = 'none';
+    }, color: (g, W) => _drawQuilt(g.canvas, INTERIOR_THEMES.red.upper) }),
+    fabric: _vehPattern(S, { rep: 10, height: (g, W) => {
+      const c = W / 32;
+      for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+        const along = (x + y) % 2, grd = along ? g.createLinearGradient(x * c, 0, x * c + c, 0) : g.createLinearGradient(0, y * c, 0, y * c + c);
+        grd.addColorStop(0, '#404040'); grd.addColorStop(0.5, '#c8c8c8'); grd.addColorStop(1, '#404040'); g.fillStyle = grd; g.fillRect(x * c, y * c, c, c);
+      }
+    } }),
+    rubber: _vehPattern(S, { rep: 4, height: (g, W) => {
+      const c = W / 8; g.fillStyle = '#e0e0e0';
+      for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { g.save(); g.translate(x * c + c / 2, y * c + c / 2); g.rotate((x + y) % 2 ? 0.8 : -0.8); g.fillRect(-c * 0.32, -c * 0.09, c * 0.64, c * 0.18); g.restore(); }
+    } }),
+    hair: _vehPattern(S, { rep: 4, height: (g, W) => {
+      const r = rng(331);
+      for (let i = 0; i < W * 1.5; i++) { const v = (100 + r() * 60) | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(r() * W - W / 2, r() * W, W * (0.3 + r()), 1); }
+    } }),
+  };
+}
+
+const _v2 = s => new THREE.Vector2(s, s);
+// Turn the cab's environment lookups into the tractor's frame (see VEH.cabRot).
+function _cabEnvHook(shader) {
+  shader.uniforms.cabRot = VEH.cabRot;
+  const chunk = THREE.ShaderChunk.envmap_physical_pars_fragment
+    .replace('vec3 worldNormal = inverseTransformDirection( geometry.normal, viewMatrix );', 'vec3 worldNormal = cabRot * inverseTransformDirection( geometry.normal, viewMatrix );')
+    .replace('reflectVec = inverseTransformDirection( reflectVec, viewMatrix );', 'reflectVec = cabRot * inverseTransformDirection( reflectVec, viewMatrix );');
+  shader.fragmentShader = 'uniform mat3 cabRot;\n' + shader.fragmentShader.replace('#include <envmap_physical_pars_fragment>', chunk);
+}
+
+function makeVehicleMaterials(quality) {
+  const Qp = QUALITY_PRESETS[quality] || QUALITY_PRESETS.mid;
+  VEH.pbr = false; VEH.fallback = false; VEH.base.clear();
+  if (Qp.pbr) {
+    try { _vehEnvironment(); VEH.pbr = true; } catch (e) { VEH.fallback = true; for (const rt of VEH.rts) rt.dispose(); VEH.rts = []; VEH.envOut = VEH.envCab = null; }
+  }
+  const pbr = VEH.pbr, P = VEH.pat = _vehPatterns(Qp.tex);
+  // a material lit by an environment picture: remember its strength at noon
+  const lit = (m, base, cab) => { m.envMapIntensity = base; VEH.base.set(m, { base, cab }); if (cab) m.onBeforeCompile = _cabEnvHook; return m; };
+  const std = (o, base, cab) => lit(new THREE.MeshStandardMaterial({ ...o, envMap: cab ? VEH.envCab : VEH.envOut, vertexColors: cab }), base, cab);
+  const kind = {
+    plastic: (color, cab, extra = {}) => (pbr ? std({ color, roughness: 0.8, metalness: 0, normalMap: P.plastic.normal, normalScale: _v2(0.3), ...extra }, cab ? 1 : 0.6, cab)
+      : new THREE.MeshLambertMaterial({ color, vertexColors: cab, ...extra })),
+    gloss: (color, cab) => (pbr ? std({ color, roughness: 0.1, metalness: 0 }, cab ? 1 : 0.6, cab)
+      : new THREE.MeshPhongMaterial({ color, specular: 0x777777, shininess: 110, vertexColors: cab })),
+    leather: (color, map = null) => (pbr ? std({ color, map, roughness: 0.55, metalness: 0, normalMap: P.leather.normal, normalScale: _v2(0.6) }, 1, true)
+      : new THREE.MeshPhongMaterial({ color, map, specular: 0x3a3a3a, shininess: 20, vertexColors: true })),
+    fabric: (color, map = null) => (pbr ? std({ color, map, roughness: 0.95, metalness: 0, normalMap: P.fabric.normal, normalScale: _v2(0.4) }, 1, true)
+      : new THREE.MeshLambertMaterial({ color, map, vertexColors: true })),
+    rubber: (color, cab, map = null) => (pbr ? std({ color, map, roughness: 0.9, metalness: 0, normalMap: P.rubber.normal, normalScale: _v2(0.8) }, 0.6, cab)
+      : new THREE.MeshLambertMaterial({ color, map, vertexColors: cab })),
+    hairline: (color, phong) => (pbr ? std({ color, roughness: 0.35, metalness: 1, normalMap: P.hair.normal, normalScale: _v2(0.3) }, 1.2, true) : phong),
+    polished: (color, rough, phong) => (pbr ? std({ color, roughness: rough, metalness: 1 }, 1, false) : phong),
+    paint: () => (pbr ? lit(new THREE.MeshPhysicalMaterial({ color: PAINTS[paintName].color, roughness: 0.35, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMap: VEH.envOut }), 1, false)
+      : new THREE.MeshPhongMaterial({ color: PAINTS[paintName].color, specular: 0x666666, shininess: 80, envMap: ENV, reflectivity: 0.2, combine: THREE.MixOperation })),
+  };
+  const phong = o => new THREE.MeshPhongMaterial(o), basic = o => new THREE.MeshBasicMaterial(o);
+  const envPhong = (color, shininess, reflectivity, specular = 0xffffff) => phong({ color, specular, shininess, envMap: ENV, reflectivity, combine: THREE.MixOperation });
+
+  Object.assign(TM, {
+    paint: kind.paint(),
+    paintDark: phong({ color: 0x2a2c2f, specular: 0x333333, shininess: 40 }),
+    chrome: kind.polished(0xe2e6e9, 0.08, envPhong(0xe2e6e9, 120, 0.75)),
+    black: kind.plastic(0x131415, false),
+    blackDS: kind.plastic(0x131415, false, { side: THREE.DoubleSide }),
+    dark: kind.plastic(0x2c2e31, false),
+    frame: kind.plastic(0x1c1d1f, false),
+    bumper: kind.plastic(0x34373a, false),
+    alu: kind.polished(0xc9cdd1, 0.3, envPhong(0xc9cdd1, 80, 0.35, 0xbbbbbb)),
+    white: phong({ color: 0xeef0f0, specular: 0x444444, shininess: 40 }),
+    tire: kind.rubber(0x18181a, false),
+    rim: kind.polished(0xe4e7e9, 0.15, envPhong(0xe4e7e9, 90, 0.55)),
+    glassOut: phong({ color: 0x0e171c, specular: 0xffffff, shininess: 110, envMap: ENV, reflectivity: 0.55, combine: THREE.MixOperation, transparent: true, opacity: 0.82, depthWrite: false }),
+    glassIn: basic({ color: 0xcfe0ea, transparent: true, opacity: 0.05, depthWrite: false }),
+    headOff: envPhong(0xd8dde0, 100, 0.5),
+    headOn: basic({ color: 0xfff7e4 }),
+    drl: basic({ color: 0xf2faff }),
+    amberOff: phong({ color: 0x9a6512, specular: 0x888888, shininess: 80 }),
+    amberOn: basic({ color: 0xffa51c }),
+    redOff: phong({ color: 0x5c0e0e, specular: 0x888888, shininess: 80 }),
+    redDim: basic({ color: 0xa8170f }),
+    redOn: basic({ color: 0xff2b18 }),
+    whiteOn: basic({ color: 0xffffff }),
+    marker: basic({ color: 0xffa21a }),
+    mirrorStatic: envPhong(0x8e98a0, 120, 0.9),
+    trailerBody: phong({ map: TEX.alu, specular: 0x777777, shininess: 50 }),
+    gloss: kind.gloss(0x0b0c0d, false),
+    rubber: kind.rubber(0x17181a, false),
+    mesh: phong({ map: TEX.mesh, specular: 0x333333, shininess: 30 }),
+    chequer: phong({ map: TEX.chequer, specular: 0xffffff, shininess: 70, envMap: ENV, reflectivity: 0.2, combine: THREE.MixOperation }),
+    reflector: phong({ map: TEX.reflector, specular: 0x888888, shininess: 60 }),
+    ledRed: basic({ color: 0xff2a2a }),
+    hoseY: phong({ color: 0xf0c018, specular: 0x666666, shininess: 50 }),
+    hoseR: phong({ color: 0xc81e1e, specular: 0x666666, shininess: 50 }),
+    hoseB: phong({ color: 0x1b1b1c, specular: 0x444444, shininess: 40 }),
+    tank: envPhong(0xd3d8dc, 120, 0.6),   // the tanker trailer: trailers keep their materials
+  });
+  const ib = o => basic({ ...o, vertexColors: true }), ip = o => phong({ ...o, vertexColors: true });
+  Object.assign(IM, {
+    upper: kind.plastic(0x3b3d41, true),
+    lower: kind.plastic(0x1c1d1f, true),
+    head: kind.fabric(0xcac7c0, TEX.headW),
+    cabinet: kind.plastic(0xd3d0c9, true),
+    door: kind.plastic(0x2f3134, true),
+    drawer: kind.plastic(0x2c2e31, true),
+    seat: kind.leather(P.leather.map ? 0xffffff : 0x1b1b1c, P.leather.map),
+    seatPlain: kind.leather(0x18181a),
+    mattress: kind.fabric(0x34373d, TEX.headW),
+    leather: kind.leather(0x1b1b1c),
+    floor: kind.rubber(0xffffff, true, TEX.floor),
+    mat: kind.rubber(0x121314, true),
+    metal: kind.hairline(0xa5a9ad, ip({ color: 0xa5a9ad, specular: 0xffffff, shininess: 90, envMap: ENV, reflectivity: 0.35, combine: THREE.MixOperation })),
+    silver: kind.hairline(0xc4c8cb, ip({ color: 0xc4c8cb, specular: 0xffffff, shininess: 100, envMap: ENV, reflectivity: 0.45, combine: THREE.MixOperation })),
+    black: kind.plastic(0x0f1011, true),
+    gloss: kind.gloss(0x0a0b0c, true),
+    button: kind.plastic(0x1f2022, true),
+    red: ip({ color: 0xb3141b, specular: 0x333333, shininess: 30 }),
+    gold: ip({ color: 0xd8b04a, specular: 0xffffff, shininess: 80 }),
+    curtain: kind.fabric(0x1a1b1d, TEX.fabric),
+    can: ip({ color: 0x23365a, specular: 0xffffff, shininess: 70 }),
+    ambient: ib({ color: 0xff1e2c }),
+    tv: ib({ color: 0x0b1016 }),
+    ledGreen: ib({ color: 0x3dff8a }),
+    ledAmber: ib({ color: 0xffa21a }),
+    lcdGreen: ib({ color: 0x46c07a }),
+    lcdAmber: ib({ color: 0xd88a1c }),
+    lcdBlue: ib({ color: 0x3a8ad8 }),
+  });
+  CAB_AMBIENT.on = null;
+  applyPaint(paintName); applyInteriorTheme(interiorName);
+}
+function disposeVehicleMaterials() {
+  for (const M of [TM, IM]) for (const k in M) if (M[k] && M[k].dispose) M[k].dispose();
+  for (const t of VEH.tex) t.dispose();
+  for (const rt of VEH.rts) rt.dispose();
+  VEH.tex = []; VEH.rts = []; VEH.envOut = VEH.envCab = null; VEH.base.clear(); VEH.pat = {};
+}
+
+// Daylight (1 noon .. 0 night) and tunnel (0..1) set how strongly the environment pictures light the vehicle.
+function setVehicleLight(day, tunnel) {
+  if (!VEH.pbr) return;
+  const out = (0.12 + 0.88 * day) * (1 - 0.6 * tunnel), cab = (0.10 + 0.90 * day) * (1 - 0.5 * tunnel);
+  for (const [m, b] of VEH.base) m.envMapIntensity = b.base * (b.cab ? cab : out);
+}
+// Keep the cab's environment picture fixed to the tractor (call after the tractor's rotation is set).
+const _vehM4 = new THREE.Matrix4();
+function updateVehicleEnv(root) {
+  if (!VEH.pbr) return;
+  _vehM4.makeRotationFromQuaternion(root.quaternion);
+  VEH.cabRot.value.setFromMatrix4(_vehM4).transpose();
+}
+// Parts made outside Parts (single meshes) get white vertex colours where their material expects them.
+function fillVertexColors(root) {
+  root.traverse(o => {
+    if (!o.isMesh || !o.material.vertexColors || o.geometry.attributes.color) return;
+    const n = o.geometry.attributes.position.count;
+    o.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  });
+}
+
+function applyPaint(name) {
+  if (!PAINTS[name]) return;
+  paintName = name; lsSet('nlh.paint', name);
+  TM.paint.color.setHex(PAINTS[name].color);
+  if (!VEH.pbr) TM.paint.reflectivity = name === 'white' ? 0.12 : 0.24;
+}
+function applyInteriorTheme(name) {
+  const th = INTERIOR_THEMES[name]; if (!th) return;
+  interiorName = name; lsSet('nlh.interior', name);
+  const P = VEH.pat, lm = P.leather && P.leather.map, qm = P.quilt && P.quilt.map;
+  if (lm) { _drawLeather(lm.userData.c, th.stitch); lm.needsUpdate = true; }
+  const quilted = th.quilt && !!qm;
+  if (quilted) { _drawQuilt(qm.userData.c, th.upper); qm.needsUpdate = true; }
+  for (const [m, c, plainMap] of [[IM.upper, th.upper, null], [IM.head, th.head, TEX.headW], [IM.cabinet, th.cabinet, null], [IM.door, th.door, null]]) {
+    const want = quilted ? qm : plainMap;
+    if (m.map !== want) { m.map = want; m.needsUpdate = true; }
+    if (VEH.pbr) {
+      const nm = quilted ? P.quilt.normal : m === IM.head ? P.fabric.normal : P.plastic.normal;
+      if (m.normalMap !== nm) { m.normalMap = nm; m.needsUpdate = true; }
+      m.roughness = quilted ? 0.6 : m === IM.head ? 0.95 : 0.8;
+    }
+    m.color.setHex(quilted ? (m === IM.head ? 0xe0d0d0 : 0xffffff) : c);
+  }
+  IM.lower.color.setHex(th.lower); IM.drawer.color.setHex(th.drawer);
+  IM.mattress.color.setHex(th.mattress); IM.curtain.color.setHex(th.curtain);
+  CAB_AMBIENT.base.setHex(th.ambient); CAB_AMBIENT.on = null;
+}
+function setCabAmbient(on) {
+  if (CAB_AMBIENT.on === on) return;
+  CAB_AMBIENT.on = on;
+  IM.ambient.color.copy(CAB_AMBIENT.base).multiplyScalar(on ? 1 : 0.28);
+  const e = CAB_AMBIENT.base.clone().multiplyScalar(on ? 0.13 : 0);
+  IM.floor.emissive.copy(e); IM.mat.emissive.copy(e);
+}
+// The trim ('normal' or 'custom'); T, the tractor, is updated from Task 4 on.
+function applyTrim(name, T) {
+  if (!TRIMS.includes(name)) return;
+  trimName = name; lsSet('nlh.trim', name);
+}
+
+makeVehicleMaterials(qualityName);
+
+// ==== 06c-tractor.js ====
+// ---------------------------------------------------------------------------
+// 4x2 tractor modelled on the S-series photos (right-hand drive, as sold in Japan)
+// and the two trailers. Materials are in 06b-materials.js. Local frame: -Z forward, +X right, +Y up; tractor
+// origin = rear axle on the ground. Maker badges are left blank on purpose.
+// ---------------------------------------------------------------------------
+function plateTexture(top, bottom) {
+  const c = makeCanvas(256, 128), g = c.getContext('2d');
+  g.fillStyle = '#1e6a3b'; roundRect(g, 0, 0, 256, 128, 10); g.fill();
+  g.strokeStyle = '#d9e8dc'; g.lineWidth = 3; roundRect(g, 4, 4, 248, 120, 8); g.stroke();
+  g.fillStyle = '#f4f7f2'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = font(30); g.fillText(top, 128, 32);
+  g.font = font(64); g.fillText(bottom, 140, 88);
+  g.font = font(26); g.fillText('か', 30, 92);
+  return canvasTex(c);
+}
+const PLATE_MAT = new THREE.MeshBasicMaterial({ map: plateTexture('品川 100', '23-45') });
+
+const LOGO_TEX = (() => {
+  const W = 1024, H = 190, c = makeCanvas(W, H), g = c.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = '#c8231c'; g.beginPath(); g.arc(96, 92, 66, 0, TAU); g.fill();
+  g.fillStyle = '#1c2b52'; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+  g.font = `400 104px "Dela Gothic One",${JP_FONT}`; g.fillText('日之出運輸', 190, 116);
+  g.font = font(30); g.fillText('HINODE TRANSPORT', 196, 160);
+  g.font = font(26, 400); g.textAlign = 'right'; g.fillText('東京 · 静岡 · 名古屋', W - 24, 160);
+  g.fillStyle = '#c8231c'; g.fillRect(190, 176, W - 214, 8);
+  return canvasTex(c, { aniso: 8 });
+})();
+const LOGO_MAT = new THREE.MeshPhongMaterial({ map: LOGO_TEX, transparent: true, shininess: 30, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
 
 // ---- cab body: lofted horizontal sections of a rounded rectangle ----------------
 // y: height, zf/zr: front/rear face, w: half width, rf/rr: front/rear corner radius
@@ -2674,7 +3148,6 @@ function buildTrailer() {   // 13.6 m box van
   return R;
 }
 
-TM.tank = new THREE.MeshPhongMaterial({ color: 0xd3d8dc, specular: 0xffffff, shininess: 120, envMap: ENV, reflectivity: 0.6, combine: THREE.MixOperation });
 function buildTankTrailer() {   // 3-axle food-grade tanker: no baffles, so the liquid moves
   const R = trailerShell(), root = R.root;
   const B = new Parts();
@@ -2731,203 +3204,6 @@ function buildTankTrailer() {   // 3-axle food-grade tanker: no baffles, so the 
   return R;
 }
 
-// ==== 06a-modelkit.js ====
-// ---------------------------------------------------------------------------
-// Model kit: curved parts for the tractor and its cab. Uses THREE only (no DOM),
-// so the Node tests can check the shapes. Every builder returns a non-indexed
-// BufferGeometry with position, normal and uv (in metres), faces pointing outward.
-// ---------------------------------------------------------------------------
-let DETAIL = 1;   // segment multiplier from the quality setting: high 1, mid 0.6, low 0.35
-function setDetail(k) { DETAIL = k; }
-function seg(n, min = 2) { return Math.max(min, Math.round(n * DETAIL)); }
-
-const _kv = {
-  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
-  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
-  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
-  len: a => Math.hypot(a[0], a[1], a[2]),
-  norm: a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
-  dist: (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]),
-};
-
-// Triangles (flat arrays) -> geometry with crease-aware normals.
-function _kitFinish(pos, uv, crease) {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  return creaseNormals(g, crease);
-}
-
-// Smooth normals across edges flatter than `deg`, hard edges elsewhere. Drops triangles with no area.
-// Returns a new non-indexed geometry with position, normal, uv (zeros if the input had none) and color if present.
-function creaseNormals(geo, deg = 40) {
-  const src = geo.index ? geo.toNonIndexed() : geo;
-  const P = src.attributes.position.array, UV = src.attributes.uv ? src.attributes.uv.array : null, C = src.attributes.color ? src.attributes.color.array : null;
-  const nT = Math.floor(P.length / 9), fn = [], area = [], keep = [];
-  for (let t = 0; t < nT; t++) {
-    const o = t * 9, ux = P[o + 3] - P[o], uy = P[o + 4] - P[o + 1], uz = P[o + 5] - P[o + 2], wx = P[o + 6] - P[o], wy = P[o + 7] - P[o + 1], wz = P[o + 8] - P[o + 2];
-    const cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx, l = Math.hypot(cx, cy, cz);
-    if (l > 1e-10) { keep.push(t); fn.push(cx / l, cy / l, cz / l); area.push(l / 2); }
-  }
-  const K = keep.length, pos = new Float32Array(K * 9), nor = new Float32Array(K * 9), uv = new Float32Array(K * 6), col = C ? new Float32Array(K * 9) : null;
-  for (let k = 0; k < K; k++) {
-    const t = keep[k];
-    pos.set(P.subarray(t * 9, t * 9 + 9), k * 9);
-    if (UV) uv.set(UV.subarray(t * 6, t * 6 + 6), k * 6);
-    if (col) col.set(C.subarray(t * 9, t * 9 + 9), k * 9);
-  }
-  // faces meeting at each position
-  const at = new Map(), key = i => `${Math.round(pos[i] * 1e4)},${Math.round(pos[i + 1] * 1e4)},${Math.round(pos[i + 2] * 1e4)}`;
-  for (let k = 0; k < K; k++) for (let c = 0; c < 3; c++) {
-    const s = key(k * 9 + c * 3); let l = at.get(s); if (!l) at.set(s, l = []); l.push(k);
-  }
-  const cosT = Math.cos(deg * Math.PI / 180);
-  for (let k = 0; k < K; k++) {
-    const fx = fn[k * 3], fy = fn[k * 3 + 1], fz = fn[k * 3 + 2];
-    for (let c = 0; c < 3; c++) {
-      const i = k * 9 + c * 3;
-      let nx = 0, ny = 0, nz = 0;
-      for (const f of at.get(key(i))) {
-        const gx = fn[f * 3], gy = fn[f * 3 + 1], gz = fn[f * 3 + 2];
-        if (gx * fx + gy * fy + gz * fz >= cosT - 1e-9) { nx += gx * area[f]; ny += gy * area[f]; nz += gz * area[f]; }
-      }
-      const l = Math.hypot(nx, ny, nz);
-      if (l > 1e-12) { nor[i] = nx / l; nor[i + 1] = ny / l; nor[i + 2] = nz / l; } else { nor[i] = fx; nor[i + 1] = fy; nor[i + 2] = fz; }
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  if (col) g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  if (src !== geo) src.dispose();
-  return g;
-}
-
-// Join rings of equal point count, in order. A ring listed counter-clockwise when seen from where the rings
-// are heading (looking back along them) gives outward faces. Caps fan from each end ring's centroid.
-function loft(rings, { closed = true, capStart = false, capEnd = false, crease = 40, flip = false } = {}) {
-  const V = _kv, M = rings.length, N = rings[0].length, pos = [], uv = [];
-  const U = rings.map(R => { const u = [0]; for (let j = 1; j <= N; j++) { if (j === N && !closed) break; u.push(u[j - 1] + V.dist(R[j - 1], R[j % N])); } return u; });
-  const W = [new Array(N).fill(0)];
-  for (let i = 1; i < M; i++) W.push(rings[i].map((p, j) => W[i - 1][j] + V.dist(rings[i - 1][j], p)));
-  const tri = (a, ua, b, ub, c, uc) => {
-    if (flip) { const t = b; b = c; c = t; const s = ub; ub = uc; uc = s; }
-    pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]); uv.push(ua[0], ua[1], ub[0], ub[1], uc[0], uc[1]);
-  };
-  const J = closed ? N : N - 1;
-  for (let i = 0; i < M - 1; i++) for (let j = 0; j < J; j++) {
-    const j1 = (j + 1) % N, a = rings[i][j], b = rings[i][j1], c = rings[i + 1][j1], d = rings[i + 1][j];
-    const ua = [U[i][j], W[i][j]], ub = [U[i][j + 1], W[i][j1]], uc = [U[i + 1][j + 1], W[i + 1][j1]], ud = [U[i + 1][j], W[i + 1][j]];
-    tri(a, ua, b, ub, c, uc); tri(a, ua, c, uc, d, ud);
-  }
-  const cap = (R, end) => {
-    const C = [0, 0, 0]; for (const p of R) { C[0] += p[0] / N; C[1] += p[1] / N; C[2] += p[2] / N; }
-    let n = [0, 0, 0];                                     // Newell normal: along the direction the rings head
-    for (let j = 0; j < N; j++) { const p = R[j], q = R[(j + 1) % N]; n[0] += (p[1] - q[1]) * (p[2] + q[2]); n[1] += (p[2] - q[2]) * (p[0] + q[0]); n[2] += (p[0] - q[0]) * (p[1] + q[1]); }
-    n = V.norm(n);
-    let e1 = V.sub(R[0], C); if (V.len(e1) < 1e-9) e1 = Math.abs(n[1]) < 0.9 ? V.cross([0, 1, 0], n) : V.cross([1, 0, 0], n);
-    e1 = V.norm(e1); const e2 = V.cross(n, e1), uvOf = p => { const d = V.sub(p, C); return [V.dot(d, e1), V.dot(d, e2)]; }, uc = uvOf(C);
-    for (let j = 0; j < J; j++) {
-      const p = R[j], q = R[(j + 1) % N];
-      if (end) tri(C, uc, p, uvOf(p), q, uvOf(q)); else tri(C, uc, q, uvOf(q), p, uvOf(p));
-    }
-  };
-  if (capStart) cap(rings[0], false);
-  if (capEnd) cap(rings[M - 1], true);
-  return _kitFinish(pos, uv, crease);
-}
-
-// Move a cross-section along a path. At each point t is the path direction, side = up x t and
-// vert = t x side; a profile point (a, b) goes to p + s * (a * side + b * vert), turned by `tilt` about t.
-// Heading along +z with up +y, (a, b) is (x, y). `closed`: the profile is a loop. `transport`: carry the
-// frame along the path without twisting (for tubes) instead of re-deriving it from `up` at every point.
-function sweep(profile, path, { closed = false, up = [0, 1, 0], crease = 40, capStart = false, capEnd = false, flip = false, transport = false } = {}) {
-  const V = _kv, n = path.length, rings = [];
-  let side = null;
-  for (let i = 0; i < n; i++) {
-    const p = path[i].p, t = V.norm(V.sub(path[Math.min(n - 1, i + 1)].p, path[Math.max(0, i - 1)].p));
-    let sd = null;
-    if (transport && side) { sd = V.sub(side, t.map(x => x * V.dot(side, t))); if (V.len(sd) < 1e-6) sd = null; }
-    if (!sd) {
-      for (const u of [up, [0, 0, 1], [1, 0, 0]]) { sd = V.cross(u, t); if (V.len(sd) > 1e-6) break; }
-    }
-    sd = V.norm(sd); side = sd;
-    const vt = V.cross(t, sd), s = path[i].s == null ? 1 : path[i].s, tl = path[i].tilt || 0, ct = Math.cos(tl), st = Math.sin(tl);
-    rings.push(profile.map(([a, b]) => {
-      const a2 = (a * ct - b * st) * s, b2 = (a * st + b * ct) * s;
-      return [p[0] + a2 * sd[0] + b2 * vt[0], p[1] + a2 * sd[1] + b2 * vt[1], p[2] + a2 * sd[2] + b2 * vt[2]];
-    }));
-  }
-  return loft(rings, { closed, capStart, capEnd, crease, flip });
-}
-
-// Rounded rectangle outline centred on the origin, counter-clockwise, k segments per corner.
-function _kitRR(w, h, r, k) {
-  const out = [], hw = w / 2 - r, hh = h / 2 - r;
-  for (const [cx, cy, a0] of [[hw, -hh, -90], [hw, hh, 0], [-hw, hh, 90], [-hw, -hh, 180]]) {
-    for (let i = 0; i <= k; i++) { const a = (a0 + 90 * i / k) * Math.PI / 180; out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
-  }
-  return out;
-}
-function roundRectPts(w, h, r, s = 4) { return _kitRR(w, h, r, seg(s, 1)); }
-
-// Box with every edge and corner rounded by r (a box grown by a ball), centred on the origin.
-function roundBox(w, h, d, r, s = 3) {
-  const k = seg(s, 1), rings = [], iw = w - 2 * r, ih = h - 2 * r, hz = d / 2 - r;
-  const ring = (z, rho) => _kitRR(iw + 2 * rho, ih + 2 * rho, rho, k).map(([x, y]) => [x, y, z]);
-  for (let i = 0; i <= k; i++) { const phi = (90 - 90 * i / k) * Math.PI / 180; rings.push(ring(-(hz + r * Math.sin(phi)), r * Math.cos(phi))); }
-  for (let i = 0; i <= k; i++) { const phi = (90 * i / k) * Math.PI / 180; rings.push(ring(hz + r * Math.sin(phi), r * Math.cos(phi))); }
-  return loft(rings, { capStart: true, capEnd: true });
-}
-
-// A flat outline [[x, y], ...] pushed out from z = 0 to z = depth, its edges rounded by `bevel`.
-// The outline keeps its size: the bevel is cut from inside it.
-function panel(outline, depth, bevel = 0.004) {
-  const shape = new THREE.Shape();
-  shape.moveTo(outline[0][0], outline[0][1]);
-  for (let i = 1; i < outline.length; i++) shape.lineTo(outline[i][0], outline[i][1]);
-  shape.closePath();
-  const bt = Math.min(bevel, depth / 3), core = Math.max(1e-4, depth - 2 * bt);
-  const g = new THREE.ExtrudeGeometry(shape, { depth: core, bevelEnabled: bt > 0, bevelThickness: bt, bevelSize: bt, bevelOffset: -bt, bevelSegments: seg(2, 1), steps: 1, curveSegments: 1 });
-  g.translate(0, 0, bt);
-  const out = creaseNormals(g, 40); g.dispose();
-  return out;
-}
-
-// Turn a profile [[r, y], ...] (bottom to top) about the y axis. Ends are open unless the profile reaches r = 0.
-function lathe(profile, n = 24, { crease } = {}) {
-  const k = seg(n, 3);
-  const rings = profile.map(([r, y]) => Array.from({ length: k }, (_, j) => { const a = j / k * Math.PI * 2; return [r * Math.cos(a), y, -r * Math.sin(a)]; }));
-  return loft(rings, { closed: true, crease: crease == null ? Math.max(40, 360 / k + 5) : crease });
-}
-
-// Round tube of radius r through points [[x, y, z], ...]. Open tubes get end caps.
-function tube(points, r, n = 8, closed = false) {
-  const k = seg(n, 3), prof = Array.from({ length: k }, (_, j) => { const a = j / k * Math.PI * 2; return [r * Math.cos(a), r * Math.sin(a)]; });
-  const pts = closed ? [...points, points[0]] : points;
-  return sweep(prof, pts.map(p => ({ p })), { closed: true, transport: true, capStart: !closed, capEnd: !closed, crease: Math.min(130, 360 / k + 5) });
-}
-
-// Write a grey level per vertex (0..1, from fn(x, y, z, nx, ny, nz)) as vertex colour: darkens gaps and recesses.
-function shade(geo, fn) {
-  const P = geo.attributes.position, N = geo.attributes.normal, c = new Float32Array(P.count * 3);
-  for (let i = 0; i < P.count; i++) {
-    const v = clamp(fn(P.getX(i), P.getY(i), P.getZ(i), N ? N.getX(i) : 0, N ? N.getY(i) : 0, N ? N.getZ(i) : 0), 0, 1);
-    c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = v;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
-  return geo;
-}
-
-// Triangles in a geometry, or in every mesh under an object.
-function triCount(o) {
-  if (o.isBufferGeometry) return (o.index ? o.index.count : o.attributes.position.count) / 3;
-  let n = 0;
-  o.traverse(m => { if (m.isMesh && m.geometry) n += triCount(m.geometry); });
-  return n;
-}
-
 // ==== 07-interior.js ====
 // ---------------------------------------------------------------------------
 // Cab interior, modelled on the current Scania S-series cab (right-hand drive).
@@ -2937,107 +3213,6 @@ function triCount(o) {
 // tall leather seats, bed with drawers, overhead and rear cabinets, red ambient
 // LEDs at night, curtains and a 交通安全 omamori charm that swings.
 // ---------------------------------------------------------------------------
-const INTERIOR_THEMES = {
-  black: { label: 'ブラック', upper: 0x3b3d41, lower: 0x1c1d1f, head: 0xcac7c0, cabinet: 0xd3d0c9, door: 0x2f3134, stitch: '#61656a', mattress: 0x34373d, drawer: 0x2c2e31, curtain: 0x1a1b1d, ambient: 0xff1e2c, quilt: false },
-  beige: { label: 'ベージュ', upper: 0xd6cfbf, lower: 0x1e1f21, head: 0xe6e1d5, cabinet: 0xdfd8c9, door: 0xd2cbbb, stitch: '#4a4a4a', mattress: 0xd9cdb6, drawer: 0xd8d3c8, curtain: 0x2b2c2e, ambient: 0xffcf8a, quilt: false },
-  red: { label: 'レッド', upper: 0x9b111b, lower: 0x141415, head: 0x8a0f18, cabinet: 0x930f19, door: 0x930f19, stitch: '#d0202c', mattress: 0x1a1a1b, drawer: 0x930f19, curtain: 0x121213, ambient: 0xff1e2c, quilt: true },
-};
-let interiorName = lsGet('nlh.interior', 'black');
-if (!INTERIOR_THEMES[interiorName]) interiorName = 'black';
-
-TEX.headW = (() => {
-  const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
-  g.fillStyle = '#f2f2f0'; g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 4000, 1, 200, 245, 0.2, 0.5, 211);
-  const t = canvasTex(c, { repeat: true }); t.repeat.set(4, 4); return t;
-})();
-TEX.leather = (() => { const c = makeCanvas(256, 256); const t = canvasTex(c, { repeat: false }); t.userData = { c }; return t; })();
-function drawLeather(stitch) {
-  const c = TEX.leather.userData.c, g = c.getContext('2d'), W = 256;
-  g.fillStyle = '#1b1b1c'; g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 5000, 1, 10, 50, 0.3, 0.6, 221);
-  for (let y = 0; y < W; y += 32) { // stitched horizontal channels
-    const grd = g.createLinearGradient(0, y, 0, y + 32);
-    grd.addColorStop(0, 'rgba(255,255,255,.06)'); grd.addColorStop(0.5, 'rgba(255,255,255,0)'); grd.addColorStop(1, 'rgba(0,0,0,.35)');
-    g.fillStyle = grd; g.fillRect(0, y, W, 32);
-    g.fillStyle = '#0b0b0c'; g.fillRect(0, y + 30, W, 3);
-    g.fillStyle = stitch; for (let x = 4; x < W; x += 9) { g.fillRect(x, y + 26, 5, 1.4); g.fillRect(x, y + 35, 5, 1.4); }
-  }
-  g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(0, 0, 18, W); g.fillRect(W - 18, 0, 18, W);
-  TEX.leather.needsUpdate = true;
-}
-let _quilt = null;
-function quiltTexture(hex) {
-  const c = _quilt ? _quilt.userData.c : makeCanvas(256, 256), g = c.getContext('2d'), W = 256;
-  const col = new THREE.Color(hex);
-  g.fillStyle = '#' + col.getHexString(); g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 3000, 1, 0, 60, 0.15, 0.3, 231);
-  g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 3;
-  for (let k = -W; k < 2 * W; k += 32) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + W, W); g.stroke(); g.beginPath(); g.moveTo(k, W); g.lineTo(k + W, 0); g.stroke(); }
-  g.strokeStyle = 'rgba(255,255,255,.16)'; g.lineWidth = 1; g.setLineDash([3, 3]);
-  for (let k = -W; k < 2 * W; k += 32) { g.beginPath(); g.moveTo(k + 3, 0); g.lineTo(k + 3 + W, W); g.stroke(); g.beginPath(); g.moveTo(k + 3, W); g.lineTo(k + 3 + W, 0); g.stroke(); }
-  g.setLineDash([]);
-  if (!_quilt) { _quilt = canvasTex(c, { repeat: true }); _quilt.userData = { c }; _quilt.repeat.set(3, 3); }
-  _quilt.needsUpdate = true;
-  return _quilt;
-}
-
-const IM = {
-  upper: new THREE.MeshPhongMaterial({ color: 0x3b3d41, specular: 0x1c1c1c, shininess: 14, bumpMap: TEX.grain, bumpScale: 0.003 }),
-  lower: new THREE.MeshPhongMaterial({ color: 0x1c1d1f, specular: 0x1a1a1a, shininess: 12, bumpMap: TEX.grain, bumpScale: 0.003 }),
-  head: new THREE.MeshPhongMaterial({ map: TEX.headW, color: 0xcac7c0, shininess: 2, specular: 0x050505 }),
-  cabinet: new THREE.MeshPhongMaterial({ color: 0xd3d0c9, specular: 0x1a1a1a, shininess: 10, bumpMap: TEX.grain, bumpScale: 0.002 }),
-  door: new THREE.MeshPhongMaterial({ color: 0x2f3134, specular: 0x1a1a1a, shininess: 10, bumpMap: TEX.grain, bumpScale: 0.003 }),
-  drawer: new THREE.MeshPhongMaterial({ color: 0x2c2e31, specular: 0x222222, shininess: 18 }),
-  seat: new THREE.MeshPhongMaterial({ map: TEX.leather, specular: 0x3a3a3a, shininess: 28 }),
-  seatPlain: new THREE.MeshPhongMaterial({ color: 0x18181a, specular: 0x3a3a3a, shininess: 30, bumpMap: TEX.grain, bumpScale: 0.002 }),
-  mattress: new THREE.MeshPhongMaterial({ map: TEX.headW, color: 0x34373d, shininess: 3, specular: 0x050505 }),
-  leather: new THREE.MeshPhongMaterial({ color: 0x1b1b1c, specular: 0x3a3a3a, shininess: 35, bumpMap: TEX.grain, bumpScale: 0.002 }),
-  floor: new THREE.MeshPhongMaterial({ map: TEX.floor, shininess: 10, specular: 0x111111, emissive: 0x000000 }),
-  mat: new THREE.MeshPhongMaterial({ color: 0x121314, specular: 0x222222, shininess: 20, emissive: 0x000000 }),
-  metal: new THREE.MeshPhongMaterial({ color: 0xa5a9ad, specular: 0xffffff, shininess: 90, envMap: ENV, reflectivity: 0.35, combine: THREE.MixOperation }),
-  silver: new THREE.MeshPhongMaterial({ color: 0xc4c8cb, specular: 0xffffff, shininess: 100, envMap: ENV, reflectivity: 0.45, combine: THREE.MixOperation }),
-  black: new THREE.MeshPhongMaterial({ color: 0x0f1011, specular: 0x333333, shininess: 40 }),
-  gloss: new THREE.MeshPhongMaterial({ color: 0x0a0b0c, specular: 0x888888, shininess: 120 }),
-  button: new THREE.MeshPhongMaterial({ color: 0x1f2022, specular: 0x444444, shininess: 50 }),
-  red: new THREE.MeshPhongMaterial({ color: 0xb3141b, specular: 0x333333, shininess: 30 }),
-  gold: new THREE.MeshPhongMaterial({ color: 0xd8b04a, specular: 0xffffff, shininess: 80 }),
-  curtain: new THREE.MeshPhongMaterial({ map: TEX.fabric, color: 0x1a1b1d, shininess: 3 }),
-  can: new THREE.MeshPhongMaterial({ color: 0x23365a, specular: 0xffffff, shininess: 70 }),
-  ambient: new THREE.MeshBasicMaterial({ color: 0xff1e2c }),
-  tv: new THREE.MeshBasicMaterial({ color: 0x0b1016 }),
-  ledGreen: new THREE.MeshBasicMaterial({ color: 0x3dff8a }),
-  ledAmber: new THREE.MeshBasicMaterial({ color: 0xffa21a }),
-  lcdGreen: new THREE.MeshBasicMaterial({ color: 0x46c07a }),
-  lcdAmber: new THREE.MeshBasicMaterial({ color: 0xd88a1c }),
-  lcdBlue: new THREE.MeshBasicMaterial({ color: 0x3a8ad8 }),
-};
-TEX.fabric.repeat.set(2, 2);
-TEX.floor.repeat.set(4, 4);
-const CAB_AMBIENT = { base: new THREE.Color(0xff1e2c), on: null };
-
-function applyInteriorTheme(name) {
-  const th = INTERIOR_THEMES[name]; if (!th) return;
-  interiorName = name; lsSet('nlh.interior', name);
-  drawLeather(th.stitch);
-  const q = th.quilt ? quiltTexture(th.upper) : null;
-  for (const [m, c, plainMap] of [[IM.upper, th.upper, null], [IM.head, th.head, TEX.headW], [IM.cabinet, th.cabinet, null], [IM.door, th.door, null]]) {
-    const want = th.quilt ? q : plainMap;
-    if (m.map !== want) { m.map = want; m.needsUpdate = true; }
-    m.color.setHex(th.quilt ? (m === IM.head ? 0xe0d0d0 : 0xffffff) : c);
-  }
-  IM.lower.color.setHex(th.lower); IM.drawer.color.setHex(th.drawer);
-  IM.mattress.color.setHex(th.mattress); IM.curtain.color.setHex(th.curtain);
-  CAB_AMBIENT.base.setHex(th.ambient); CAB_AMBIENT.on = null;
-}
-function setCabAmbient(on) {
-  if (CAB_AMBIENT.on === on) return;
-  CAB_AMBIENT.on = on;
-  IM.ambient.color.copy(CAB_AMBIENT.base).multiplyScalar(on ? 1 : 0.28);
-  const e = CAB_AMBIENT.base.clone().multiplyScalar(on ? 0.13 : 0);
-  IM.floor.emissive.copy(e); IM.mat.emissive.copy(e);
-}
-
 function buildInterior(T) {
   const cab = T.cab;
   const I = new Parts(); // casts and receives shadows
@@ -3248,7 +3423,7 @@ function buildInterior(T) {
   R.charmState = { ax: 0, vx: 0, az: 0, vz: 0 };
 
   R.eye = new THREE.Object3D(); R.eye.position.set(0.55, 2.62, -4.28); cab.add(R.eye);
-  applyInteriorTheme(interiorName);
+  fillVertexColors(cab);
   return R;
 }
 
@@ -5156,6 +5331,7 @@ function updateVisuals(dt) {
   const squat = 0.06 * clamp(TR.kp / (10000 * 9.81), 0, 1), towing = TR.link !== 'free';
   T.position.set(TR.x, TR.y - squat, TR.z);
   T.rotation.set(TR.pitch + squat / WB, TR.h + Math.PI, 0);
+  updateVehicleEnv(T);
   for (const w of TRK.rear) w.position.y = 0.52 + squat;
   TRK.cabPivot.rotation.set(TR.cab.p, 0, TR.cab.r);
   TRK.cabPivot.position.y = 1.25 + TR.cab.hy;
@@ -5255,6 +5431,7 @@ function updateLighting(dt) {
   GAME.todT -= dt;
   if (GAME.todT <= 0 || Math.abs(GAME.tunnelBlend - GAME.lastTB) > 0.03) {
     applyTimeOfDay((GAME.clock / 3600) % 24, GAME.tunnelBlend);
+    setVehicleLight(1 - TOD.night, GAME.tunnelBlend);
     GAME.todT = 0.5; GAME.lastTB = GAME.tunnelBlend;
   }
   const ext = GAME.cam === 'cab' && GAME.state === 'drive' ? 11 : 24;

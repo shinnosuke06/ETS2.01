@@ -6,11 +6,22 @@ const { chromium } = require('playwright');
 const ROOT = new URL('../../', import.meta.url);
 const ORIGIN = 'http://game.test/';
 
-export async function openGame({ width = 1280, height = 720, touch = false } = {}) {
+// storage: values put in localStorage before the game starts (e.g. { 'nlh.quality': 'low' }).
+export async function openGame({ width = 1280, height = 720, touch = false, storage = {} } = {}) {
   const body = fs.readFileSync(new URL('index.html', ROOT), 'utf8');
   const html = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>' + body + '</body></html>';
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const context = await browser.newContext({ viewport: { width, height }, hasTouch: touch, isMobile: touch, deviceScaleFactor: 1 });
+  // In-page test tools: wait for frames, and the first ray hit on something actually shown
+  // (Raycaster does not look at whether a parent is hidden).
+  await context.addInitScript(st => {
+    for (const [k, v] of Object.entries(st)) localStorage.setItem(k, JSON.stringify(v));
+    window.__t = {
+      frames: n => new Promise(res => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : res()); f(); }),
+      shown: o => { for (; o; o = o.parent) if (!o.visible) return false; return true; },
+      first: (rc, root) => rc.intersectObject(root, true).find(h => window.__t.shown(h.object)) || null,
+    };
+  }, storage);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));

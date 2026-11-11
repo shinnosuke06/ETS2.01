@@ -1,38 +1,8 @@
 // ---------------------------------------------------------------------------
-// 4x2 tractor modelled on the Scania S-series (right-hand drive, as sold in Japan)
-// and a 13.6 m van trailer. Local frame: -Z forward, +X right, +Y up; tractor
+// 4x2 tractor modelled on the S-series photos (right-hand drive, as sold in Japan)
+// and the two trailers. Materials are in 06b-materials.js. Local frame: -Z forward, +X right, +Y up; tractor
 // origin = rear axle on the ground. Maker badges are left blank on purpose.
 // ---------------------------------------------------------------------------
-const TM = {
-  paint: new THREE.MeshPhongMaterial({ color: 0x8e1b20, specular: 0x666666, shininess: 80, envMap: ENV, reflectivity: 0.2, combine: THREE.MixOperation }),
-  paintDark: new THREE.MeshPhongMaterial({ color: 0x2a2c2f, specular: 0x333333, shininess: 40 }),
-  chrome: new THREE.MeshPhongMaterial({ color: 0xe2e6e9, specular: 0xffffff, shininess: 120, envMap: ENV, reflectivity: 0.75, combine: THREE.MixOperation }),
-  black: new THREE.MeshPhongMaterial({ color: 0x131415, specular: 0x222222, shininess: 25 }),
-  blackDS: new THREE.MeshPhongMaterial({ color: 0x131415, specular: 0x222222, shininess: 25, side: THREE.DoubleSide }),
-  dark: new THREE.MeshPhongMaterial({ color: 0x2c2e31, specular: 0x222222, shininess: 20 }),
-  frame: new THREE.MeshPhongMaterial({ color: 0x1c1d1f, specular: 0x111111, shininess: 10 }),
-  bumper: new THREE.MeshPhongMaterial({ color: 0x34373a, specular: 0x333333, shininess: 30 }),
-  alu: new THREE.MeshPhongMaterial({ color: 0xc9cdd1, specular: 0xbbbbbb, shininess: 80, envMap: ENV, reflectivity: 0.35, combine: THREE.MixOperation }),
-  white: new THREE.MeshPhongMaterial({ color: 0xeef0f0, specular: 0x444444, shininess: 40 }),
-  tire: new THREE.MeshLambertMaterial({ color: 0x18181a }),
-  rim: new THREE.MeshPhongMaterial({ color: 0xd2d6d9, specular: 0xffffff, shininess: 90, envMap: ENV, reflectivity: 0.4, combine: THREE.MixOperation }),
-  glassOut: new THREE.MeshPhongMaterial({ color: 0x0e171c, specular: 0xffffff, shininess: 110, envMap: ENV, reflectivity: 0.55, combine: THREE.MixOperation, transparent: true, opacity: 0.82, depthWrite: false }),
-  glassIn: new THREE.MeshBasicMaterial({ color: 0xcfe0ea, transparent: true, opacity: 0.05, depthWrite: false }),
-  headOff: new THREE.MeshPhongMaterial({ color: 0xd8dde0, specular: 0xffffff, shininess: 100, envMap: ENV, reflectivity: 0.5, combine: THREE.MixOperation }),
-  headOn: new THREE.MeshBasicMaterial({ color: 0xfff7e4 }),
-  drl: new THREE.MeshBasicMaterial({ color: 0xf2faff }),
-  amberOff: new THREE.MeshPhongMaterial({ color: 0x9a6512, specular: 0x888888, shininess: 80 }),
-  amberOn: new THREE.MeshBasicMaterial({ color: 0xffa51c }),
-  redOff: new THREE.MeshPhongMaterial({ color: 0x5c0e0e, specular: 0x888888, shininess: 80 }),
-  redDim: new THREE.MeshBasicMaterial({ color: 0xa8170f }),
-  redOn: new THREE.MeshBasicMaterial({ color: 0xff2b18 }),
-  whiteOn: new THREE.MeshBasicMaterial({ color: 0xffffff }),
-  marker: new THREE.MeshBasicMaterial({ color: 0xffa21a }),
-  mirrorStatic: new THREE.MeshPhongMaterial({ color: 0x8e98a0, specular: 0xffffff, shininess: 120, envMap: ENV, reflectivity: 0.9, combine: THREE.MixOperation }),
-};
-TM.trailerBody = new THREE.MeshPhongMaterial({ map: TEX.alu, specular: 0x777777, shininess: 50 });
-TEX.alu.repeat.set(1, 1);
-
 function plateTexture(top, bottom) {
   const c = makeCanvas(256, 128), g = c.getContext('2d');
   g.fillStyle = '#1e6a3b'; roundRect(g, 0, 0, 256, 128, 10); g.fill();
@@ -57,61 +27,6 @@ const LOGO_TEX = (() => {
   return canvasTex(c, { aniso: 8 });
 })();
 const LOGO_MAT = new THREE.MeshPhongMaterial({ map: LOGO_TEX, transparent: true, shininess: 30, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
-
-// ---- body colours and extra materials (modelled on Scania S-series photos) ----
-const PAINTS = {
-  white: { label: '白', color: 0xf0f1ef },
-  blue: { label: '青', color: 0x1b5fb5 },
-  red: { label: '赤', color: 0xb01219 },
-  silver: { label: '銀', color: 0xaeb4b9 },
-};
-let paintName = lsGet('nlh.paint', 'white');
-if (!PAINTS[paintName]) paintName = 'white';
-function applyPaint(name) {
-  if (!PAINTS[name]) return;
-  paintName = name; lsSet('nlh.paint', name);
-  TM.paint.color.setHex(PAINTS[name].color);
-  TM.paint.reflectivity = name === 'white' ? 0.12 : 0.24;
-}
-TEX.mesh = (() => { // black honeycomb grille mesh
-  const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
-  g.fillStyle = '#030303'; g.fillRect(0, 0, W, W);
-  g.strokeStyle = '#262729'; g.lineWidth = 3;
-  for (let y = 0; y < W + 16; y += 16) for (let x = 0; x < W + 16; x += 18) {
-    const ox = (y / 16) % 2 ? 9 : 0;
-    g.beginPath(); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU + Math.PI / 6; g.lineTo(x + ox + Math.cos(a) * 9, y + Math.sin(a) * 9); } g.closePath(); g.stroke();
-  }
-  const t = canvasTex(c, { repeat: true }); t.repeat.set(12, 4); return t;
-})();
-TEX.chequer = (() => { // aluminium chequer plate (catwalk, steps)
-  const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
-  g.fillStyle = '#aeb3b7'; g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 2500, 2, 150, 210, 0.15, 0.35, 141);
-  for (let y = 0; y < W; y += 16) for (let x = 0; x < W; x += 16) {
-    const flip = ((x + y) / 16) % 2;
-    g.save(); g.translate(x + 8, y + 8); g.rotate(flip ? 0.8 : -0.8);
-    g.fillStyle = '#d9dde0'; g.fillRect(-5, -1.5, 10, 3); g.fillStyle = '#7d8286'; g.fillRect(-5, 1.5, 10, 1.2); g.restore();
-  }
-  const t = canvasTex(c, { repeat: true }); t.repeat.set(4, 4); return t;
-})();
-TEX.reflector = (() => { // 大型後部反射器: red / fluorescent orange diagonal stripes
-  const W = 256, H = 64, c = makeCanvas(W, H), g = c.getContext('2d');
-  g.fillStyle = '#d6141c'; g.fillRect(0, 0, W, H);
-  g.fillStyle = '#ff8a12';
-  for (let x = -H; x < W + H; x += 40) { g.beginPath(); g.moveTo(x, H); g.lineTo(x + 20, H); g.lineTo(x + 20 + H, 0); g.lineTo(x + H, 0); g.closePath(); g.fill(); }
-  g.strokeStyle = '#a00d12'; g.lineWidth = 6; g.strokeRect(3, 3, W - 6, H - 6);
-  return canvasTex(c);
-})();
-TM.gloss = new THREE.MeshPhongMaterial({ color: 0x0b0c0d, specular: 0x777777, shininess: 110, envMap: ENV, reflectivity: 0.25, combine: THREE.MixOperation });
-TM.rubber = new THREE.MeshPhongMaterial({ color: 0x17181a, specular: 0x222222, shininess: 12 });
-TM.mesh = new THREE.MeshPhongMaterial({ map: TEX.mesh, specular: 0x333333, shininess: 30 });
-TM.chequer = new THREE.MeshPhongMaterial({ map: TEX.chequer, specular: 0xffffff, shininess: 70, envMap: ENV, reflectivity: 0.2, combine: THREE.MixOperation });
-TM.reflector = new THREE.MeshPhongMaterial({ map: TEX.reflector, specular: 0x888888, shininess: 60 });
-TM.ledRed = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
-TM.hoseY = new THREE.MeshPhongMaterial({ color: 0xf0c018, specular: 0x666666, shininess: 50 });
-TM.hoseR = new THREE.MeshPhongMaterial({ color: 0xc81e1e, specular: 0x666666, shininess: 50 });
-TM.hoseB = new THREE.MeshPhongMaterial({ color: 0x1b1b1c, specular: 0x444444, shininess: 40 });
-TM.rim.color.setHex(0xe4e7e9); TM.rim.reflectivity = 0.55;
 
 // ---- cab body: lofted horizontal sections of a rounded rectangle ----------------
 // y: height, zf/zr: front/rear face, w: half width, rf/rr: front/rear corner radius
@@ -560,7 +475,6 @@ function buildTrailer() {   // 13.6 m box van
   return R;
 }
 
-TM.tank = new THREE.MeshPhongMaterial({ color: 0xd3d8dc, specular: 0xffffff, shininess: 120, envMap: ENV, reflectivity: 0.6, combine: THREE.MixOperation });
 function buildTankTrailer() {   // 3-axle food-grade tanker: no baffles, so the liquid moves
   const R = trailerShell(), root = R.root;
   const B = new Parts();
