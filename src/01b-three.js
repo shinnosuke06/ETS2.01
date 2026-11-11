@@ -23,9 +23,10 @@ function colorize(geo, hex) {
   geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
   return geo;
 }
-function mergeGeometries(list) {
+// forceColor: give parts without vertex colours white ones (a vertexColors material shows a part with none as black).
+function mergeGeometries(list, forceColor = false) {
   const geos = list.map(g => (g.index ? g.toNonIndexed() : g));
-  const hasColor = geos.some(g => g.attributes.color);
+  const hasColor = forceColor || geos.some(g => g.attributes.color);
   let total = 0;
   for (const g of geos) total += g.attributes.position.count;
   const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), uv = new Float32Array(total * 2);
@@ -49,9 +50,31 @@ function mergeGeometries(list) {
   return out;
 }
 
+// ---- per-part record of the vehicle model: triangle count and bounding box --------------------
+// Boxes are in the tractor root's coordinates ([minx, miny, minz, maxx, maxy, maxz]). `group` is set by
+// whoever builds the vehicle ('exterior' or 'interior') and copied into each record.
+const VEH_STATS = { parts: {}, group: null };
+const _sv = new THREE.Vector3();
+function statPart(name, geo, toRoot) {
+  const P = geo.attributes.position;
+  let r = VEH_STATS.parts[name];
+  if (!r) r = VEH_STATS.parts[name] = { tris: 0, box: [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity], group: VEH_STATS.group };
+  r.tris += (geo.index ? geo.index.count : P.count) / 3;
+  const b = r.box;
+  for (let i = 0; i < P.count; i++) {
+    _sv.fromBufferAttribute(P, i); if (toRoot) _sv.applyMatrix4(toRoot);
+    if (_sv.x < b[0]) b[0] = _sv.x; if (_sv.y < b[1]) b[1] = _sv.y; if (_sv.z < b[2]) b[2] = _sv.z;
+    if (_sv.x > b[3]) b[3] = _sv.x; if (_sv.y > b[4]) b[4] = _sv.y; if (_sv.z > b[5]) b[5] = _sv.z;
+  }
+  return r;
+}
+
 // Collects transformed parts per material and merges them into one mesh each.
+// part(name, toRoot) names the parts added from then on in VEH_STATS (toRoot: the build parent's matrix
+// to the tractor root, when that parent is not at the root's origin); part(null) stops recording.
 class Parts {
-  constructor() { this.lists = new Map(); this.stack = []; this.base = new THREE.Matrix4(); }
+  constructor() { this.lists = new Map(); this.stack = []; this.base = new THREE.Matrix4(); this.cur = null; this.curM = null; }
+  part(name, toRoot = null) { this.cur = name; this.curM = toRoot; return this; }
   push(x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
     this.stack.push(this.base.clone());
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
@@ -62,6 +85,7 @@ class Parts {
   add(geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
     xform(geo, x, y, z, rx, ry, rz, sx, sy, sz);
     geo.applyMatrix4(this.base);
+    if (this.cur) statPart(this.cur, geo, this.curM);
     if (!this.lists.has(mat)) this.lists.set(mat, []);
     this.lists.get(mat).push(geo);
     return geo;
@@ -71,7 +95,7 @@ class Parts {
   build(parent, { cast = false, receive = false } = {}) {
     const out = [];
     for (const [mat, list] of this.lists) {
-      const g = mergeGeometries(list);
+      const g = mergeGeometries(list, !!mat.vertexColors);
       list.forEach(x => x.dispose());
       const m = new THREE.Mesh(g, mat);
       m.castShadow = cast; m.receiveShadow = receive;
