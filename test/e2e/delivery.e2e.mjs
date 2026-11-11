@@ -1,19 +1,21 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { withGame, startJob, tick } from './helpers.mjs';
+import { withGame, startJob, tick, driveHelpers } from './helpers.mjs';
 
-test('自動連結 → 御殿場 → 納品の枠で切り離すと結果が出る', () => withGame({}, async (page, errors) => {
-  await startJob(page);
+test('自動連結 → 厚木の倉庫 → 納品の枠で切り離すと結果が出る', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
   assert.equal(await page.evaluate(() => TR.link), 'free');
   await page.keyboard.press('KeyT'); await tick(page, 2.5);
   assert.equal(await page.evaluate(() => TR.link), 'coupled');
-  const r = await page.evaluate(() => {
-    const d = destRamp(); placeTruck(d.sGate + 30, -40, 4, { coupled: true }); d.gateState = 'open'; d.passed = true;
-    const stopAt = d.sZone0 + 14;
-    const inp = () => ({ throttle: TR.s < stopAt && TR.v < 3 ? 0.3 : 0, brake: TR.s >= stopAt ? 0.8 : 0, steer: 0 });
-    for (let i = 0; i < 240 * 60 && !(TR.s >= stopAt && Math.abs(TR.v) < 0.05); i++) stepTruck(1 / 240, inp());
-    return { inZone: TR.tr.s >= d.sZone0 && TR.tr.s <= d.sZone1, ok: requestUncouple() };
+  const r = await page.evaluate(async () => {
+    // lined up behind the destination's bay with the kingpin at its middle, then 6 m forward: kingpin and tail both inside
+    const b = GAME.job.whB.bay;
+    __placeTown(2, b.u - b.hu * 0.35, b.v - b.hv * 0.35, b.hu, b.hv, 0); await __ready();
+    const site = TOWN_SITES[2], k = {}, at = () => townUV(site, TR.tr.kx, TR.tr.kz, k);
+    const inp = () => ({ throttle: TR.v < 1.5 ? 0.3 : 0, brake: (at(), (k.u - b.u) * b.hu + (k.v - b.v) * b.hv >= 6) ? 0.8 : 0, steer: 0 });
+    for (let i = 0; i < 240 * 60 && !((at(), (k.u - b.u) * b.hu + (k.v - b.v) * b.hv >= 6) && Math.abs(TR.v) < 0.05); i++) stepTruck(1 / 240, inp());
+    return { into: +((k.u - b.u) * b.hu + (k.v - b.v) * b.hv).toFixed(2), ok: requestUncouple() };
   });
-  assert.deepEqual(r, { inZone: true, ok: true });
+  assert.ok(r.into >= 6 && r.into < 8.5 && r.ok, JSON.stringify(r));
   await tick(page, 2.5);
   assert.equal(await page.evaluate(() => GAME.state), 'result');
   assert.equal(await page.isVisible('#resultOv'), true);
@@ -33,16 +35,19 @@ test('手動の連結：バックして合わせると連結できる', () => wi
   assert.equal(await page.evaluate(() => TR.link), 'coupled');
 }));
 
-test('仕事 2 はタンクトレーラーで、総重量は 33.1 t', () => withGame({}, async page => {
-  const r = await page.evaluate(() => { GAME.jobIdx = 1; setupJob(1); return { key: TR.trailerKey, gcw: TR.gcw, link: TR.link, mass: document.getElementById('jMass').textContent, cargo: document.getElementById('jCargo').textContent }; });
+test('仕事 3（御殿場 → 富士）はタンクトレーラーで、総重量は 33.1 t', () => withGame({}, async page => {
+  const r = await page.evaluate(() => { GAME.jobIdx = 2; setupJob(2); return { key: TR.trailerKey, gcw: TR.gcw, link: TR.link, mass: document.getElementById('jMass').textContent, cargo: document.getElementById('jCargo').textContent }; });
   assert.equal(r.key, 'tank'); assert.equal(r.gcw, 33100); assert.equal(r.link, 'free');
   assert.match(r.mass, /総重量 33\.1 t/); assert.equal(r.cargo, '牛乳（タンク）');
 }));
 
-test('目的地で枠の外に切り離すと、理由が表示される', () => withGame({}, async page => {
-  await startJob(page);
-  await page.evaluate(() => { const d = destRamp(); placeTruck(d.sGate + 30, -40, 0, { coupled: true }); requestUncouple(); });
-  assert.match(await tick(page, 2.5), /納品の枠の中で切り離してください/);
+test('目的地の構内で、荷台口でも枠でもない所に切り離すと、理由が表示される', () => withGame({}, async page => {
+  await startJob(page); await driveHelpers(page);
+  await page.evaluate(async () => {
+    const y = GAME.job.whB.yard, g = GAME.job.whB.gate;   // the middle of the yard, facing in from the gate
+    __placeTown(2, (y.u0 + y.u1) / 2 + g.nu * 10, (y.v0 + y.v1) / 2 + g.nv * 10, g.nu, g.nv, 0); await __ready(); requestUncouple();
+  });
+  assert.match(await tick(page, 2.5), /荷台口か納品の枠で切り離してください/);
   assert.equal(await page.evaluate(() => TR.link), 'free');
   assert.equal(await page.evaluate(() => GAME.state), 'drive');
 }));

@@ -216,7 +216,9 @@ function townLayout(i) {
     const yard = rect(1, D - 26, -W / 2 + 1, W / 2 - 1), bld = rect(D - 26, D - 1, -W / 2 + 8, W / 2 - 8);
     const bw = W - 16, nd = clamp(Math.floor((bw - 10) / 4.5), 4, 6);
     const docks = []; for (let j = 0; j < nd; j++) { const p = P(D - 26, (j - (nd - 1) / 2) * 4.5); docks.push({ u: p[0], v: p[1], nu: -e[0], nv: -e[1] }); }
-    const bay = P(20, W / 2 - 9), park = P(31, -(W / 2 - 11));
+    // the bay (heading in) and the start slot (nose to the gate) stand deep in the yard, on either side, so a rig
+    // can swing across from the gate and run straight in, or pull out and swing back to the gate
+    const bay = P(D - 39, W / 2 - 9), park = P(D - 43, -(W / 2 - 11));
     const along = st.axis === 'v' ? g[1] : g[0];
     const gateLanes = lanes.filter(l => l.street === st.id && !l.turn && Math.min(...l.pts.map(p => (st.axis === 'v' ? p[1] : p[0]))) <= along && Math.max(...l.pts.map(p => (st.axis === 'v' ? p[1] : p[0]))) >= along).map(l => l.id);
     warehouses.push({ id: k, name: site.ic.jp + TOWN_WH_NAMES[k], block: blocks.indexOf(b), street: st.id, gate: { u: g[0], v: g[1], nu: e[0], nv: e[1], w: 14 }, yard, building: bld, docks,

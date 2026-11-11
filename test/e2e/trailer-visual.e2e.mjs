@@ -4,7 +4,7 @@ import { withGame, startJob, tick } from './helpers.mjs';
 test('仕事ごとにトレーラーのモデルが切り替わり、同じ形の部品を持つ', () => withGame({}, async (page, errors) => {
   const r = await page.evaluate(() => {
     const keys = o => ['root', 'body', 'legs', 'blinkL', 'blinkR', 'tail', 'rev', 'spin'].every(k => k in o);
-    setupJob(1); updateVisuals(0.016);
+    setupJob(2); updateVisuals(0.016);
     const a = { tank: TRAILER_MODELS.tank.root.visible, van: TRAILER_MODELS.van.root.visible, is: TRL === TRAILER_MODELS.tank };
     setupJob(0); updateVisuals(0.016);
     return { a, b: { tank: TRAILER_MODELS.tank.root.visible, van: TRAILER_MODELS.van.root.visible }, shape: keys(TRAILER_MODELS.van) && keys(TRAILER_MODELS.tank), wheels: TRAILER_MODELS.tank.spin.length };
@@ -18,14 +18,14 @@ test('脚とカールコードは連結の状態に合わせて動き、置い�
   await startJob(page);
   let v = await page.evaluate(() => {
     updateVisuals(0.016);
-    const spin0 = TRL.spin[0].rotation.x;
+    const spin0 = TRL.spin[0].rotation.x; window.__start = [TR.x, TR.z, TR.h];
     for (let i = 0; i < 240; i++) stepTruck(1 / 240, { throttle: 0.5, brake: 0, steer: 0 });   // drive off without it
     updateVisuals(0.016);
     return { legs: TRL.legs.position.y, coil: TRK.coil.visible, stowed: TRK.coilStowed.visible,
-      at: [TRL.root.position.x - TR.tr.kx, TRL.root.position.z - TR.tr.kz], moved: TR.s > S0 + 52, wheelsStill: TRL.spin[0].rotation.x === spin0 };
+      at: [TRL.root.position.x - TR.tr.kx, TRL.root.position.z - TR.tr.kz], moved: Math.hypot(TR.x - __start[0], TR.z - __start[1]) > 0.5, wheelsStill: TRL.spin[0].rotation.x === spin0 };
   });
   assert.deepEqual(v, { legs: 0, coil: false, stowed: true, at: [0, 0], moved: true, wheelsStill: true });
-  await page.evaluate(() => { placeTruck(TR.tr.s + 8.3 + 12 - 0.35, -10.75, 0, { coupled: false }); });
+  await page.evaluate(() => { placeTruckAt(__start[0], __start[1], __start[2], 0, { coupled: false }); });   // back where the job put it
   await page.keyboard.press('KeyT'); await tick(page, 2.5);
   v = await page.evaluate(() => { updateVisuals(0.016); return { link: TR.link, legs: TRL.legs.position.y, coil: TRK.coil.visible, stowed: TRK.coilStowed.visible }; });
   assert.deepEqual(v, { link: 'coupled', legs: 0.45, coil: true, stowed: false });

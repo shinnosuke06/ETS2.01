@@ -55,17 +55,38 @@ function vehicleStats() {
 }
 mountVehicle('van');
 
-// mass: cargo in tonnes. The trailer decides how the load behaves (a tank's liquid sloshes).
+// From one town's warehouse to another's, westbound; all 13 towns in turn. mass: cargo in tonnes.
+// The trailer decides how the load behaves (a tank's liquid sloshes).
 const JOBS = [
-  { from: 0, to: 4, cargo: '精密機器', trailer: 'van', mass: 12 },
-  { from: 4, to: 7, cargo: '牛乳', trailer: 'tank', mass: 19 },
-  { from: 7, to: 9, cargo: '飲料', trailer: 'van', mass: 22 },
-  { from: 9, to: 12, cargo: '楽器（ピアノ）', trailer: 'van', mass: 9 },
-];
+  { from: 0, to: 2, cargo: '精密機器', trailer: 'van', mass: 12 },
+  { from: 2, to: 4, cargo: '飲料', trailer: 'van', mass: 20 },
+  { from: 4, to: 6, cargo: '牛乳', trailer: 'tank', mass: 19 },
+  { from: 6, to: 7, cargo: '紙製品', trailer: 'van', mass: 15 },
+  { from: 7, to: 8, cargo: '緑茶', trailer: 'van', mass: 10 },
+  { from: 8, to: 9, cargo: '食用油', trailer: 'tank', mass: 18 },
+  { from: 9, to: 11, cargo: '楽器（ピアノ）', trailer: 'van', mass: 9 },
+  { from: 11, to: 12, cargo: '自動車部品', trailer: 'van', mass: 22 },
+  { from: 0, to: 1, cargo: '日用品', trailer: 'van', mass: 8 },
+  { from: 1, to: 3, cargo: '冷凍食品', trailer: 'van', mass: 16 },
+  { from: 3, to: 5, cargo: '水', trailer: 'tank', mass: 21 },
+  { from: 5, to: 10, cargo: '魚の加工品', trailer: 'van', mass: 14 },
+  { from: 10, to: 12, cargo: '機械部品', trailer: 'van', mass: 18 },
+].map(j => ({ ...j, fromWh: 0, toWh: 1 }));
+// A town's layout without building it into the game (cached; the same as townLayout makes when it is loaded).
+const _jobLayouts = new Map();
+function jobLayout(i) {
+  if (TOWNS_LOADED.has(i)) return TOWNS_LOADED.get(i).layout;
+  if (!_jobLayouts.has(i)) { let L; try { L = townLayout(i); } catch (e) { L = townFallbackLayout(i); } _jobLayouts.set(i, L); }
+  return _jobLayouts.get(i);
+}
+const jobWh = (i, k) => { const L = jobLayout(i); return L.warehouses[Math.min(k, L.warehouses.length - 1)]; };
 function jobInfo(j) {
   const a = ICS[j.from], b = ICS[j.to];
   const km = b.kp - a.kp;
-  return { ...j, a, b, km, pay: Math.round((km * 520 + j.mass * 900) / 100) * 100 };
+  // the town part: from the start warehouse's gate to the plaza, and from the plaza to the destination's gate (true km)
+  const La = jobLayout(j.from), Lb = jobLayout(j.to), wa = jobWh(j.from, j.fromWh), wb = jobWh(j.to, j.toWh);
+  const townKm = (townGraphDistance(La, wa.gate, townPlazaPoint()) + townGraphDistance(Lb, townPlazaPoint(), wb.gate)) / 1000;
+  return { ...j, a, b, km, townKm, whA: wa, whB: wb, pay: Math.round((km * 520 + j.mass * 900 + townKm * 520) / 100) * 100 };
 }
 const etcFare = km => Math.round((150 + km * 24.6) * 1.65 * 1.1 / 10) * 10;
 
@@ -80,17 +101,17 @@ const GAME = {
 // ---- jobs -------------------------------------------------------------------
 function setupJob(idx) {
   const j = jobInfo(JOBS[idx]);
-  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 };
+  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
   setRigTrailer(j.trailer, j.mass * 1000);
   RIG.assistOn = GAME.assist;
   TRL = TRAILER_MODELS[j.trailer];
   for (const k in TRAILER_MODELS) TRAILER_MODELS[k].root.visible = TRAILER_MODELS[k] === TRL;
   TR.damage = 0;
-  // the trailer waits on the shoulder; the tractor stands 12 m ahead of its kingpin, ready to back under it
-  const sK = j.from === 0 ? S0 + 40 : ICS[j.from].s + 450;
-  parkTrailer(sK, -10.75);
-  placeTruck(sK + 12 - HITCH, -10.75, 0, { coupled: false });
-  for (const r of RAMPS) { r.gateOpen = 0; r.gateState = 'closed'; r.passed = false; if (r.barPivot) r.barPivot.rotation.z = 0; }
+  // the trailer waits in the start warehouse's slot, nose to the gate; the tractor stands 12 m ahead of its kingpin
+  const site = TOWN_SITES[j.from], pk = j.whA.park, h = site.hu + Math.atan2(pk.hv, pk.hu), q = {};
+  townXZ(site, pk.u, pk.v, q); parkTrailerAt(q.x, q.z, h);
+  townXZ(site, pk.u + pk.hu * (12 - HITCH), pk.v + pk.hv * (12 - HITCH), q); placeTruckAt(q.x, q.z, h, 0, { coupled: false });
+  for (const T of TOWNS_LOADED.values()) for (const g of Object.values(T.layout.plaza.gates)) { g.state = 'closed'; g.open = 0; g.passed = false; }
   GAME.blink = 0; GAME.hazard = true; GAME.autoHazard = true; GAME.leftT = 0; GAME.leftAt = 2;
   resetTraffic();
   fillJobCard();
@@ -108,11 +129,43 @@ function destRamp() { return RAMPS[GAME.job.to - 1]; }
 const gcwText = () => '総重量 ' + (TR.gcw / 1000).toFixed(1) + ' t';
 const COUPLE_HINT = '後ろのトレーラーにバックして連結してください（T で自動連結）';
 
+// ---- towns: made in short steps once the rig is within 2.5 km of a plaza, dropped beyond 3.5 km, two at most ----
+const TOWN_JOBS = new Map();   // i -> the steps still to run
+function* townBuildJob(i) {
+  let L, grid;
+  try { L = jobLayout(i); grid = yield* townGridSteps(L); }
+  catch (e) { console.warn('town ' + i + ' could not be made; using a plain yard:', e && e.message); L = townFallbackLayout(i); _jobLayouts.set(i, L); grid = townGrid(L); }
+  townAdd(i, L, grid);
+  yield* townMeshSteps(i);
+  townTrafficStart(i);
+}
+function townDrop(i) { TOWN_JOBS.delete(i); townTrafficStop(i); townMeshDispose(i); townUnload(i); }
+// Runs town steps for up to budgetMs; returns how many towns are still being made.
+function townsTick(budgetMs = 6) {
+  const d = i => Math.hypot(TR.x - TOWN_SITES[i].ox, TR.z - TOWN_SITES[i].oz);
+  for (const i of [...new Set([...TOWNS_LOADED.keys(), ...TOWN_JOBS.keys()])]) if (d(i) > 3500 && TR.town !== i) townDrop(i);
+  for (const i of TOWN_SITES.map(t => t.i).filter(k => d(k) <= 2500).sort((a, b) => d(a) - d(b))) {
+    if (TOWNS_LOADED.has(i) || TOWN_JOBS.has(i)) continue;
+    const held = [...new Set([...TOWNS_LOADED.keys(), ...TOWN_JOBS.keys()])];
+    if (held.length >= 2) {   // make room: drop the farthest town the rig is not in, if it is farther than this one
+      const far = held.filter(k => k !== TR.town).sort((a, b) => d(b) - d(a))[0];
+      if (far == null || d(far) <= d(i)) break;
+      townDrop(far);
+    }
+    TOWN_JOBS.set(i, townBuildJob(i));
+  }
+  const t0 = performance.now();
+  for (const [i, job] of TOWN_JOBS) {   // the nearest job first, one at a time
+    while (performance.now() - t0 < budgetMs) if (job.next().done) { TOWN_JOBS.delete(i); break; }
+    break;
+  }
+  return TOWN_JOBS.size;
+}
 async function preloadAround(label) {
   $('loading').hidden = false;
   let left = 99, n = 0;
   while (left > 0) {
-    left = updateChunks(TR.s, 2);
+    left = updateChunks(TR.s, 2) + townsTick(40);
     n += 2;
     $('loadText').textContent = (label || '地図を作成中') + '… ' + Math.min(99, Math.round(n / (n + left) * 100)) + '%';
     await new Promise(r => setTimeout(r, 0));
@@ -184,7 +237,7 @@ function handleActions() {
 function gameLogic(dt) {
   const j = GAME.job;
   const r = rampAt(TR.s);
-  TR.onRamp = !!r && TR.lat < -13.4;
+  TR.onRamp = TR.zone === 'road' && !!r && TR.lat < -13.4;
   // missed the destination exit
   const dr = destRamp();
   if (!TR.onRamp && TR.s > dr.sDiv + dr.uSep + 30 && TR.s < dr.sEnd + 200 && TR.lat > -12.6) {
@@ -199,30 +252,7 @@ function gameLogic(dt) {
       placeTruck(dr.sDiv - 500, X_TRV, 15, { coupled: TR.link !== 'free' });
     }
   }
-  if (TR.onRamp) {
-    const dg = r.sGate - TR.frontS;
-    const kmh = Math.abs(TR.v) * 3.6;
-    if (r.gateState === 'closed' && dg < 30 && dg > -1) {
-      if (kmh <= 22) {
-        r.gateState = 'open'; sfxChime();
-        const fare = r.ic.i === j.to ? etcFare(j.km) : 0;
-        if (fare) { j.toll = fare; led('ETC 料金 ' + yen(fare)); }
-      } else if (dg < 7) {
-        r.gateState = 'broken'; sfxThump(2); TR.damage = Math.min(100, TR.damage + 2.5); scaleSpeed(0.8);
-        j.fines += 8000;
-        if (r.ic.i === j.to) j.toll = etcFare(j.km);
-        led('開閉バーに接触！ETCは20km/h以下で', true, 4.5);
-      }
-    }
-    if (!r.passed && TR.s > r.sGate + 6) {
-      r.passed = true;
-      if (r.ic.i !== j.to) wrongExit(r);   // at the destination the job ends when the trailer is dropped in the bay
-    }
-  }
-  for (const q of RAMPS) {
-    if (q.barPivot) { q.gateOpen = damp(q.gateOpen, q.gateState === 'closed' ? 0 : 1, q.gateState === 'broken' ? 14 : 4, dt); q.barPivot.rotation.z = -q.gateOpen * (q.gateState === 'broken' ? 1.2 : 1.45); }
-    if (q.gateState !== 'closed' && Math.abs(TR.s - q.sGate) > 600) { q.gateState = 'closed'; q.passed = false; }
-  }
+  plazaGates(dt);
   if (GAME.autoHazard && TR.v > 14) { GAME.hazard = false; GAME.autoHazard = false; }
   // drove off without the trailer: the road is one-way, so say so while a restart is still cheap
   if (TR.link === 'free' && TR.trailerKey && TR.s - TR.tr.s - TRAILERS[TR.trailerKey].L2 > 150) {
@@ -236,18 +266,50 @@ function gameLogic(dt) {
   else GAME.overT = 0;
   GAME.fineCool -= dt;
 }
-function wrongExit(r) {
-  GAME.job.fines += 5000;
-  led(`${r.ic.jp}ICは目的地ではありません。Uターン扱い ¥5,000`, true, 5);
-  placeTruck(r.ic.s + 450, -10.75, 0, { coupled: TR.link !== 'free' });
-  resetTraffic();
+// The toll plaza's gates in the loaded towns: ETC at 22 km/h or less opens them (the fare is paid at the destination's
+// exit gate); faster, the bar is hit. Leaving through a town that is not the destination is allowed, and costs nothing.
+const _pgf = {};
+function plazaGates(dt) {
+  const j = GAME.job;
+  for (const [i, T] of TOWNS_LOADED) {
+    const site = T.layout.site, G = T.layout.plaza.gates, mesh = TOWN_MESH.get(i);
+    townUV(site, TR.x + Math.sin(TR.h) * RIGP.front, TR.z + Math.cos(TR.h) * RIGP.front, _pgf);
+    for (const key of ['exit', 'entry']) {
+      const g = G[key], kmh = Math.abs(TR.v) * 3.6;
+      if (!(key === 'exit' ? T.layout.plaza.exitPath : T.layout.plaza.entryPath)) continue;
+      const inLane = TR.zone === 'town' && TR.town === i && Math.abs(_pgf.u - g.u) <= 3.5, dg = (g.v - _pgf.v) * g.dir;
+      if (inLane && g.state === 'closed' && dg < 30 && dg > -1) {
+        const dest = key === 'exit' && i === j.to;
+        if (kmh <= 22) {
+          g.state = 'open'; sfxChime();
+          if (dest && !j.toll) { j.toll = etcFare(j.km); led('ETC 料金 ' + yen(j.toll)); }
+        } else if (dg < 7) {
+          g.state = 'broken'; sfxThump(2); TR.damage = Math.min(100, TR.damage + 2.5); scaleSpeed(0.8);
+          j.fines += 8000;
+          if (dest && !j.toll) j.toll = etcFare(j.km);
+          led('開閉バーに接触！ETCは20km/h以下で', true, 4.5);
+        }
+      }
+      if (inLane && !g.passed && dg < -6) {
+        g.passed = true;
+        if (key === 'exit' && i !== j.to) led(`${site.ic.jp}ICは目的地ではありません。入口から高速に戻れます`, true, 5);
+      }
+      g.open = damp(g.open, g.state === 'closed' ? 0 : 1, g.state === 'broken' ? 14 : 4, dt);
+      const pv = mesh && mesh.gates[key]; if (pv) pv.rotation.z = -g.open * (g.state === 'broken' ? 1.2 : 1.45);
+      if (g.state !== 'closed' && Math.hypot(TR.x - site.ox, TR.z - site.oz) > 600) { g.state = 'closed'; g.passed = false; }
+    }
+  }
 }
-// The trailer has just been set down: delivered if it stands in the destination's bay.
+// The trailer has just been set down: delivered if it stands at a dock or in the bay of the destination warehouse.
 function onUncoupled() {
-  const j = GAME.job, r = rampAt(TR.tr.s);
-  const atDest = r && r.ic.i === j.to && TR.tr.lat < -13.4;
-  if (atDest && TR.tr.s >= r.sZone0 && TR.tr.s <= r.sZone1) completeJob();
-  else if (atDest) led('納品の枠の中で切り離してください', true, 5);
+  const j = GAME.job, site = TOWN_SITES[j.to], wh = j.whB, sp = TRAILERS[TR.trailerKey], q = {}, kp = {};
+  townUV(site, TR.tr.kx, TR.tr.kz, kp);
+  const back = { u: -Math.cos(TR.tr.h - site.hu), v: -Math.sin(TR.tr.h - site.hu) };
+  townUV(site, TR.tr.kx - Math.sin(TR.tr.h) * sp.rear, TR.tr.kz - Math.cos(TR.tr.h) * sp.rear, q);
+  const y = wh.yard, inYard = kp.u >= y.u0 - 2 && kp.u <= y.u1 + 2 && kp.v >= y.v0 - 2 && kp.v <= y.v1 + 2;
+  const dock = inYard ? dockCheck(wh, q, back) : -1, bay = inYard && bayCheck(wh, kp, q);
+  if (dock >= 0 || bay) completeJob({ dock: dock >= 0 });
+  else if (inYard) led('荷台口か納品の枠で切り離してください', true, 5);
   else led('切り離しました', false, 3);
 }
 function onAccident(kind) {
@@ -281,7 +343,7 @@ function processEvents(dt) {
   }
 }
 
-function completeJob() {
+function completeJob(how = {}) {
   const j = GAME.job;
   const late = Math.max(0, GAME.clock - j.due) / 60;
   const timeAdj = late > 0 ? -Math.round(Math.min(0.4, late / 5 * 0.02) * j.pay / 100) * 100 : Math.round(j.pay * 0.08 / 100) * 100;
@@ -384,11 +446,17 @@ function showHud(on) {
   $('speedo').hidden = !on || GAME.cam === 'cab';
   $('touch').hidden = !on || !INP.usingTouch;
 }
+// km left to the destination: along the expressway to its exit, or in the destination town straight to the warehouse gate
+function destRemainKm() {
+  const j = GAME.job, q = {};
+  if (TR.zone === 'town' && TR.town === j.to) { townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, q); return Math.hypot(TR.x - q.x, TR.z - q.z) / 1000; }
+  return Math.max(0, destRamp().sEnd - TR.s) * SCALE / 1000;
+}
 function gearText() { if (TR.dir === -1) return 'R'; if (TR.dir === 0) return 'N'; return 'A' + (TR.shiftT > 0 ? TR.nextGear : TR.gear); }
 function updateHud() {
   const j = GAME.job; if (!j) return;
   $('jsDest').textContent = j.b.jp; $('jsEn').textContent = j.b.en;
-  const rem = Math.max(0, destRamp().sGate - TR.s) * SCALE / 1000;
+  const rem = destRemainKm();
   $('jsKm').textContent = rem.toFixed(1);
   $('jsClock').textContent = fmtClock(GAME.clock);
   $('jsDue').textContent = fmtClock(j.due);
@@ -422,25 +490,26 @@ function navState() {
   const j = GAME.job;
   const dr = destRamp();
   let guide = '', gd = '';
-  if (TR.onRamp) { guide = rampAt(TR.s).ic.i === j.to ? '料金所 ETCは20km/h以下' : '目的地ではない出口です'; gd = Math.max(0, Math.round(rampAt(TR.s).sGate - TR.s) * 10) + ' m'; }
+  if (TR.onRamp) { guide = rampAt(TR.s).ic.i === j.to ? '料金所 ETCは20km/h以下' : '目的地ではない出口です'; gd = Math.max(0, Math.round(rampAt(TR.s).sEnd - TR.s) * 10) + ' m'; }
   else {
     const nr = RAMPS.find(r => r.sDiv + r.uSep > TR.s);
     if (nr && nr.ic.i === j.to) { guide = `${nr.ic.jp} IC 出口は左`; }
     else if (nr) guide = `次 ${nr.ic.jp} IC　そのまま直進`;
     if (nr) { const d = Math.max(0, nr.sDiv - TR.s) * SCALE / 1000; gd = d < 1 ? Math.round(d * 1000 / 10) * 10 + ' m' : d.toFixed(1) + ' km'; }
   }
-  const rem = Math.max(0, dr.sGate - TR.s) * SCALE / 1000;
+  const rem = destRemainKm();
   const eta = GAME.clock + rem / 80 * 3600;
   const trailer = TR.link === 'free' && TR.trailerKey ? { x: TR.tr.kx, z: TR.tr.kz } : null;
   if (trailer && !TR.onRamp) { guide = 'トレーラーを連結してください'; gd = Math.round(Math.hypot(TR.x - trailer.x, TR.z - trailer.z)) + ' m'; }
   return {
     trailer,
-    x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sGate, destIc: j.to,
+    x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sEnd, destIc: j.to,
     guide, guideDist: gd, footer: `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`, limit: GAME.limit || 90,
   };
 }
 
 // ---- visuals ------------------------------------------------------------------------
+const _gv = {};
 function updateVisuals(dt) {
   const T = TRK.root;
   // the kingpin's weight settles the rear of the tractor by up to 6 cm; the wheels stay on the road
@@ -455,9 +524,10 @@ function updateVisuals(dt) {
   for (const s of TRK.steer) s.rotation.y = -TR.steer;
   const L2 = TRAILERS[TR.trailerKey] ? TRAILERS[TR.trailerKey].L2 : 8.3;
   if (towing) {   // on the fifth wheel
-    TRL.root.position.set(TR.x + Math.sin(TR.h) * HITCH, elevAt(TR.s + HITCH) - squat, TR.z + Math.cos(TR.h) * HITCH);
+    const hx = TR.x + Math.sin(TR.h) * HITCH, hz = TR.z + Math.cos(TR.h) * HITCH;
+    TRL.root.position.set(hx, GROUND.at(hx, hz, TR.idx, _gv).y - squat, hz);
     for (const w of TRL.spin) w.rotation.x = -TR.spin;
-  } else TRL.root.position.set(TR.tr.kx, elevAt(TR.tr.s + L2), TR.tr.kz);   // standing where it was set down
+  } else TRL.root.position.set(TR.tr.kx, GROUND.at(TR.tr.kx, TR.tr.kz, TR.tr.idx, _gv).y, TR.tr.kz);   // standing where it was set down
   TRL.root.rotation.set(TR.tr.pitch - squat / L2, TR.tr.h + Math.PI, 0);
   TRL.body.rotation.z = TR.roll;   // leans away from the turn
   // landing legs wind up while the lines are connected and down again when they come off
@@ -538,8 +608,7 @@ function updateCamera(dt) {
     const yaw = GAME.chaseH + INP.lookYaw;
     _ct.set(TR.x + Math.sin(TR.h) * 2.5, TR.y + 2.6, TR.z + Math.cos(TR.h) * 2.5);
     _cv.set(_ct.x - Math.sin(yaw) * dist, _ct.y + ht + INP.lookPitch * 8, _ct.z - Math.cos(yaw) * dist);
-    project(_cv.x, _cv.z, TR.idx, _pjT);
-    _cv.y = Math.max(_cv.y, elevAt(_pjT.s) + 2);
+    _cv.y = Math.max(_cv.y, GROUND.at(_cv.x, _cv.z, TR.idx, _gv).y + 2);
     if (chaseCam.position.distanceToSquared(_cv) > 2500) chaseCam.position.copy(_cv); else chaseCam.position.lerp(_cv, 1 - Math.exp(-8 * dt));
     chaseCam.lookAt(_ct);
     activeCam = chaseCam;
@@ -590,7 +659,7 @@ function simTick(dt) {
     GAME.clock += dt * TIME_SCALE;
     gameLogic(dt);
   }
-  if (GAME.state !== 'menu') updateTraffic(Math.min(dt, 0.05), driving);
+  if (GAME.state !== 'menu') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }
   processEvents(dt);
   return driving;
 }
@@ -603,7 +672,8 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;
   const t0 = performance.now();
   const driving = simTick(dt);
-  if (GAME.state !== 'loading') updateChunks(TR.s, 1);
+  if (GAME.state !== 'loading') { updateChunks(TR.s, 1); townsTick(6); }
+  for (const i of TOWN_MESH.keys()) townSignalsUpdate(i, GAME.clock / TIME_SCALE);
   updateVisuals(dt);
   updateCamera(dt);
   setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));

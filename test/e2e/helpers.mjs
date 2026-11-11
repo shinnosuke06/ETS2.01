@@ -65,3 +65,31 @@ export const luma = (page, rects) => page.evaluate(rects => {
     return s / (W * H);
   });
 }, rects);
+
+// In the page: drive along pts ([[x, z], ...] world) through the game's own input (touch pedals and wheel) with simTick,
+// pure pursuit with an 8 m look-ahead, at kmh. Stops when within 3 m of the end, or after `seconds` of game time.
+const DRIVE_SRC = `window.__drive = (path, kmh, seconds = 120, stopAtEnd = true) => {
+  const pts = [path[0]];
+  for (let i = 1; i < path.length; i++) { const a = path[i - 1], b = path[i], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]))); for (let k = 1; k <= n; k++) pts.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); }
+  let j = 0, t = 0;
+  const set = (thr, brk, steer) => { INP.tGas = thr; INP.tBrake = brk; INP.tWheelHeld = true; INP.tWheel = Math.sign(steer) * Math.pow(Math.abs(steer), 1 / 1.35) * 2.6; };
+  while (t < seconds && GAME.state === 'drive') {
+    while (j < pts.length - 1 && Math.hypot(pts[j + 1][0] - TR.x, pts[j + 1][1] - TR.z) <= Math.hypot(pts[j][0] - TR.x, pts[j][1] - TR.z)) j++;
+    const end = pts[pts.length - 1], left = Math.hypot(end[0] - TR.x, end[1] - TR.z);
+    if (left < 3) break;
+    const k = Math.min(pts.length - 1, j + 8), dx = pts[k][0] - TR.x, dz = pts[k][1] - TR.z;
+    const alpha = Math.atan2(dx * Math.cos(TR.h) - dz * Math.sin(TR.h), dx * Math.sin(TR.h) + dz * Math.cos(TR.h));
+    const delta = Math.atan(2 * 3.9 * Math.sin(alpha) / Math.max(4, Math.hypot(dx, dz))), v = TR.v * 3.6;
+    const want = stopAtEnd ? Math.min(kmh, 4 + left * 1.2) : kmh;
+    set(clamp((want - v) * 0.25, 0, 1), clamp((v - want - 2) * 0.15, 0, 1), clamp(-delta / steerLock(TR.v), -1, 1));
+    simTick(1 / 60); t += 1 / 60;
+  }
+  if (stopAtEnd) for (let n = 0; n < 240 && Math.abs(TR.v) > 0.05; n++) { set(0, 0.8, 0); simTick(1 / 60); }
+  INP.tGas = INP.tBrake = 0; INP.tWheelHeld = false;
+  return t;
+};
+window.__town = (i, pts) => { const site = TOWN_SITES[i], q = {}; return pts.map(([u, v]) => { townXZ(site, u, v, q); return [q.x, q.z]; }); };
+window.__placeTown = (i, u, v, du, dv, kmh, coupled = true) => { const site = TOWN_SITES[i], q = {}; townXZ(site, u, v, q); placeTruckAt(q.x, q.z, site.hu + Math.atan2(dv, du), kmh / 3.6, { coupled }); };
+window.__ready = async () => { let left = 1; while (left) { left = updateChunks(TR.s, 4) + townsTick(200); await __t.frames(1); } };`;
+// Put __drive, __town, __placeTown and __ready into the page.
+export const driveHelpers = page => page.evaluate(DRIVE_SRC);

@@ -1,65 +1,65 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { withGame, startJob } from './helpers.mjs';
+import { withGame, startJob, driveHelpers } from './helpers.mjs';
 
 // Drives through the game's own input path (the touch wheel and pedals) with simTick, so traffic,
-// the toll gate and the job rules all run as they do for a player.
-test('通し：東京で連結し、御殿場まで走って料金所を通り、納品の枠で切り離す', () => withGame({}, async (page, errors) => {
-  await startJob(page);
-  const r = await page.evaluate(() => {
+// the toll gates and the job rules all run as they do for a player.
+test('通し：東京の倉庫で連結し、入口から合流して厚木まで走り、料金所を通って町に入る', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
     const drive = (thr, brk, steer) => {
       INP.tGas = thr; INP.tBrake = brk; INP.tWheelHeld = true;
       INP.tWheel = Math.sign(steer) * Math.pow(Math.abs(steer), 1 / 1.35) * 2.6;   // inverse of the touch wheel's curve
       simTick(1 / 60);
     };
     const steerTo = lat => clamp(0.35 * (lat - TR.lat) + 9 * wrapA(TR.h - headingAt(TR.s)) * (0.4 + Math.abs(TR.v) / 25), -1, 1);
-    const log = { cruiseHeld: null, maxKmh: 0 };
+    const log = { maxKmh: 0 };
     INP.actions.push('couple'); for (let i = 0; i < 150; i++) drive(0, 0, 0);
     log.coupled = TR.link;
+    // through Tokyo's entrance gate and onto the entrance ramp
+    __placeTown(0, 4.875, 80, 0, -1, 10); await __ready();
+    const L0 = TOWNS_LOADED.get(0).layout, en = ENTRIES[0], ramp = [];
+    for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const p = posAt(s, s < en.s1 ? entryEdges(s - en.s0).cx : X_TRV, {}); ramp.push([p.x, p.z]); }
+    __drive([...__town(0, [[4.875, 80], ...L0.plaza.entryPath]), ramp[0]], 15, 90, false);
+    log.entryGate = L0.plaza.gates.entry.state;
+    __drive(ramp, 60, 120, false);                                           // the entrance band, merging into the travel lane
+    // the expressway (cruise for a while), Atsugi's exit and plaza, by lane-keeping
     const d = destRamp(); let n = 0, cruiseT = 0, cruiseMin = 99, cruiseMax = 0;
-    while (GAME.state === 'drive' && n++ < 60000) {
+    while (GAME.state === 'drive' && n++ < 60 * 400 && TR.zone === 'road') {
       const u = TR.s - d.sDiv, kmh = TR.v * 3.6;
       let lat = X_TRV, want = 85;
       if (u > -150 && u < 120) lat = -9.8;                                  // drift left toward the exit lane
-      if (u >= 120) lat = rampEdges(Math.min(RAMP_LEN, u + 25)).cx;
-      if (u > 150) want = 55;
-      if (u > d.uSep + 120) want = 17;                                      // ETC gate: 20 km/h or less
-      const stopAt = d.sZone0 + 14;
-      if (TR.s >= stopAt) want = 0;
-      // a stretch on cruise control in the middle of the run
-      if (TR.s > S0 + 2500 && TR.s < S0 + 3200 && !TR.cruise && kmh > 60 && cruiseT === 0) INP.actions.push('cruise');
+      if (u >= 120) { lat = rampEdges(Math.min(RAMP_LEN, u + 25)).cx; want = 40; }
+      if (u > 380) want = 17;                                               // ETC gate ahead: 20 km/h or less
+      if (TR.s > en.s1 + 300 && TR.s < en.s1 + 900 && !TR.cruise && kmh > 60 && cruiseT === 0) INP.actions.push('cruise');
       if (TR.cruise) { cruiseT += 1 / 60; if (cruiseT > 3) { cruiseMin = Math.min(cruiseMin, kmh); cruiseMax = Math.max(cruiseMax, kmh); } }
-      const thr = TR.cruise ? 0 : clamp((want - kmh) * 0.25, 0, 1), brk = want === 0 ? 0.8 : TR.cruise ? 0 : clamp((kmh - want - 3) * 0.12, 0, 1);
-      if (TR.cruise && TR.s > S0 + 3200) INP.actions.push('cruise');        // switch it off again
-      drive(thr, brk, steerTo(lat));
+      if (TR.cruise && TR.s > en.s1 + 900) INP.actions.push('cruise');      // switch it off again
+      drive(TR.cruise ? 0 : clamp((want - kmh) * 0.25, 0, 1), TR.cruise ? 0 : clamp((kmh - want - 3) * 0.12, 0, 1), steerTo(lat));
       log.maxKmh = Math.max(log.maxKmh, kmh);
-      if (TR.s >= stopAt && Math.abs(TR.v) < 0.05 && TR.link === 'coupled') INP.actions.push('couple');
+      if (u > RAMP_LEN - 40) break;
     }
     INP.tGas = INP.tBrake = 0; INP.tWheelHeld = false;
-    return { ...log, state: GAME.state, ticks: n, toll: GAME.job.toll, gate: d.gateState, damage: TR.damage, fines: GAME.job.fines,
-      cruise: [cruiseT, cruiseMin, cruiseMax], result: document.getElementById('resRows').innerText.replace(/\n/g, ' | '), shown: !document.getElementById('resultOv').hidden };
+    await __ready();
+    const L2 = TOWNS_LOADED.get(2).layout;
+    __drive(__town(2, [...L2.plaza.exitPath.slice(2), [-4.875, 70]]), 15, 90);
+    return { ...log, ticks: n, zone: TR.zone, town: TR.town, gate: L2.plaza.gates.exit.state, toll: GAME.job.toll, damage: TR.damage, fines: GAME.job.fines, cruise: [cruiseT, cruiseMin, cruiseMax] };
   });
-  assert.equal(r.coupled, 'coupled');
-  assert.equal(r.state, 'result', JSON.stringify(r)); assert.equal(r.shown, true);
-  assert.equal(r.gate, 'open'); assert.ok(r.toll > 0, 'ETC fare charged');
+  assert.equal(r.coupled, 'coupled'); assert.equal(r.entryGate, 'open');
+  assert.deepEqual([r.zone, r.town, r.gate], ['town', 2, 'open'], JSON.stringify(r)); assert.ok(r.toll > 0, 'ETC fare charged');
   assert.ok(r.maxKmh > 80 && r.maxKmh < 93, `top speed ${r.maxKmh}`);
   assert.ok(r.cruise[0] > 10 && r.cruise[2] - r.cruise[1] < 6, `cruise held ${JSON.stringify(r.cruise)}`);
-  assert.ok(r.damage < 10, `damage ${r.damage}`);
-  assert.match(r.result, /基本報酬/);
+  assert.ok(r.damage < 10, `damage ${r.damage}`); assert.equal(r.fines, 0, JSON.stringify(r));
   assert.deepEqual(errors, []);
   console.log('playthrough:', JSON.stringify(r));
 }));
 
-test('目的地でない出口に入ると、次の区間の路肩に戻されて違反金がつく', () => withGame({}, async page => {
-  await startJob(page);
-  const r = await page.evaluate(() => {
-    const wrong = RAMPS[1];                                   // 厚木: not job 1's destination
-    placeTruck(wrong.sGate + 5, -40, 3, { coupled: true }); wrong.gateState = 'open'; GAME.job.fines = 0;
-    for (let i = 0; i < 120; i++) simTick(1 / 60);
-    return { fines: GAME.job.fines, s: TR.s, lat: TR.lat, link: TR.link, expect: wrong.ic.s + 450, led: document.getElementById('ledText').textContent };
+test('目的地でない出口のゲートを通ると、罰金なしで「入口から高速に戻れます」と出る', () => withGame({}, async page => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    __placeTown(1, -5, 14, 0, 1, 10, false); await __ready(); GAME.job.fines = 0;   // 横浜町田: not job 1's destination
+    __drive(__town(1, [[-5, 14], [-5, 50]]), 12, 20);
+    return { fines: GAME.job.fines, gate: TOWNS_LOADED.get(1).layout.plaza.gates.exit.state, led: document.getElementById('ledText').textContent, to: GAME.job.to };
   });
-  assert.equal(r.fines, 5000); assert.equal(r.link, 'coupled');
-  assert.ok(Math.abs(r.s - r.expect) < 5 && Math.abs(r.lat + 10.75) < 0.5, JSON.stringify(r));
-  assert.match(r.led, /目的地ではありません/);
+  assert.deepEqual([r.fines, r.gate, r.to], [0, 'open', 2], JSON.stringify(r)); assert.match(r.led, /目的地ではありません。入口から高速に戻れます/);
 }));
 
 test('80 km/h の区間で 92 km/h を超えて 4 秒走ると、速度超過の罰金がつく', () => withGame({}, async page => {
