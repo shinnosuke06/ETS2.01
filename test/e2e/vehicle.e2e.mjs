@@ -173,3 +173,19 @@ test('夜とトンネルの車内は、真っ黒にならず、昼より暗い',
   const tun = await page.evaluate(async () => { GAME.clock = Math.floor(GAME.clock / 86400) * 86400 + 12 * 3600; const t = TUNNELS[0]; placeTruck((t.s0 + t.s1) / 2, X_TRV, 0, { coupled: false }); await __t.frames(40); return GAME.tunnelBlend; });
   assert.ok(tun > 0.8, String(tun)); const [inTun] = await luma(page, dash); assert.ok(inTun > 6 && inTun < day, `tunnel ${inTun} day ${day}`);
 }));
+
+// ---- exterior ----
+test('外観：キャブの部品があり、外寸は今のまま', () => withGame({}, async page => {
+  const P = await partsOf(page);
+  for (const k of ['cabShell', 'roofKit', 'doors', 'steps', 'arches', 'sideFins', 'windows', 'mirrors', 'rearPanel', 'hoses']) assert.ok(P[k] && P[k].tris > 0, k);
+  const c = P.cabShell.box; assert.ok(Math.abs(c[2] + 5.48) < 0.03 && Math.abs(c[5] + 3.12) < 0.03 && Math.abs(c[3] - c[0] - 2.5) < 0.02 && Math.abs(c[4] - 4.02) < 0.02, String(c));
+  assert.ok(P.roofKit.box[4] <= 4.10 && P.sideFins.box[5] <= -3.12 + 0.34 && P.steps.box[3] <= 1.30 && P.steps.box[0] >= -1.30, JSON.stringify([P.roofKit.box, P.sideFins.box, P.steps.box]));
+}));
+test('映る鏡のカメラは、新しい導風板やミラーの殻にふさがれない', () => withGame({}, async page => {
+  await startJob(page);
+  const r = await page.evaluate(() => { INP.actions.push('couple'); for (let i = 0; i < 150; i++) simTick(1 / 60); updateVisuals(0.016); scene.updateMatrixWorld(true);
+    const rc = new THREE.Raycaster(); return ['L', 'R'].map(k => { const cam = MIRROR.cams[k]; cam.updateMatrixWorld(true); const out = [];
+      for (const [u, v] of [[0, 0], [0.5, -0.3], [-0.5, -0.3], [0, -0.6]]) { rc.setFromCamera({ x: u, y: v }, cam); const h = __t.first(rc, TRK.root); out.push(h ? +h.distance.toFixed(2) : null); }
+      return out; }); });
+  for (const side of r) assert.ok(side.filter(d => d !== null && d < 3).length <= 1, JSON.stringify(r));   // of four rays, at most one meets the own truck within 3 m
+}));
