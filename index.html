@@ -3096,6 +3096,11 @@ function buildTractor() {
   return T;
 }
 
+// ==== 06d-trailers.js ====
+// ---------------------------------------------------------------------------
+// The job trailers: a 13.6 m box van and a 3-axle tanker. Materials are in
+// 06b-materials.js. Local frame: -Z forward, +X right, +Y up.
+// ---------------------------------------------------------------------------
 // ---- trailers -------------------------------------------------------------------
 // Both builders return { root, body, legs, blinkL, blinkR, tail, rev, spin }. root's origin is the
 // ground under the kingpin. body is what leans in a corner; axles, wheels and legs hang off root.
@@ -3228,20 +3233,16 @@ function buildTankTrailer() {   // 3-axle food-grade tanker: no baffles, so the 
   return R;
 }
 
-// ==== 07-interior.js ====
+// ==== 07a-cabin-front.js ====
 // ---------------------------------------------------------------------------
-// Cab interior, modelled on the current Scania S-series cab (right-hand drive).
-// Driver eye at (0.55, 2.62, -4.28). Flat floor, wrap-around two-tone dash,
-// instrument screen under a hood, control panel angled toward the driver with
-// the infotainment screen, centre console with cup holders, 3-spoke wheel,
-// tall leather seats, bed with drawers, overhead and rear cabinets, red ambient
-// LEDs at night, curtains and a 交通安全 omamori charm that swings.
+// Cab interior, front half: floor, dashboard, instrument hood and screen,
+// control panel angled toward the driver, driver's side panel, vents, ETC unit,
+// steering wheel and pedals, doors and pillars. Right-hand drive; the driver's
+// eye is at (0.55, 2.62, -4.28). Parts go into I (outline parts, also drawn from
+// outside) and S (small parts, drawn only from inside); single meshes into
+// R.shell or R.fine.
 // ---------------------------------------------------------------------------
-function buildInterior(T) {
-  const cab = T.cab;
-  const I = new Parts(); // casts and receives shadows
-  const S = new Parts(); // small details
-
+function buildCabinFront(I, S, R) {
   // flat floor with mats, firewall
   I.box(IM.floor, 2.36, 0.04, 2.1, 0, 1.43, -4.2);
   for (const x of [0.55, -0.6]) S.box(IM.mat, 0.66, 0.012, 0.78, x, 1.456, -4.72);
@@ -3285,15 +3286,6 @@ function buildInterior(T) {
   S.box(IM.lcdAmber, 0.11, 0.022, 0.004, 0, -0.22, 0.059);
   S.box(IM.black, 0.2, 0.05, 0.03, 0, -0.29, 0.04);
   for (const P of [S, I]) { P.pop(); P.pop(); }
-  // centre console between the seats: cup holders, phone tray, storage
-  I.box(IM.lower, 0.36, 0.3, 0.52, -0.03, 1.62, -4.56);
-  I.box(IM.lower, 0.38, 0.03, 0.54, -0.03, 1.785, -4.56);
-  S.box(IM.silver, 0.38, 0.012, 0.012, -0.03, 1.79, -4.297);
-  for (const x of [-0.11, 0.04]) S.add(new THREE.CylinderGeometry(0.041, 0.041, 0.012, 16), IM.black, x, 1.801, -4.45);
-  S.add(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 16), IM.can, -0.11, 1.86, -4.45);
-  S.add(new THREE.CylinderGeometry(0.03, 0.033, 0.01, 16), IM.metal, -0.11, 1.925, -4.45);
-  S.box(IM.black, 0.26, 0.006, 0.13, -0.03, 1.802, -4.66);
-  S.box(IM.black, 0.28, 0.006, 0.006, -0.03, 1.6, -4.299);
   // driver's outer panel: light switch, buttons, parking brake
   for (const P of [S, I]) P.push(1.0, 1.98, -4.915, 0, -0.5, 0);
   I.box(IM.lower, 0.27, 0.3, 0.06, 0, 0, 0);
@@ -3314,6 +3306,87 @@ function buildInterior(T) {
   S.box(IM.ledGreen, 0.01, 0.006, 0.004, 0.92, 2.243, -5.119);
   // red footwell LEDs
   S.box(IM.ambient, 2.0, 0.012, 0.012, 0, 1.52, -5.04);
+
+  // ---- pillars, doors, curtains --------------------------------------------------------------
+  for (const sx of [-1, 1]) {
+    I.box(IM.door, 0.09, 1.07, 0.11, sx * 1.15, 2.78, -5.22, 0.164, 0, 0);
+    S.box(IM.black, 0.03, 0.35, 0.04, sx * 1.1, 2.75, -5.15, 0.164, 0, 0);
+    // door trim follows the dropped window line at the front
+    I.box(IM.door, 0.05, 0.68, 0.36, sx * 1.17, 1.78, -5.02);
+    I.box(IM.door, 0.05, 0.87, 0.68, sx * 1.17, 1.875, -4.49);
+    I.box(IM.door, 0.08, 0.04, 0.36, sx * 1.15, 2.12, -5.02);
+    I.box(IM.door, 0.08, 0.04, 0.24, sx * 1.15, 2.215, -4.82, -1.03, 0, 0);
+    I.box(IM.door, 0.08, 0.04, 0.66, sx * 1.15, 2.31, -4.49);
+    I.box(IM.lower, 0.1, 0.055, 0.45, sx * 1.11, 2.14, -4.52);
+    S.box(IM.silver, 0.03, 0.03, 0.15, sx * 1.105, 2.2, -4.72);
+    S.box(IM.black, 0.05, 0.015, 0.1, sx * 1.11, 2.172, -4.42);
+    S.add(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 20), IM.black, sx * 1.143, 1.72, -4.95, 0, 0, Math.PI / 2);
+    S.add(new THREE.TorusGeometry(0.076, 0.006, 6, 20), IM.silver, sx * 1.145, 1.72, -4.95, 0, Math.PI / 2, 0);
+    I.box(IM.lower, 0.07, 0.15, 0.6, sx * 1.13, 1.58, -4.58);
+    I.box(IM.door, 0.05, 0.64, 1.06, sx * 1.17, 3.47, -4.68);
+    I.box(IM.door, 0.07, 2.36, 0.13, sx * 1.15, 2.62, -4.14);
+    I.box(IM.head, 0.05, 2.36, 0.95, sx * 1.165, 2.62, -3.63);
+    S.box(IM.ambient, 0.012, 0.012, 0.9, sx * 1.135, 1.5, -4.62);
+    for (let k = 0; k < 3; k++) I.add(new THREE.CylinderGeometry(0.045, 0.05, 0.98, 8), IM.curtain, sx * (1.06 - k * 0.04), 2.78, -5.13 + k * 0.035, 0.164, 0, 0);
+    for (let k = 0; k < 2; k++) I.add(new THREE.CylinderGeometry(0.055, 0.06, 1.15, 8), IM.curtain, sx * (1.07 - k * 0.05), 2.95, -4.06 + k * 0.03);
+    S.box(IM.black, 0.13, 0.03, 0.1, sx * 1.07, 2.7, -4.05);
+  }
+  I.box(IM.door, 2.3, 0.1, 0.08, 0, 3.31, -5.15);
+  S.box(IM.metal, 2.2, 0.01, 0.01, 0, 3.26, -5.12);
+
+  R.cluster = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.215), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+  R.cluster.position.set(0.55, 2.165, -5.04); R.cluster.rotation.x = -0.59; R.shell.add(R.cluster);
+  R.nav = new THREE.Mesh(new THREE.PlaneGeometry(0.31, 0.18), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+  { const g = new THREE.Group(); g.position.set(-0.03, 1.86, -4.84); g.rotation.y = 0.32; const g2 = new THREE.Group(); g2.rotation.x = -0.1; g.add(g2); R.nav.position.set(0, 0.18, 0.074); g2.add(R.nav); R.shell.add(g); }
+
+  // steering wheel: axis points up and toward the driver
+  const wf = new THREE.Group(); wf.position.set(0.55, 2.03, -4.64); wf.rotation.x = -0.96; R.shell.add(wf);
+  const W = new Parts();
+  W.box(IM.lower, 0.12, 0.12, 0.38, 0, 0, -0.24);
+  W.add(new THREE.CylinderGeometry(0.012, 0.01, 0.17, 8), IM.black, -0.13, 0.02, -0.085, 0, 0, Math.PI / 2 + 0.15);
+  W.box(IM.button, 0.03, 0.02, 0.02, -0.215, 0.032, -0.085);
+  W.add(new THREE.CylinderGeometry(0.012, 0.01, 0.15, 8), IM.black, 0.12, 0.0, -0.09, 0, 0, Math.PI / 2 - 0.1);
+  W.build(wf, { cast: true, receive: true });
+  R.wheel = new THREE.Group(); wf.add(R.wheel);
+  const SW = new Parts();
+  SW.add(new THREE.TorusGeometry(0.218, 0.022, 12, 48), IM.leather, 0, 0, 0);
+  SW.add(new THREE.CylinderGeometry(0.078, 0.088, 0.06, 24), IM.black, 0, -0.012, -0.025, Math.PI / 2, 0, 0);
+  SW.box(IM.leather, 0.165, 0.13, 0.04, 0, -0.008, 0.008);
+  SW.add(new THREE.TorusGeometry(0.024, 0.0045, 6, 24), IM.silver, 0, 0.0, 0.03);
+  for (const sx of [-1, 1]) {
+    SW.box(IM.lower, 0.13, 0.075, 0.025, sx * 0.135, -0.015, -0.006);
+    SW.box(IM.silver, 0.13, 0.006, 0.006, sx * 0.135, -0.054, 0.006);
+    for (let k = 0; k < 4; k++) SW.box(IM.button, 0.018, 0.014, 0.008, sx * (0.11 + (k % 2) * 0.028), 0.0 - Math.floor(k / 2) * 0.022, 0.009);
+    SW.box(IM.silver, 0.012, 0.03, 0.008, sx * 0.175, -0.01, 0.009);
+  }
+  SW.box(IM.silver, 0.045, 0.13, 0.02, 0, -0.14, -0.008);
+  SW.build(R.wheel, { cast: true, receive: true });
+  R.wheelFrame = wf;
+
+  // pedals
+  R.gas = new THREE.Group(); R.gas.position.set(0.72, 1.47, -5.0); R.fine.add(R.gas);
+  R.gas.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.26, 0.015).translate(0, 0.13, 0), IM.black), { castShadow: true }));
+  R.brake = new THREE.Group(); R.brake.position.set(0.42, 1.98, -4.98); R.fine.add(R.brake);
+  R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.32, 0.03).translate(0, -0.16, 0), IM.metal));
+  R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.09, 0.02).translate(0, -0.34, 0.03), IM.black));
+}
+
+// ==== 07b-cabin-rear.js ====
+// ---------------------------------------------------------------------------
+// Cab interior, back half: seats, centre console, bed and drawers, rear wall,
+// overhead cabinets and ceiling, sun visors, curtains, small items and the
+// omamori charm that swings. buildInterior puts the whole cab together.
+// ---------------------------------------------------------------------------
+function buildCabinRear(I, S, R) {
+  // centre console between the seats: cup holders, phone tray, storage
+  I.box(IM.lower, 0.36, 0.3, 0.52, -0.03, 1.62, -4.56);
+  I.box(IM.lower, 0.38, 0.03, 0.54, -0.03, 1.785, -4.56);
+  S.box(IM.silver, 0.38, 0.012, 0.012, -0.03, 1.79, -4.297);
+  for (const x of [-0.11, 0.04]) S.add(new THREE.CylinderGeometry(0.041, 0.041, 0.012, 16), IM.black, x, 1.801, -4.45);
+  S.add(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 16), IM.can, -0.11, 1.86, -4.45);
+  S.add(new THREE.CylinderGeometry(0.03, 0.033, 0.01, 16), IM.metal, -0.11, 1.925, -4.45);
+  S.box(IM.black, 0.26, 0.006, 0.13, -0.03, 1.802, -4.66);
+  S.box(IM.black, 0.28, 0.006, 0.006, -0.03, 1.6, -4.299);
 
   // ---- seats: tall leather seats with stitched channels, integrated headrests ----------
   for (const [sx, drv] of [[0.55, true], [-0.6, false]]) {
@@ -3365,32 +3438,6 @@ function buildInterior(T) {
   S.box(IM.ambient, 2.2, 0.01, 0.01, 0, 3.326, -4.7);
   for (const x of [-0.9, 0.9]) S.box(IM.ambient, 0.12, 0.012, 0.03, x, 3.328, -4.85);
 
-  // ---- pillars, doors, curtains --------------------------------------------------------------
-  for (const sx of [-1, 1]) {
-    I.box(IM.door, 0.09, 1.07, 0.11, sx * 1.15, 2.78, -5.22, 0.164, 0, 0);
-    S.box(IM.black, 0.03, 0.35, 0.04, sx * 1.1, 2.75, -5.15, 0.164, 0, 0);
-    // door trim follows the dropped window line at the front
-    I.box(IM.door, 0.05, 0.68, 0.36, sx * 1.17, 1.78, -5.02);
-    I.box(IM.door, 0.05, 0.87, 0.68, sx * 1.17, 1.875, -4.49);
-    I.box(IM.door, 0.08, 0.04, 0.36, sx * 1.15, 2.12, -5.02);
-    I.box(IM.door, 0.08, 0.04, 0.24, sx * 1.15, 2.215, -4.82, -1.03, 0, 0);
-    I.box(IM.door, 0.08, 0.04, 0.66, sx * 1.15, 2.31, -4.49);
-    I.box(IM.lower, 0.1, 0.055, 0.45, sx * 1.11, 2.14, -4.52);
-    S.box(IM.silver, 0.03, 0.03, 0.15, sx * 1.105, 2.2, -4.72);
-    S.box(IM.black, 0.05, 0.015, 0.1, sx * 1.11, 2.172, -4.42);
-    S.add(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 20), IM.black, sx * 1.143, 1.72, -4.95, 0, 0, Math.PI / 2);
-    S.add(new THREE.TorusGeometry(0.076, 0.006, 6, 20), IM.silver, sx * 1.145, 1.72, -4.95, 0, Math.PI / 2, 0);
-    I.box(IM.lower, 0.07, 0.15, 0.6, sx * 1.13, 1.58, -4.58);
-    I.box(IM.door, 0.05, 0.64, 1.06, sx * 1.17, 3.47, -4.68);
-    I.box(IM.door, 0.07, 2.36, 0.13, sx * 1.15, 2.62, -4.14);
-    I.box(IM.head, 0.05, 2.36, 0.95, sx * 1.165, 2.62, -3.63);
-    S.box(IM.ambient, 0.012, 0.012, 0.9, sx * 1.135, 1.5, -4.62);
-    for (let k = 0; k < 3; k++) I.add(new THREE.CylinderGeometry(0.045, 0.05, 0.98, 8), IM.curtain, sx * (1.06 - k * 0.04), 2.78, -5.13 + k * 0.035, 0.164, 0, 0);
-    for (let k = 0; k < 2; k++) I.add(new THREE.CylinderGeometry(0.055, 0.06, 1.15, 8), IM.curtain, sx * (1.07 - k * 0.05), 2.95, -4.06 + k * 0.03);
-    S.box(IM.black, 0.13, 0.03, 0.1, sx * 1.07, 2.7, -4.05);
-  }
-  I.box(IM.door, 2.3, 0.1, 0.08, 0, 3.31, -5.15);
-  S.box(IM.metal, 2.2, 0.01, 0.01, 0, 3.26, -5.12);
   // sun visors: the driver's is down against the afternoon sun
   I.box(IM.cabinet, 0.86, 0.022, 0.3, 0.55, 3.166, -5.06, 1.1, 0, 0);
   I.box(IM.cabinet, 0.86, 0.022, 0.3, -0.55, 3.285, -4.99, 0.15, 0, 0);
@@ -3399,55 +3446,29 @@ function buildInterior(T) {
   S.box(IM.black, 0.06, 0.05, 0.05, -1.0, 1.83, -4.25);
   S.box(IM.lower, 0.12, 0.05, 0.22, 0.22, 1.5, -4.92, -0.5, 0, 0);
 
-  I.build(cab, { cast: true, receive: true });
-  S.build(cab, { cast: false, receive: true });
-
-  const R = {};
-  R.cluster = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.215), new THREE.MeshBasicMaterial({ color: 0x000000 }));
-  R.cluster.position.set(0.55, 2.165, -5.04); R.cluster.rotation.x = -0.59; cab.add(R.cluster);
-  R.nav = new THREE.Mesh(new THREE.PlaneGeometry(0.31, 0.18), new THREE.MeshBasicMaterial({ color: 0x000000 }));
-  { const g = new THREE.Group(); g.position.set(-0.03, 1.86, -4.84); g.rotation.y = 0.32; const g2 = new THREE.Group(); g2.rotation.x = -0.1; g.add(g2); R.nav.position.set(0, 0.18, 0.074); g2.add(R.nav); cab.add(g); }
-
-  // steering wheel: axis points up and toward the driver
-  const wf = new THREE.Group(); wf.position.set(0.55, 2.03, -4.64); wf.rotation.x = -0.96; cab.add(wf);
-  const W = new Parts();
-  W.box(IM.lower, 0.12, 0.12, 0.38, 0, 0, -0.24);
-  W.add(new THREE.CylinderGeometry(0.012, 0.01, 0.17, 8), IM.black, -0.13, 0.02, -0.085, 0, 0, Math.PI / 2 + 0.15);
-  W.box(IM.button, 0.03, 0.02, 0.02, -0.215, 0.032, -0.085);
-  W.add(new THREE.CylinderGeometry(0.012, 0.01, 0.15, 8), IM.black, 0.12, 0.0, -0.09, 0, 0, Math.PI / 2 - 0.1);
-  W.build(wf, { cast: true, receive: true });
-  R.wheel = new THREE.Group(); wf.add(R.wheel);
-  const SW = new Parts();
-  SW.add(new THREE.TorusGeometry(0.218, 0.022, 12, 48), IM.leather, 0, 0, 0);
-  SW.add(new THREE.CylinderGeometry(0.078, 0.088, 0.06, 24), IM.black, 0, -0.012, -0.025, Math.PI / 2, 0, 0);
-  SW.box(IM.leather, 0.165, 0.13, 0.04, 0, -0.008, 0.008);
-  SW.add(new THREE.TorusGeometry(0.024, 0.0045, 6, 24), IM.silver, 0, 0.0, 0.03);
-  for (const sx of [-1, 1]) {
-    SW.box(IM.lower, 0.13, 0.075, 0.025, sx * 0.135, -0.015, -0.006);
-    SW.box(IM.silver, 0.13, 0.006, 0.006, sx * 0.135, -0.054, 0.006);
-    for (let k = 0; k < 4; k++) SW.box(IM.button, 0.018, 0.014, 0.008, sx * (0.11 + (k % 2) * 0.028), 0.0 - Math.floor(k / 2) * 0.022, 0.009);
-    SW.box(IM.silver, 0.012, 0.03, 0.008, sx * 0.175, -0.01, 0.009);
-  }
-  SW.box(IM.silver, 0.045, 0.13, 0.02, 0, -0.14, -0.008);
-  SW.build(R.wheel, { cast: true, receive: true });
-  R.wheelFrame = wf;
-
-  // pedals
-  R.gas = new THREE.Group(); R.gas.position.set(0.72, 1.47, -5.0); cab.add(R.gas);
-  R.gas.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.26, 0.015).translate(0, 0.13, 0), IM.black), { castShadow: true }));
-  R.brake = new THREE.Group(); R.brake.position.set(0.42, 1.98, -4.98); cab.add(R.brake);
-  R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.32, 0.03).translate(0, -0.16, 0), IM.metal));
-  R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.09, 0.02).translate(0, -0.34, 0.03), IM.black));
 
   // omamori charm hanging from the overhead console
-  R.charm = new THREE.Group(); R.charm.position.set(0.08, 3.33, -4.66); cab.add(R.charm);
+  R.charm = new THREE.Group(); R.charm.position.set(0.08, 3.33, -4.66); R.fine.add(R.charm);
   R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.002, 0.1, 0.002).translate(0, -0.05, 0), IM.gold));
   R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.052, 0.008).translate(0, -0.128, 0), IM.red));
   R.charm.add(new THREE.Mesh(new THREE.BoxGeometry(0.037, 0.008, 0.009).translate(0, -0.112, 0), IM.gold));
   R.charmState = { ax: 0, vx: 0, az: 0, vz: 0 };
+}
 
+// The cab interior inside the tractor's cab group. Returns the parts the game moves or reads:
+// cluster, nav (screens), wheel, gas, brake, charm, charmState, eye, and group / shell / fine
+// (everything, the parts seen from outside, the parts seen only from the driver's seat).
+function buildInterior(T) {
+  const cab = T.cab, R = {};
+  R.group = new THREE.Group(); R.shell = new THREE.Group(); R.fine = new THREE.Group();
+  R.group.add(R.shell, R.fine); cab.add(R.group);
+  const I = new Parts(), S = new Parts();
+  buildCabinFront(I, S, R);
+  buildCabinRear(I, S, R);
+  I.build(R.shell, { cast: true, receive: true });
+  S.build(R.fine, { cast: false, receive: true });
   R.eye = new THREE.Object3D(); R.eye.position.set(0.55, 2.62, -4.28); cab.add(R.eye);
-  fillVertexColors(cab);
+  fillVertexColors(R.group);
   return R;
 }
 
@@ -3631,11 +3652,13 @@ function drawNav(st) {
 
 // ---- live mirrors -------------------------------------------------------------
 const MIRROR = { cams: {}, rts: {}, frame: 0 };
+// Can be called again for a rebuilt tractor: the render targets are kept, the cameras move to the new cab.
 function setupMirrors(T) {
   for (const k of ['L', 'R']) {
     const [w, h] = Q.mirror;
-    const rt = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+    const rt = MIRROR.rts[k] || new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
     MIRROR.rts[k] = rt;
+    const old = MIRROR.cams[k]; if (old && old.parent) old.parent.remove(old);
     const cam = new THREE.PerspectiveCamera(30, w / h, 0.5, 700);
     cam.rotation.order = 'YXZ';
     const m = T.mirrors[k];
@@ -4948,22 +4971,59 @@ function pollInput(dt, vAbs) {
 // ---------------------------------------------------------------------------
 // Game layer: jobs, cameras, lights, HUD, gates, results, main loop.
 // ---------------------------------------------------------------------------
-const TRK = buildTractor();
-const INT = buildInterior(TRK);
-const TRAILER_MODELS = { van: buildTrailer(), tank: buildTankTrailer() };
-let TRL = TRAILER_MODELS.van;   // the model of the current job's trailer
-scene.add(TRK.root);
-for (const k in TRAILER_MODELS) scene.add(TRAILER_MODELS[k].root);
-INT.cluster.material = new THREE.MeshBasicMaterial({ map: DASH.tex });
-INT.nav.material = new THREE.MeshBasicMaterial({ map: DASH.ntex });
-setupMirrors(TRK);
-
 const cabCam = new THREE.PerspectiveCamera(62, 1, 0.04, 5200);
 cabCam.rotation.order = 'YXZ';
-INT.eye.add(cabCam);
 const chaseCam = new THREE.PerspectiveCamera(55, 1, 0.3, 5200);
 scene.add(chaseCam);
 let activeCam = chaseCam;
+
+// ---- the vehicle model --------------------------------------------------------
+// Built as one unit, at the current quality's level of detail, and built again when the quality changes.
+let TRK, INT, TRAILER_MODELS, TRL;   // tractor, cab interior, both trailer models, the current job's trailer
+function mountVehicle(trailerKey) {
+  setDetail(Q.detail); VEH_STATS.parts = {};
+  VEH_STATS.group = 'exterior'; TRK = buildTractor();
+  VEH_STATS.group = 'interior'; INT = buildInterior(TRK);
+  VEH_STATS.group = null;
+  TRAILER_MODELS = { van: buildTrailer(), tank: buildTankTrailer() };
+  scene.add(TRK.root);
+  for (const k in TRAILER_MODELS) scene.add(TRAILER_MODELS[k].root);
+  INT.cluster.material = new THREE.MeshBasicMaterial({ map: DASH.tex });
+  INT.nav.material = new THREE.MeshBasicMaterial({ map: DASH.ntex });
+  setupMirrors(TRK);
+  INT.eye.add(cabCam);
+  TRL = TRAILER_MODELS[trailerKey] || TRAILER_MODELS.van;
+  for (const k in TRAILER_MODELS) TRAILER_MODELS[k].root.visible = TRAILER_MODELS[k] === TRL;
+}
+function rebuildVehicle() {
+  const mats = new Set();
+  for (const root of [TRK.root, ...Object.values(TRAILER_MODELS).map(m => m.root)]) {
+    scene.remove(root);
+    root.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) mats.add(o.material); });
+  }
+  for (const m of mats) m.dispose();
+  disposeVehicleMaterials();
+  makeVehicleMaterials(qualityName);
+  mountVehicle(TR.trailerKey);
+}
+// Outside views draw only the cab parts that show through the windows.
+function setCabDetail(inCab) { if (INT) INT.fine.visible = inCab; }
+// Triangles, meshes on show, and materials of the interior and of the rest of the tractor; per-part records.
+function vehicleStats() {
+  const shown = o => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+  const count = (root, skip) => {
+    const r = { tris: 0, meshes: 0, mats: 0 }, mats = new Set();
+    root.traverse(o => {
+      if (!o.isMesh || (skip && skip(o))) return;
+      r.tris += triCount(o.geometry); mats.add(o.material); if (shown(o)) r.meshes++;
+    });
+    r.mats = mats.size;
+    return r;
+  };
+  const inCab = o => { for (; o; o = o.parent) if (o === INT.group) return true; return false; };
+  return { interior: count(INT.group), exterior: count(TRK.root, inCab), parts: VEH_STATS.parts };
+}
+mountVehicle('van');
 
 // mass: cargo in tonnes. The trailer decides how the load behaves (a tank's liquid sloshes).
 const JOBS = [
@@ -5277,6 +5337,7 @@ function setQuality(name) {
   if (sh && sun.shadow.map && sun.shadow.mapSize.x !== Q.shadow) { sun.shadow.map.dispose(); sun.shadow.map = null; }
   sun.shadow.mapSize.set(Math.max(512, Q.shadow), Math.max(512, Q.shadow));
   scene.fog.far = Q.far;
+  rebuildVehicle();
   resizeMirrors();
   if (GAME.state !== 'loading') resetTraffic();
   onResize();
@@ -5509,6 +5570,7 @@ function frame(now) {
   if (GAME.state !== 'loading') updateChunks(TR.s, 1);
   updateVisuals(dt);
   updateCamera(dt);
+  setCabDetail(activeCam === cabCam);
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
   audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });

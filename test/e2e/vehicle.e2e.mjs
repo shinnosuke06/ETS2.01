@@ -42,3 +42,30 @@ test('内装の表示名はライトグレー、保存名は beige のまま', (
   const r = await page.evaluate(() => { document.querySelector('#intSeg [data-v="beige"]').click(); return [document.querySelector('#intSeg [data-v="beige"]').textContent.trim(), interiorName, JSON.parse(localStorage.getItem('nlh.interior'))]; });
   assert.deepEqual(r, ['ライトグレー', 'beige', 'beige']);
 }));
+
+const TKEYS = ['root', 'cab', 'cabPivot', 'blinkL', 'blinkR', 'heads', 'lightbar', 'spin', 'steer', 'rear', 'coil', 'coilStowed', 'spot', 'mirrors', 'wipers'];
+const IKEYS = ['cluster', 'nav', 'wheel', 'gas', 'brake', 'charm', 'charmState', 'eye', 'group', 'shell', 'fine'];
+test('V5 つなぎ：トラクターと室内が決まった名前を返す', () => withGame({}, async page => {
+  const r = await page.evaluate(([tk, ik]) => ({ t: tk.filter(k => TRK[k] == null), i: ik.filter(k => INT[k] == null), n: ['heads', 'blinkL', 'blinkR', 'rear', 'spin', 'steer'].map(k => TRK[k].length),
+    cam: cabCam.parent === INT.eye, eye: INT.eye.position.toArray(), st: vehicleStats() }), [TKEYS, IKEYS]);
+  assert.deepEqual(r.t, []); assert.deepEqual(r.i, []); assert.ok(r.n.every(n => n > 0), String(r.n)); assert.equal(r.cam, true); assert.deepEqual(r.eye, [0.55, 2.62, -4.28]);
+  assert.ok(r.st.interior.tris > 0 && r.st.exterior.tris > 0, JSON.stringify(r.st));
+}));
+test('走行中に画質を 6 回切り替えても、車両は動き続け、形とテクスチャが増え続けない', () => withGame({}, async (page, errors) => {
+  await startJob(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 150; i++) simTick(1 / 60);
+    INP.tGas = 1; for (let i = 0; i < 300; i++) simTick(1 / 60);
+    const mem = []; for (const q of ['low', 'high', 'mid', 'high', 'low', 'high']) { setQuality(q); await __t.frames(2); mem.push([renderer.info.memory.geometries, renderer.info.memory.textures]); }
+    for (let i = 0; i < 60; i++) simTick(1 / 60); await __t.frames(2);
+    return { mem, link: TR.link, v: TR.v, cam: cabCam.parent === INT.eye, inScene: TRK.root.parent === scene, mir: ['L', 'R'].map(k => { let p = MIRROR.cams[k].parent; while (p && p !== TRK.root) p = p.parent; return !!p; }),
+      trl: TRL.root.visible && TRL.root.parent === scene, roots: scene.children.filter(o => o === TRK.root).length, pbr: VEH.pbr, tris: vehicleStats().exterior.tris };
+  });
+  assert.equal(r.link, 'coupled'); assert.ok(r.v > 3, String(r.v)); assert.deepEqual([r.cam, r.inScene, r.trl, r.roots, r.pbr], [true, true, true, 1, true]); assert.deepEqual(r.mir, [true, true]);
+  assert.ok(r.mem[5][0] <= r.mem[1][0] * 1.05 && r.mem[5][1] <= r.mem[1][1] * 1.05, JSON.stringify(r.mem)); assert.deepEqual(errors, []);
+}));
+test('V9 外の視点では細かい部品を描かず、車内視点では描く', () => withGame({}, async page => {
+  await startJob(page);
+  const r = await page.evaluate(async () => { GAME.cam = 'cab'; await __t.frames(2); const a = [INT.fine.visible, INT.shell.visible]; GAME.cam = 'chase'; await __t.frames(2); return [a, [INT.fine.visible, INT.shell.visible], INT.fine.children.length > 0, INT.shell.children.length > 0]; });
+  assert.deepEqual(r, [[true, true], [false, true], true, true]);
+}));

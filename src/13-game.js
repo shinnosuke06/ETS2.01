@@ -1,22 +1,59 @@
 // ---------------------------------------------------------------------------
 // Game layer: jobs, cameras, lights, HUD, gates, results, main loop.
 // ---------------------------------------------------------------------------
-const TRK = buildTractor();
-const INT = buildInterior(TRK);
-const TRAILER_MODELS = { van: buildTrailer(), tank: buildTankTrailer() };
-let TRL = TRAILER_MODELS.van;   // the model of the current job's trailer
-scene.add(TRK.root);
-for (const k in TRAILER_MODELS) scene.add(TRAILER_MODELS[k].root);
-INT.cluster.material = new THREE.MeshBasicMaterial({ map: DASH.tex });
-INT.nav.material = new THREE.MeshBasicMaterial({ map: DASH.ntex });
-setupMirrors(TRK);
-
 const cabCam = new THREE.PerspectiveCamera(62, 1, 0.04, 5200);
 cabCam.rotation.order = 'YXZ';
-INT.eye.add(cabCam);
 const chaseCam = new THREE.PerspectiveCamera(55, 1, 0.3, 5200);
 scene.add(chaseCam);
 let activeCam = chaseCam;
+
+// ---- the vehicle model --------------------------------------------------------
+// Built as one unit, at the current quality's level of detail, and built again when the quality changes.
+let TRK, INT, TRAILER_MODELS, TRL;   // tractor, cab interior, both trailer models, the current job's trailer
+function mountVehicle(trailerKey) {
+  setDetail(Q.detail); VEH_STATS.parts = {};
+  VEH_STATS.group = 'exterior'; TRK = buildTractor();
+  VEH_STATS.group = 'interior'; INT = buildInterior(TRK);
+  VEH_STATS.group = null;
+  TRAILER_MODELS = { van: buildTrailer(), tank: buildTankTrailer() };
+  scene.add(TRK.root);
+  for (const k in TRAILER_MODELS) scene.add(TRAILER_MODELS[k].root);
+  INT.cluster.material = new THREE.MeshBasicMaterial({ map: DASH.tex });
+  INT.nav.material = new THREE.MeshBasicMaterial({ map: DASH.ntex });
+  setupMirrors(TRK);
+  INT.eye.add(cabCam);
+  TRL = TRAILER_MODELS[trailerKey] || TRAILER_MODELS.van;
+  for (const k in TRAILER_MODELS) TRAILER_MODELS[k].root.visible = TRAILER_MODELS[k] === TRL;
+}
+function rebuildVehicle() {
+  const mats = new Set();
+  for (const root of [TRK.root, ...Object.values(TRAILER_MODELS).map(m => m.root)]) {
+    scene.remove(root);
+    root.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) mats.add(o.material); });
+  }
+  for (const m of mats) m.dispose();
+  disposeVehicleMaterials();
+  makeVehicleMaterials(qualityName);
+  mountVehicle(TR.trailerKey);
+}
+// Outside views draw only the cab parts that show through the windows.
+function setCabDetail(inCab) { if (INT) INT.fine.visible = inCab; }
+// Triangles, meshes on show, and materials of the interior and of the rest of the tractor; per-part records.
+function vehicleStats() {
+  const shown = o => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+  const count = (root, skip) => {
+    const r = { tris: 0, meshes: 0, mats: 0 }, mats = new Set();
+    root.traverse(o => {
+      if (!o.isMesh || (skip && skip(o))) return;
+      r.tris += triCount(o.geometry); mats.add(o.material); if (shown(o)) r.meshes++;
+    });
+    r.mats = mats.size;
+    return r;
+  };
+  const inCab = o => { for (; o; o = o.parent) if (o === INT.group) return true; return false; };
+  return { interior: count(INT.group), exterior: count(TRK.root, inCab), parts: VEH_STATS.parts };
+}
+mountVehicle('van');
 
 // mass: cargo in tonnes. The trailer decides how the load behaves (a tank's liquid sloshes).
 const JOBS = [
@@ -330,6 +367,7 @@ function setQuality(name) {
   if (sh && sun.shadow.map && sun.shadow.mapSize.x !== Q.shadow) { sun.shadow.map.dispose(); sun.shadow.map = null; }
   sun.shadow.mapSize.set(Math.max(512, Q.shadow), Math.max(512, Q.shadow));
   scene.fog.far = Q.far;
+  rebuildVehicle();
   resizeMirrors();
   if (GAME.state !== 'loading') resetTraffic();
   onResize();
@@ -562,6 +600,7 @@ function frame(now) {
   if (GAME.state !== 'loading') updateChunks(TR.s, 1);
   updateVisuals(dt);
   updateCamera(dt);
+  setCabDetail(activeCam === cabCam);
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
   audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });

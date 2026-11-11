@@ -177,11 +177,13 @@ function drawNav(st) {
 
 // ---- live mirrors -------------------------------------------------------------
 const MIRROR = { cams: {}, rts: {}, frame: 0 };
+// Can be called again for a rebuilt tractor: the render targets are kept, the cameras move to the new cab.
 function setupMirrors(T) {
   for (const k of ['L', 'R']) {
     const [w, h] = Q.mirror;
-    const rt = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+    const rt = MIRROR.rts[k] || new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
     MIRROR.rts[k] = rt;
+    const old = MIRROR.cams[k]; if (old && old.parent) old.parent.remove(old);
     const cam = new THREE.PerspectiveCamera(30, w / h, 0.5, 700);
     cam.rotation.order = 'YXZ';
     const m = T.mirrors[k];
