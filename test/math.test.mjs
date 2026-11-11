@@ -14,11 +14,10 @@ test('ROAD は道路の関数を指し、平らな道に差し替えられる', 
   assert.equal(sim.ROAD.gradeAt(123), 0.04);
   assert.deepEqual({ ...sim.ROAD.project(3, 50, 0, {}) }, { i: 0, s: 50, lat: -3 });
 });
-test('柵の位置：本線は終点の手前、ランプは終端の 12 m 手前', () => {
+test('柵の位置：本線の終点の手前だけ（出口の帯の先は町につながる）', () => {
   const sim = loadSim(), r = sim.RAMPS[3];
   assert.equal(sim.roadBarrier(5000, -7.65), sim.ROUTE_END - 1.5);
-  assert.equal(sim.roadBarrier(r.sGate + 50, -40), r.sEnd - 12);
-  assert.equal(r.sZone0, r.sGate + 70); assert.equal(r.sZone1, r.sGate + 130);
+  assert.equal(sim.roadBarrier(r.sEnd - 10, -40), sim.ROUTE_END - 1.5);
 });
 test('物理のファイルは画面の API を参照しない', () => {
   for (const f of PURE) {

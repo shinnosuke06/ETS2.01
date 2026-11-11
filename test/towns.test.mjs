@@ -162,3 +162,25 @@ test('町を作るのに失敗したら簡単な構内に切り替わり、倉�
   assert.equal(L.fallback, true); assert.equal(L.warehouses.length, 1); assert.ok(L.warehouses[0].bay && L.warehouses[0].park); assert.equal(warned, 1);
   const p = sim.townXZ(L.site, 0, 80, {}); assert.equal(sim.GROUND.contact(p.x, p.z, 0, {}).pen, 0); assert.equal(sim.GROUND.at(p.x, p.z, 0, {}).zone, 'town');
 });
+
+// ---- the interchanges' ramps ----
+test('T2 13 の IC で、入口の帯の終わりは次の出口の分かれ目より 30 m 以上手前、トンネルの入口より 50 m 以上手前。標識と帯が重ならない', () => {
+  const sim = loadSim();
+  assert.equal(sim.ENTRIES.length, 12);
+  for (const e of sim.ENTRIES) {
+    assert.equal(e.s0, e.ic.s + 150); assert.equal(e.s1, e.ic.s + 600);
+    const next = sim.RAMPS.find(r => r.ic.i === e.ic.i + 1); if (next) assert.ok(next.sDiv - e.s1 >= 30, e.ic.jp);
+    for (const t of sim.TUNNELS) if (t.s0 > e.s0) assert.ok(t.s0 - e.s1 >= 50, `${e.ic.jp} ${t.jp}`);
+    for (const g of sim.SIGNS) if (['dist', 'speed', 'gap'].includes(g.t)) assert.ok(g.s < e.s0 - 20 || g.s > e.s1 + 20, `${g.t} ${g.s} in ${e.ic.jp}'s entrance`);
+  }
+});
+test('出口の帯は ic.s + 100 で終わり、行き止まりの壁はない。入口の帯は合流する所で本線とつながる', () => {
+  const sim = loadSim(), r = sim.RAMPS[3], e = sim.ENTRIES[3];
+  assert.equal(r.sEnd, r.ic.s + 100); assert.equal(r.sGate, undefined);
+  assert.equal(sim.roadBarrier(r.sEnd - 10, -40), sim.ROUTE_END - 1.5);
+  assert.equal(sim.drivable(r.sEnd - 2, []).length, 2, 'the exit lane runs to its end');
+  assert.equal(sim.drivable(e.s0 + 430, []).length, 1); assert.equal(sim.drivable(e.s0 + 100, []).length, 2);
+  const E = sim.entryEdges(0, {}); assert.ok(Math.abs(E.cx + 40) < 1e-9 && Math.abs(E.xl + 42.8) < 1e-9 && Math.abs(E.xr + 37.8) < 1e-9);
+  assert.ok(Math.abs(sim.entryEdges(300, {}).cx + 11.25) < 1e-9); assert.ok(Math.abs(sim.entryEdges(450, {}).xl + 12.2) < 1e-9);
+  assert.equal(sim.entryAt(e.s0 + 10), e); assert.equal(sim.entryAt(e.s1 + 10), null);
+});

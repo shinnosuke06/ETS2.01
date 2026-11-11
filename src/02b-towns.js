@@ -319,6 +319,17 @@ function townGraphDistance(L, a, b) {
   return dist[ib];
 }
 
+// Expressway houses and trees stay out of each town, its 60 m surround, and the strip between the road and the
+// town where the ramps bend into the plaza.
+const _ko = {}, _kou = {};
+function townKeepOut(s, lat) {
+  for (const site of TOWN_SITES) {
+    if (Math.abs(s - site.s) > 800) continue;
+    posAt(s, lat, _ko); townUV(site, _ko.x, _ko.z, _kou);
+    if (Math.abs(_kou.u) <= 360 && _kou.v >= -45 && _kou.v <= 465) return true;
+  }
+  return false;
+}
 // How much the expressway's terrain at (s, lat) should give way to a town's ground: 1 inside the
 // town, falling to 0 60 m outside it; nothing on the road side of the town (v < 5). y: the town's height there.
 const _gb = { w: 0, y: null }, _gbp = {}, _gbu = {};

@@ -99,8 +99,10 @@ function tunnelFactor(s) {
   return f;
 }
 
-// ---- exit ramps (左側の出口) --------------------------------------------
-const RAMP_LEN = 900, RAMP_X = -40, RAMP_GATE = 720;
+// ---- exit ramps (左側の出口) and entrance ramps (入口) ------------------------
+// An exit ramp leaves the travel lane at ic.s - 500 and reaches lat -40 by ic.s + 100, where it bends into the
+// town's toll plaza (02b-towns.js). An entrance ramp starts there at ic.s + 150 and joins the travel lane by ic.s + 600.
+const RAMP_LEN = 600, RAMP_X = -40, ENTRY_LEN = 450;
 function rampCx(u) {
   if (u < 250) return -11.25;
   if (u < 600) return lerp(-11.25, RAMP_X, smooth(250, 600, u));
@@ -115,14 +117,29 @@ function rampEdges(u, out = _re) {
   out.cx = cx; out.xl = xl; out.xr = xr;
   return out;
 }
-const RAMPS = ICS.slice(1).map(ic => ({ ic, sDiv: ic.s - 500, uSep: 330, gateOpen: 0, gateState: 'closed' }));
+const RAMPS = ICS.slice(1).map(ic => ({ ic, sDiv: ic.s - 500, uSep: 330 }));
 for (const r of RAMPS) {
   for (let u = 250; u < 600; u += 1) { if (rampEdges(u).xr < -12.75) { r.uSep = u; break; } }
   r.sEnd = r.sDiv + RAMP_LEN;
-  r.sGate = r.sDiv + RAMP_GATE;
 }
 function rampAt(s) {
   for (const r of RAMPS) if (s >= r.sDiv && s <= r.sEnd) return r;
+  return null;
+}
+// Entrance lane: the same widths as the exit lane; from lat -40 it comes over to the travel lane in 250 m, runs
+// 200 m beside it as an acceleration lane, and its outer edge closes in over the last 50 m.
+function entryCx(u) { return u < 250 ? lerp(RAMP_X, -11.25, smooth(0, 250, u)) : -11.25; }
+const _ee = { cx: 0, xl: 0, xr: 0 };
+function entryEdges(u, out = _ee) {
+  const cx = entryCx(u);
+  let xl = cx - 2.8; const xr = cx + 2.2;
+  if (u > 400) xl = lerp(cx - 2.8, -12.2, smooth(400, ENTRY_LEN, u));
+  out.cx = cx; out.xl = xl; out.xr = xr;
+  return out;
+}
+const ENTRIES = ICS.slice(0, -1).map(ic => ({ ic, s0: ic.s + 150, s1: ic.s + 150 + ENTRY_LEN }));
+function entryAt(s) {
+  for (const e of ENTRIES) if (s >= e.s0 && s <= e.s1) return e;
   return null;
 }
 
@@ -215,11 +232,9 @@ function drivable(s, out) {
   out.length = 0;
   let lo = -12.2, hi = -1.75;
   if (tunnelAt(s)) { lo = -12.55; hi = -1.25; }
-  const r = rampAt(s);
-  if (r) {
-    const u = s - r.sDiv;
-    const e = rampEdges(u);
-    if (u > RAMP_LEN - 6) { out.push([lo, hi]); return out; }
+  const r = rampAt(s), en = r ? null : entryAt(s);
+  const e = r ? rampEdges(s - r.sDiv) : en ? entryEdges(s - en.s0) : null;
+  if (e) {
     if (e.xr >= lo - 0.2) out.push([Math.min(lo, e.xl + 0.2), hi]);
     else { out.push([lo, hi]); out.push([e.xl + 0.2, e.xr - 0.1]); }
   } else out.push([lo, hi]);
@@ -268,6 +283,11 @@ const SIGNS = [];
     if (guard < 20) { SIGNS.push({ s: ss, t: 'gap', d: '0m' }); SIGNS.push({ s: ss + 50, t: 'gap', d: '50m' }); SIGNS.push({ s: ss + 100, t: 'gap', d: '100m' }); }
   }
   SIGNS.push({ s: ROUTE_END - 600, t: 'led', msg: 'この先 通行止め' });
+  // roadside signs on the left never stand in an entrance ramp: move them just past it, one after another
+  for (const e of ENTRIES) {
+    let k = 0;
+    for (const g of SIGNS) if (['dist', 'speed', 'gap'].includes(g.t) && g.s >= e.s0 - 20 && g.s <= e.s1 + 20) g.s = e.s1 + 30 + 60 * k++;
+  }
   // nothing roadside inside the bores
   for (let k = SIGNS.length - 1; k >= 0; k--) if (tunnelAt(SIGNS[k].s, 25)) SIGNS.splice(k, 1);
   SIGNS.sort((a, b) => a.s - b.s);
@@ -282,12 +302,9 @@ function soundWallAt(s, side) {
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
 
-// ---- delivery bays and barriers ----------------------------------------------
-for (const r of RAMPS) { r.sZone0 = r.sGate + 70; r.sZone1 = r.sGate + 130; }
-// s of the barrier ahead in this lane: the closure at the end of the route, or the end of an exit ramp.
+// ---- barriers ----------------------------------------------------------------
+// s of the barrier ahead: the closure at the end of the route (ramps lead on into the towns).
 function roadBarrier(s, lat) {
-  const r = rampAt(s);
-  if (r && lat < -14.5) return r.sEnd - 12;
   return ROUTE_END - 1.5;
 }
 // Road queries used by the physics. Tests swap these for a flat straight road.

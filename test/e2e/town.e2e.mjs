@@ -41,7 +41,7 @@ test('信号の灯火は信号の周期に合わせて色が変わる', () => wi
   assert.notDeepEqual(r[0], r[1]); assert.notDeepEqual(r[1], r[2]);
 }));
 
-test('高速沿いの家は道路にはみ出さない（家の四隅が本線から 14.2 m 以上）、町の範囲には高速の家と木を置かない', () => withGame({}, async page => {
+test('高速沿いの家は道路にはみ出さない（家の四隅が本線から 14.2 m 以上）、町の範囲と、本線と町のあいだ（出入口の帯が広場へ曲がる所）には高速の家と木を置かない', () => withGame({}, async page => {
   const r = await page.evaluate(async () => {
     const out = { worst: Infinity, inTown: 0, n: 0 }, m = new THREE.Matrix4(), p = new THREE.Vector3(), pr = {};
     for (let s = 1500; s < 30000; s += 2400) {
@@ -54,7 +54,7 @@ test('高速沿いの家は道路にはみ出さない（家の四隅が本線�
             p.set(x, 0, z).applyMatrix4(m).add(c.grp.position);
             project(p.x, p.z, Math.floor(c.k * CHUNK / DS), pr);
             if (o.material === MAT.house) { out.worst = Math.min(out.worst, Math.abs(pr.lat)); out.n++; }
-            if (townGroundBlend(pr.s, pr.lat).w > 0.5) out.inTown++;
+            if (pr.lat < -12 && townKeepOut(pr.s, pr.lat + (pr.lat < 0 ? 1 : -1))) out.inTown++;   // 1 m inside, so a corner on the edge counts as out
           }
         }
       });

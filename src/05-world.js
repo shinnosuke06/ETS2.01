@@ -353,7 +353,7 @@ function buildTrees(ctx) {
     const w = waterAt(s, side);
     if (w > 0.2 && d > 10) continue;
     if (d < 15 && tunnelAt(s, 6)) continue;
-    if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townGroundBlend(s + a, x + b).w > 0)) continue;   // the town has its own street trees
+    if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townKeepOut(s + a, x + b))) continue;   // the town has its own street trees
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 6, d + 6, side);
     const slope = Math.abs(y2 - y) / 6;
@@ -399,7 +399,7 @@ function buildHouses(ctx) {
     const inner = side < 0 ? leftInner(s) : ROAD_IN;
     const x = side * (inner + d);
     const hw = Math.hypot(w, dd) / 2 + 1;   // half the diagonal: clear at any turn
-    if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townGroundBlend(s + a, x + b).w > 0)) continue;   // towns place their own buildings
+    if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townKeepOut(s + a, x + b))) continue;   // towns place their own buildings
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 8, d + 8, side);
     if (Math.abs(y2 - y) > 2.5) continue;
@@ -587,84 +587,41 @@ function buildRamps(ctx) {
       const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.95, 14).translate(0, 0.475, 0), MAT.drum);
       drum.position.set(c.x, c.y, c.z); ctx.grp.add(drum);
     }
-    // end barrier of the ramp
-    const se = r.sEnd - 4;
-    if (se >= s0 && se < s1) {
-      const g = new THREE.Group();
-      placeAt(g, O, se, RAMP_X, 0);
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(6, 1.0, 0.3).translate(0, 0.8, 0), MAT.drum);
-      g.add(bar); ctx.grp.add(g);
+  }
+  buildEntries(ctx);
+}
+// Entrance ramps: from the town's plaza at lat -40 over to the travel lane, then an acceleration lane.
+function buildEntries(ctx) {
+  const { O, i0, i1, s0, s1 } = ctx;
+  for (const en of ENTRIES) {
+    if (en.s1 < s0 || en.s0 > s1) continue;
+    const f = Math.max(i0, Math.ceil(en.s0 / DS)), t = Math.min(i1, Math.floor(en.s1 / DS));
+    if (t <= f) continue;
+    if (en.uJoin == null) { en.uJoin = ENTRY_LEN; for (let u = 0; u < ENTRY_LEN; u += 1) if (entryEdges(u).xr >= -12.75) { en.uJoin = u; break; } }
+    const E = {}, xl = (i, s) => entryEdges(s - en.s0, E).xl, xr = (i, s) => entryEdges(s - en.s0, E).xr;
+    const uFn = (i, s, a, b) => { const e = entryEdges(s - en.s0, E); const base = e.cx - 2.8; return [(a - base) / 5, (b - base) / 5]; };
+    const iJoin = Math.round((en.s0 + en.uJoin - 6) / DS);
+    for (const [ff, tt, mat] of [[f, Math.min(t, iJoin), MAT.rampB], [Math.max(f, iJoin), t, MAT.rampA]]) {
+      if (tt > ff) addMesh(ctx, stripGeo(O, ff, tt, xl, xr, { y: 0.015, uFn, vScale: 24 }), mat, { receive: true });
     }
-    if (r.sGate >= s0 && r.sGate < s1) buildToll(ctx, r);
-    buildBay(ctx, r, f, t);
+    // zebra where the lanes come together, grass between them before that
+    const zf = Math.max(f, Math.ceil((en.s0 + en.uJoin - 4) / DS)), zt = Math.min(t, Math.floor((en.s0 + 248) / DS));
+    if (zt > zf) addMesh(ctx, stripGeo(O, zf, zt, (i, s) => Math.min(entryEdges(s - en.s0, E).xr, X_EDGE - 0.12), X_EDGE - 0.12, { y: 0.03, uFn: (i, s, a, b) => [a / 3, b / 3], vScale: 3 }), MAT.zebra);
+    const gt = Math.min(t, Math.floor((en.s0 + en.uJoin) / DS));
+    if (gt > f) addMesh(ctx, stripGeo(O, f, gt, (i, s) => entryEdges(s - en.s0, E).xr + 0.05, X_PAVE, { y: 0.0, uFn: (i, s, a, b) => [a / 6, b / 6], vScale: 6 }), MAT.grassFill, { receive: true });
+    // guardrails: the outer one up to where the lane closes in, the inner one up to the nose
+    const lt = Math.min(t, Math.floor((en.s0 + 400) / DS));
+    if (lt > f) addMesh(ctx, sweepGeo(O, f, lt, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xl, vScale: 4 }), MAT.guard);
+    const rt = Math.min(t, Math.floor((en.s0 + en.uJoin - 14) / DS));
+    if (rt > f) addMesh(ctx, sweepGeo(O, f, rt, RAIL_PROF.map(([x, y]) => [x + 0.25, y]), { xFn: (i, s) => entryEdges(s - en.s0, E).xr, vScale: 4 }), MAT.guard);
+    const sn = en.s0 + en.uJoin - 8;
+    if (sn >= s0 && sn < s1) {
+      const e = entryEdges(en.uJoin - 8), c = localPt(O, sn, (e.xr + X_PAVE) / 2, 0);
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.95, 14).translate(0, 0.475, 0), MAT.drum);
+      drum.position.set(c.x, c.y, c.z); ctx.grp.add(drum);
+    }
   }
 }
-// Delivery bay on the exit ramp past the toll gate: hatched lane, yellow frame, and a sign before it.
-function buildBay(ctx, r, f, t) {
-  const { O, s0, s1 } = ctx;
-  const zf = Math.max(f, Math.ceil(r.sZone0 / DS)), zt = Math.min(t, Math.floor(r.sZone1 / DS));
-  if (zt > zf) {
-    addMesh(ctx, stripGeo(O, zf, zt, RAMP_X - 1.75, RAMP_X + 1.75, { y: 0.03, uFn: (i, s, a, b) => [a / 2.5, b / 2.5], vScale: 2.5 }), MAT.bay, { receive: true });
-    for (const x of [-1.75, 1.75]) addMesh(ctx, stripGeo(O, zf, zt, RAMP_X + x - 0.09, RAMP_X + x + 0.09, { y: 0.04 }), MAT.bayLine);
-  }
-  for (const sb of [r.sZone0, r.sZone1]) {
-    if (sb < s0 || sb >= s1) continue;
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(3.68, 0.02, 0.3), MAT.bayLine);
-    placeAt(bar, O, sb, RAMP_X, 0.045); ctx.grp.add(bar);
-  }
-  const ss = r.sZone0 - 6;
-  if (ss >= s0 && ss < s1) {
-    const grp = new THREE.Group(), P = new Parts();
-    placeAt(grp, O, ss, RAMP_X - 4.3, 0);
-    postsFor(P, [-0.9, 0.9], 3.6, 0.08); P.build(grp);
-    const mat = cachedTex('bay:' + r.ic.jp, 512, 320, (g, w, h) => {
-      greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.font = font(110); g.fillText('納品', w / 2, 118);
-      g.font = font(34, 400); g.fillText('枠の中で切り離し', w / 2, 216); g.font = font(26, 400); g.fillText('DELIVERY BAY', w / 2, 266);
-    });
-    const b = signBoard(2.6, 1.62, mat); b.position.y = 2.7; grp.add(b);
-    ctx.grp.add(grp);
-  }
-}
-function buildToll(ctx, r) {
-  const { O } = ctx;
-  const g = new THREE.Group();
-  placeAt(g, O, r.sGate, RAMP_X + 0.4, 0); // local: -Z forward, +X right
-  const P = new Parts();
-  P.box(MAT.white, 17, 0.7, 13, 0, 5.9, 0);
-  P.box(MAT.steel, 17.2, 0.25, 13.2, 0, 5.5, 0);
-  for (const x of [-7.8, 7.8]) for (const z of [-5.5, 5.5]) P.box(MAT.white, 0.6, 5.5, 0.6, x, 2.75, z);
-  for (const x of [-3.2, 3.2]) {
-    P.box(MAT.concrete, 1.3, 0.28, 22, x, 0.14, 2);
-    P.box(MAT.drum, 1.32, 0.3, 0.6, x, 0.15, -9);
-  }
-  P.box(MAT.white, 1.05, 2.4, 2.2, 3.2, 1.48, 1.0);
-  P.box(MAT.black, 1.07, 0.9, 1.8, 3.2, 1.9, 1.0);
-  P.box(MAT.white, 1.05, 2.4, 2.2, -3.2, 1.48, 3.0);
-  P.box(MAT.steelDark, 0.25, 1.1, 0.25, 2.55, 0.55, -1.0);
-  P.build(g, { cast: false, receive: false });
-  const etc = cachedTex('etcSign', 256, 128, (c, w, h) => {
-    c.fillStyle = '#5a2d8c'; c.fillRect(0, 0, w, h); c.strokeStyle = '#fff'; c.lineWidth = 5; roundRect(c, 7, 7, w - 14, h - 14, 10); c.stroke();
-    c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = font(64); c.fillText('ETC', w / 2, h * 0.42); c.font = font(26); c.fillText('専用', w / 2, h * 0.78);
-  });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95), etc);
-  sign.position.set(0, 4.75, 6.62); g.add(sign);
-  // gate arm pivots on the right island
-  const pivot = new THREE.Group();
-  pivot.position.set(2.55, 1.05, -1.0);
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.09, 0.09).translate(-1.65, 0, 0), MAT.bar);
-  pivot.add(arm); g.add(pivot);
-  r.barPivot = pivot;
-  pivot.rotation.z = -r.gateOpen * 1.45;
-  const tsign = cachedTex('toll', 512, 160, (c, w, h) => {
-    greenSignBase(c, w, h); c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.font = font(70); c.fillText(r.ic.jp + ' 料金所', w / 2, h * 0.42); c.font = font(30, 400); c.fillText('TOLL GATE', w / 2, h * 0.78);
-  });
-  const ts = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), tsign);
-  ts.position.set(0, 7.3, 6.56); g.add(ts);
-  ctx.grp.add(g);
-}
-
 function buildEnd(ctx) {
   const { O, s0, s1 } = ctx;
   if (ROUTE_END < s0 || ROUTE_END >= s1) return;
@@ -718,8 +675,9 @@ function buildSigns(ctx) {
     const grp = new THREE.Group();
     const P = new Parts();
     switch (sg.t) {
-      case 'kp': {
-        placeAt(grp, O, sg.s, -12.7, 0);
+      case 'kp': {   // on a ramp, at the ramp's outer edge
+        const rr = rampAt(sg.s), en = rr ? null : entryAt(sg.s), xo = rr ? rampEdges(sg.s - rr.sDiv).xl : en ? entryEdges(sg.s - en.s0).xl : 0;
+        placeAt(grp, O, sg.s, Math.min(-12.7, xo - 0.5), 0);
         P.add(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 6), MAT.steel, 0, 0.55, 0);
         P.build(grp);
         const mat = cachedTex('kp:' + sg.kp, 64, 96, (g, w, h) => {
