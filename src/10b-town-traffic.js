@@ -54,7 +54,8 @@ function townCarBump(c, L, site, X) {
   for (const b of boxes) {
     if (Math.hypot(b.x - c.x, b.z - c.z) > (b.len + c.len) / 2 + 3) continue;
     const dx = c.x - b.x, dz = c.z - b.z, al = dx * Math.sin(b.h) + dz * Math.cos(b.h), sd = dx * Math.cos(b.h) - dz * Math.sin(b.h);
-    if (Math.abs(al) < b.len / 2 && Math.abs(sd) < b.wid / 2) { _respawn(L, _townIndex(L), X.cars, c, X.rand); return; }
-    if (resolveBoxContact(c, b)) { c.d = clamp(c.d, 0, L.lanes[c.lane].len); break; }
+    if (Math.abs(al) < b.len / 2 && Math.abs(sd) < b.wid / 2) { _respawn(L, _townIndex(L), X.cars, c, X.rand, townPlayerBoxes(site)); c.touch = false; return; }
+    if (resolveBoxContact(c, b, !!c.touch)) { c.d = clamp(c.d, 0, L.lanes[c.lane].len); c.touch = true; return; }
   }
+  c.touch = false;
 }

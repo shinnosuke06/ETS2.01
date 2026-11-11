@@ -255,9 +255,10 @@ function resolveCarContact(c, b) {
 // A town car c = { x, z, h, v, len, wid, heavy, d } against the box b = { x, z, h, len, wid, tractor } of the
 // tractor or the trailer (world positions). Works like resolveCarContact in the car's own frame: a car the truck
 // runs into is shoved ahead along its lane (c.d), a car that runs into the truck is held back, a side swipe
-// pushes both apart. Returns how hard the contact was (0: none).
+// pushes both apart. Returns how hard the contact was (0: none). again: the same car was touching the rig the step
+// before, so the push goes on but it is not a new crash (no damage, no event).
 const _bcw = { x: 0, z: 0 };
-function resolveBoxContact(c, b) {
+function resolveBoxContact(c, b, again = false) {
   const fx = Math.sin(c.h), fz = Math.cos(c.h), rx = Math.cos(c.h), rz = -Math.sin(c.h);   // the car's forward and left
   const dx = b.x - c.x, dz = b.z - c.z, along = dx * fx + dz * fz, side = dx * rx + dz * rz;
   const bf = [Math.sin(b.h), Math.cos(b.h)], ext = (ax, ay) => Math.abs(bf[0] * ax + bf[1] * ay) * b.len / 2 + Math.abs(bf[1] * ax - bf[0] * ay) * b.wid / 2;
@@ -284,6 +285,7 @@ function resolveBoxContact(c, b) {
     hit = 1 + Math.abs(vTruck - c.v) * 0.2; c.v *= 0.97;
     rigApplyImpulse(unit, c.x + rx * sgn * c.wid / 2, c.z + rz * sgn * c.wid / 2, sgn * J * rx, sgn * J * rz);
   }
+  if (again) return hit;
   if (hit > 0.4) EVENTS.push({ t: 'car', hit });
   TR.damage = Math.min(100, TR.damage + hit * 0.7);
   return hit;

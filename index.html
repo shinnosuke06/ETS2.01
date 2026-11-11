@@ -1545,7 +1545,7 @@ function _inJunction(L, X, cars, car, n, otherAxisOf) {
 function townCarsStep(L, cars, dt, t, boxes, rand) {
   const X = _townIndex(L);
   for (const car of cars) {
-    if (car.hidden) { _respawn(L, X, cars, car, rand); continue; }
+    if (car.hidden) { _respawn(L, X, cars, car, rand, boxes); continue; }
     const lane = L.lanes[car.lane], nx = car.next != null ? L.lanes[car.next] : null;
     // the car ahead on this lane, or on the next one near its start
     let gap = Infinity, vl = 0;
@@ -1598,16 +1598,19 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
       car.lane = car.next; car.next = _carNext(L, L.lanes[car.lane], rand);
       car.stopT = 0; car.wait = 0; car.commit = -1; car.turnOk = false;
     }
-    if (car.hidden) _respawn(L, X, cars, car, rand);
+    if (car.hidden) _respawn(L, X, cars, car, rand, boxes);
   }
 }
-function _respawn(L, X, cars, car, rand) {
+const _rsp = {};
+function _respawn(L, X, cars, car, rand, boxes = []) {
   for (const [n, o] of X.claim) if (o === car) X.claim.delete(n);
   for (let tries = 0; tries < 4; tries++) {
     const id = _pick(X.starts, rand);
     if (id == null) return;
     if (cars.some(o => o !== car && !o.hidden && o.lane === id && o.d - o.len / 2 < car.len + 15)) continue;   // room to come in behind a queue
     const lane = L.lanes[id];
+    _laneAt(lane, car.len / 2, _rsp);
+    if (boxes.some(b => Math.hypot(b.u - _rsp.u, b.v - _rsp.v) < b.len / 2 + car.len / 2 + 8)) continue;   // not where the rig stands
     car.lane = id; car.d = car.len / 2; car.v0 = Math.max(6, (lane.limit - 5 + 8 * rand()) / 3.6); car.v = car.v0 * 0.6;
     car.next = _carNext(L, lane, rand); car.stopT = 0; car.wait = 0; car.commit = -1; car.turnOk = false; car.hidden = false;
     return;
@@ -6056,9 +6059,10 @@ function resolveCarContact(c, b) {
 // A town car c = { x, z, h, v, len, wid, heavy, d } against the box b = { x, z, h, len, wid, tractor } of the
 // tractor or the trailer (world positions). Works like resolveCarContact in the car's own frame: a car the truck
 // runs into is shoved ahead along its lane (c.d), a car that runs into the truck is held back, a side swipe
-// pushes both apart. Returns how hard the contact was (0: none).
+// pushes both apart. Returns how hard the contact was (0: none). again: the same car was touching the rig the step
+// before, so the push goes on but it is not a new crash (no damage, no event).
 const _bcw = { x: 0, z: 0 };
-function resolveBoxContact(c, b) {
+function resolveBoxContact(c, b, again = false) {
   const fx = Math.sin(c.h), fz = Math.cos(c.h), rx = Math.cos(c.h), rz = -Math.sin(c.h);   // the car's forward and left
   const dx = b.x - c.x, dz = b.z - c.z, along = dx * fx + dz * fz, side = dx * rx + dz * rz;
   const bf = [Math.sin(b.h), Math.cos(b.h)], ext = (ax, ay) => Math.abs(bf[0] * ax + bf[1] * ay) * b.len / 2 + Math.abs(bf[1] * ax - bf[0] * ay) * b.wid / 2;
@@ -6085,6 +6089,7 @@ function resolveBoxContact(c, b) {
     hit = 1 + Math.abs(vTruck - c.v) * 0.2; c.v *= 0.97;
     rigApplyImpulse(unit, c.x + rx * sgn * c.wid / 2, c.z + rz * sgn * c.wid / 2, sgn * J * rx, sgn * J * rz);
   }
+  if (again) return hit;
   if (hit > 0.4) EVENTS.push({ t: 'car', hit });
   TR.damage = Math.min(100, TR.damage + hit * 0.7);
   return hit;
@@ -6471,9 +6476,10 @@ function townCarBump(c, L, site, X) {
   for (const b of boxes) {
     if (Math.hypot(b.x - c.x, b.z - c.z) > (b.len + c.len) / 2 + 3) continue;
     const dx = c.x - b.x, dz = c.z - b.z, al = dx * Math.sin(b.h) + dz * Math.cos(b.h), sd = dx * Math.cos(b.h) - dz * Math.sin(b.h);
-    if (Math.abs(al) < b.len / 2 && Math.abs(sd) < b.wid / 2) { _respawn(L, _townIndex(L), X.cars, c, X.rand); return; }
-    if (resolveBoxContact(c, b)) { c.d = clamp(c.d, 0, L.lanes[c.lane].len); break; }
+    if (Math.abs(al) < b.len / 2 && Math.abs(sd) < b.wid / 2) { _respawn(L, _townIndex(L), X.cars, c, X.rand, townPlayerBoxes(site)); c.touch = false; return; }
+    if (resolveBoxContact(c, b, !!c.touch)) { c.d = clamp(c.d, 0, L.lanes[c.lane].len); c.touch = true; return; }
   }
+  c.touch = false;
 }
 
 // ==== 11-audio.js ====

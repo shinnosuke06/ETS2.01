@@ -114,7 +114,7 @@ function _inJunction(L, X, cars, car, n, otherAxisOf) {
 function townCarsStep(L, cars, dt, t, boxes, rand) {
   const X = _townIndex(L);
   for (const car of cars) {
-    if (car.hidden) { _respawn(L, X, cars, car, rand); continue; }
+    if (car.hidden) { _respawn(L, X, cars, car, rand, boxes); continue; }
     const lane = L.lanes[car.lane], nx = car.next != null ? L.lanes[car.next] : null;
     // the car ahead on this lane, or on the next one near its start
     let gap = Infinity, vl = 0;
@@ -167,16 +167,19 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
       car.lane = car.next; car.next = _carNext(L, L.lanes[car.lane], rand);
       car.stopT = 0; car.wait = 0; car.commit = -1; car.turnOk = false;
     }
-    if (car.hidden) _respawn(L, X, cars, car, rand);
+    if (car.hidden) _respawn(L, X, cars, car, rand, boxes);
   }
 }
-function _respawn(L, X, cars, car, rand) {
+const _rsp = {};
+function _respawn(L, X, cars, car, rand, boxes = []) {
   for (const [n, o] of X.claim) if (o === car) X.claim.delete(n);
   for (let tries = 0; tries < 4; tries++) {
     const id = _pick(X.starts, rand);
     if (id == null) return;
     if (cars.some(o => o !== car && !o.hidden && o.lane === id && o.d - o.len / 2 < car.len + 15)) continue;   // room to come in behind a queue
     const lane = L.lanes[id];
+    _laneAt(lane, car.len / 2, _rsp);
+    if (boxes.some(b => Math.hypot(b.u - _rsp.u, b.v - _rsp.v) < b.len / 2 + car.len / 2 + 8)) continue;   // not where the rig stands
     car.lane = id; car.d = car.len / 2; car.v0 = Math.max(6, (lane.limit - 5 + 8 * rand()) / 3.6); car.v = car.v0 * 0.6;
     car.next = _carNext(L, lane, rand); car.stopT = 0; car.wait = 0; car.commit = -1; car.turnOk = false; car.hidden = false;
     return;

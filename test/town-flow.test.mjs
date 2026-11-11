@@ -98,3 +98,29 @@ test('townNearestLane は町の車線の上の点と、その車線の向きを�
     for (const o of L2.lanes) if (!o.turn && !o.plaza) for (const p of o.pts) assert.ok(Math.hypot(p[0] - u, p[1] - v) >= Math.hypot(r.u - u, r.v - v) - 20.5 - 1e-6);
   }
 });
+
+test('町の車と横にこすれ続けても、損傷とできごとは最初の 1 回だけ（押し合いは毎回）', () => {
+  const sim = loadSim(); sim.setRigTrailer(null, 0); sim.placeTruck(1000, -7.65, 0, { coupled: false });
+  const T = sim.TR, f = [Math.sin(T.h), Math.cos(T.h)], r = [Math.cos(T.h), -Math.sin(T.h)];
+  const box = { x: T.x + f[0] * (sim.RIGP.front - sim.RIGP.back) / 2, z: T.z + f[1] * (sim.RIGP.front - sim.RIGP.back) / 2, h: T.h, len: sim.RIGP.front + sim.RIGP.back, wid: 2.5, tractor: true };
+  const car = { x: box.x + r[0] * 2.0, z: box.z + r[1] * 2.0, h: T.h, v: 3, len: 4.7, wid: 1.8, heavy: false, d: 50 };   // alongside, 0.15 m into the tractor
+  sim.EVENTS.length = 0; T.damage = 0;
+  const first = sim.resolveBoxContact(car, box, false), d1 = T.damage, w1 = sim.RIG.t.vx * r[0] + sim.RIG.t.vz * r[1];
+  for (let k = 0; k < 30; k++) sim.resolveBoxContact(car, box, true);
+  const w2 = sim.RIG.t.vx * r[0] + sim.RIG.t.vz * r[1];
+  assert.ok(first > 0 && d1 > 0, `first ${first} ${d1}`); assert.equal(T.damage, d1, 'no more damage while still touching');
+  assert.equal(sim.EVENTS.filter(e => e.t === 'car').length, 1); assert.ok(w2 < w1, `still pushed apart: ${w1} -> ${w2}`);
+});
+
+test('町の車は、あなたの車両のそばの車線の始まりには出てこない', () => {
+  const L = SIM.townLayout(2), starts = L.lanes.filter(l => l.edge0 && !l.plaza && !l.turn), rand = SIM.rng(77);
+  const spawnAt = l => { const P = l.pts, d = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]), k = 2.4 / d; return { u: P[0][0] + (P[1][0] - P[0][0]) * k, v: P[0][1] + (P[1][1] - P[0][1]) * k, h: Math.atan2(P[1][1] - P[0][1], P[1][0] - P[0][0]) }; };
+  const box = l => ({ ...spawnAt(l), len: 7, wid: 2.5, tractor: true });
+  // the rig at every lane start: nobody can come in
+  let cars = SIM.townCarsInit(L, 1, rand); cars[0].hidden = true;
+  SIM.townCarsStep(L, cars, 1 / 60, 0, starts.map(box), rand);
+  assert.equal(cars[0].hidden, true, 'no start is free');
+  // the rig at one lane start: cars come in elsewhere
+  cars = SIM.townCarsInit(L, 1, rand);
+  for (let k = 0; k < 200; k++) { cars[0].hidden = true; SIM.townCarsStep(L, cars, 1 / 60, 0, [box(starts[0])], rand); assert.notEqual(cars[0].lane, starts[0].id); }
+});
