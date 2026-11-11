@@ -122,3 +122,43 @@ test('制限速度：大通り 50、脇道 40、構内と広場 20。地形の�
   const site = L.site, at = (u, v) => { const p = SIM.townXZ(site, u, v, {}), pr = SIM.project(p.x, p.z, Math.floor((site.s + u) / SIM.DS), {}); return SIM.townGroundBlend(pr.s, pr.lat); };
   assert.equal(at(0, 200).w, 1); assert.ok(at(0, 470).w < 1e-6); assert.ok(at(0, 435).w > 0 && at(0, 435).w < 1); assert.equal(at(-200, -2).w, 0);
 });
+
+// ---- the town grid and GROUND inside a town ----
+test('T6 町の地図は 4 MB 以下。壁の中の点では contact が外へ押し、車道の点では押さない', () => {
+  const sim = loadSim(); sim.townLoad(2);
+  const T = sim.TOWNS_LOADED.get(2), L = T.layout, site = L.site;
+  assert.ok(T.grid.type.byteLength + T.grid.dist.byteLength <= 4 * 1024 * 1024);
+  const b = L.buildings.find(x => x.kind === 'house'), p = sim.townXZ(site, b.u, b.v, {}), c = sim.GROUND.contact(p.x, p.z, 0, {});
+  assert.ok(c.pen > 0.5, `pen ${c.pen}`);
+  const q = sim.townXZ(site, 0, 80, {});
+  assert.equal(sim.GROUND.contact(q.x, q.z, 0, {}).pen, 0);
+  const g = sim.GROUND.at(q.x, q.z, Math.floor(site.s / sim.DS), {});
+  assert.equal(g.zone, 'town'); assert.equal(g.town, 2); assert.ok(Math.abs(g.y - sim.townHeight(site, 0, 80)) < 1e-9);
+  // the push points back toward the street: from inside the kerb-side block next to Main A, it points to -u... toward u = 0
+  const w = sim.townXZ(site, 11.5, 80, {}), cw = sim.GROUND.contact(w.x, w.z, 0, {});
+  assert.ok(cw.pen > 0.5 && cw.pen < 2.5, `pen ${cw.pen}`);
+  assert.ok(cw.nx * site.Fx + cw.nz * site.Fz < -0.9, 'pushes toward Main A');
+  sim.townUnload(2); assert.equal(sim.GROUND.at(q.x, q.z, Math.floor(site.s / sim.DS), {}).zone, 'road');
+});
+test('町の地図：交差点の角は半径 12 m で丸く車道、歩道は 15 cm 高い、広場の道と出入口の帯の端は車道', () => {
+  const sim = loadSim(); sim.townLoad(2);
+  const { layout: L, grid } = sim.TOWNS_LOADED.get(2), site = L.site, C = sim.TCELL;
+  const cell = (u, v) => grid.type[Math.floor((v - sim.TOWN_V0) / sim.TOWN_CELL) * sim.TOWN_NU + Math.floor((u - sim.TOWN_U0) / sim.TOWN_CELL)];
+  const n = L.nodes.find(x => x.streets.includes(0) && x.arms['v-'] && x.arms['u-']), V = L.streets[n.streets[0]], U = L.streets[n.streets[1]];
+  const cu = n.u - V.lanes * V.laneW, cv = n.v - U.lanes * U.laneW;          // the kerb corner of the south-west quadrant
+  assert.equal(cell(cu - 1.5, cv - 1.5), C.ROAD, 'rounded corner is road');   // 2.1 m from the square corner, inside the 12 m round
+  assert.equal(cell(cu + 1, cv - 20), C.ROAD); assert.equal(cell(cu - 1, cv - 20), C.WALK);
+  const q = sim.townXZ(site, -5, 30, {}), r = sim.townXZ(site, cu - 1, cv - 20, {});
+  assert.ok(Math.abs(sim.GROUND.at(r.x, r.z, 0, {}).y - sim.townHeight(site, cu - 1, cv - 20) - 0.15) < 1e-9);
+  assert.equal(sim.GROUND.contact(q.x, q.z, 0, {}).pen, 0);
+  assert.equal(cell(-45, 0), C.ROAD); assert.equal(cell(45, 0), C.ROAD);       // the ramp ends inside the notch
+  assert.equal(cell(0, 30), C.WALL);                                           // the booth island between the gates
+});
+test('町を作るのに失敗したら簡単な構内に切り替わり、倉庫が 1 か所、納品の枠と置き場がある', () => {
+  const sim = loadSim({ extra: 'townLayout = () => { throw new Error("broken town"); };' });
+  const warn = console.warn; let warned = 0; console.warn = () => { warned++; };
+  try { sim.townLoad(5); } finally { console.warn = warn; }
+  const { layout: L } = sim.TOWNS_LOADED.get(5);
+  assert.equal(L.fallback, true); assert.equal(L.warehouses.length, 1); assert.ok(L.warehouses[0].bay && L.warehouses[0].park); assert.equal(warned, 1);
+  const p = sim.townXZ(L.site, 0, 80, {}); assert.equal(sim.GROUND.contact(p.x, p.z, 0, {}).pen, 0); assert.equal(sim.GROUND.at(p.x, p.z, 0, {}).zone, 'town');
+});

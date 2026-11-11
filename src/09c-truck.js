@@ -25,6 +25,7 @@ const TR = {
   assist: { abs: false, tcs: false, esc: false, rsc: false },
   cab: { p: 0, pv: 0, r: 0, rv: 0, hv: 0, hy: 0 },
   spin: 0, onRamp: false, acc: 0, snapT: 0, railT: { t: 0, r: 0 },
+  zone: 'road', town: -1, tu: 0, tv: 0,          // on the expressway or in a town (TOWN_SITES[town]); town position (u, v)
   assistT: { abs: 0, tcs: 0, esc: 0, rsc: 0 },   // each lamp stays on a moment after its system last acted
   sentRoll: false, sentJack: false, dlPrev: null,
 };
@@ -49,7 +50,8 @@ function syncTR() {
   ROAD.project(T.x, T.z, T.idx, _pj); T.idx = _pj.i; T.s = _pj.s; T.lat = _pj.lat;
   ROAD.project(T.x + Math.sin(T.h) * RIGP.front, T.z + Math.cos(T.h) * RIGP.front, T.idx, _pjF);
   T.frontS = _pjF.s; T.frontLat = _pjF.lat;
-  T.y = GROUND.at(T.x, T.z, T.idx, _gt).y;
+  GROUND.at(T.x, T.z, T.idx, _gt); T.y = _gt.y; T.zone = _gt.zone; T.town = _gt.town;
+  if (T.town >= 0) { townUV(TOWN_SITES[T.town], T.x, T.z, _gt); T.tu = _gt.u; T.tv = _gt.v; }
   T.pitch = Math.atan2(GROUND.at(T.x + Math.sin(T.h) * WB, T.z + Math.cos(T.h) * WB, T.idx, _gt).y - T.y, WB);
   const tr = T.tr;
   if (spec) {
@@ -82,16 +84,20 @@ function truckRestore() {
 }
 function truckHealthy() {
   const t = RIG.t, r = RIG.r;
-  return Number.isFinite(t.x + t.z + t.h + t.vx + t.vz + t.w + r.x + r.z + r.h + r.vx + r.vz + r.w + TR.s + TR.lat + TR.v) && Math.abs(TR.lat) <= 200;
+  return Number.isFinite(t.x + t.z + t.h + t.vx + t.vz + t.w + r.x + r.z + r.h + r.vx + r.vz + r.w + TR.s + TR.lat + TR.v) && (TR.zone === 'town' || Math.abs(TR.lat) <= 200);
 }
 
 // Put the tractor's rear axle on the road at (s, lat). opts.coupled (default true) tows the job
 // trailer straight behind; opts.yaw turns the rig away from the road direction (rad, left positive).
 function placeTruck(s, lat, v = 0, opts = {}) {
-  const T = TR, coupled = opts.coupled !== false && !!T.trailerKey;
   ROAD.posAt(s, lat, _tkPos);
-  rigPlace(_tkPos.x, _tkPos.z, _tkPos.h + (opts.yaw || 0), v, coupled);
-  const hint = Math.max(0, Math.floor(s / DS));
+  placeTruckAt(_tkPos.x, _tkPos.z, _tkPos.h + (opts.yaw || 0), v, { ...opts, hint: Math.max(0, Math.floor(s / DS)) });
+}
+// The same, by world position: (x, z) is the rear axle, h the heading. opts.hint: a route index near it.
+function placeTruckAt(x, z, h, v = 0, opts = {}) {
+  const T = TR, coupled = opts.coupled !== false && !!T.trailerKey;
+  rigPlace(x, z, h, v, coupled);
+  const hint = opts.hint != null ? opts.hint : routeHint(x, z);
   T.idx = hint; RIG.t.i = hint;
   if (coupled) { T.tr.idx = hint; RIG.r.i = hint; }
   T.link = coupled ? 'coupled' : 'free'; T.linkT = 0; T.dlPrev = null;
@@ -109,8 +115,11 @@ function placeTruck(s, lat, v = 0, opts = {}) {
 // Leave the job trailer standing with its kingpin at road position (s, lat), facing along the road.
 function parkTrailer(s, lat) {
   ROAD.posAt(s, lat, _tkPos);
-  rigParkTrailer(_tkPos.x, _tkPos.z, _tkPos.h);
-  const hint = Math.max(0, Math.floor(s / DS));
+  parkTrailerAt(_tkPos.x, _tkPos.z, _tkPos.h, Math.max(0, Math.floor(s / DS)));
+}
+// The same, by world position of the kingpin and the trailer's heading.
+function parkTrailerAt(kx, kz, h, hint = routeHint(kx, kz)) {
+  rigParkTrailer(kx, kz, h);
   RIG.r.i = hint; TR.tr.idx = hint;
   TR.link = 'free'; TR.linkT = 0; TR.dlPrev = null;
   syncTR();

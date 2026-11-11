@@ -335,3 +335,155 @@ function townGroundBlend(s, lat) {
   }
   return _gb;
 }
+
+// ---- the town grid: what each 50 cm cell is, and the signed distance to the nearest wall ----
+// A stand-in when a town's layout cannot be made: the plaza roads and one flat yard behind them.
+function townFallbackLayout(i) {
+  const site = TOWN_SITES[i], lanes = [];
+  const plaza = { exitPath: null, entryPath: null, exitLane: null, entryLane: null,
+    gates: { exit: { u: -5, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: 5, v: 30, dir: -1, state: 'closed', open: 0 } } };
+  const add = (pts, dir) => { const l = { id: lanes.length, pts, len: _len(pts), next: [], turn: null, stopD: null, stopNode: null, stopAxis: null, edge0: false, edge1: false, plaza: true, node0: null, node1: null, street: null, limit: 20, k: 0, dir }; lanes.push(l); return l; };
+  if (site.exit) { plaza.exitPath = [[-60, 0], ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]]; plaza.exitLane = add(plaza.exitPath, 'v+').id; }
+  if (site.entry) { plaza.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), [60, 0]]; plaza.entryLane = add(plaza.entryPath, 'u+').id; }
+  const yard = { u0: -35, u1: 35, v0: 45, v1: 115 }, fences = [];
+  for (const [p, q] of [[[-35, 45], [-7, 45]], [[7, 45], [35, 45]], [[35, 45], [35, 115]], [[35, 115], [-35, 115]], [[-35, 115], [-35, 45]]]) fences.push({ u0: p[0], v0: p[1], u1: q[0], v1: q[1], kind: 'wall' });
+  const wh = { id: 0, name: site.ic.jp + TOWN_WH_NAMES[0], block: -1, street: null, gate: { u: 0, v: 45, nu: 0, nv: 1, w: 14 }, yard, building: null, docks: [],
+    bay: { u: -20, v: 80, hu: 0, hv: 1 }, park: { u: 20, v: 76, hu: 0, hv: -1 }, gateLanes: [] };
+  return { site, streets: [], nodes: [], blocks: [], warehouses: [wh], buildings: [], fences, lanes, plaza, cornerR: TOWN_CORNER_R, fallback: true };
+}
+
+const _gIdx = (iu, iv) => iv * TOWN_NU + iu;
+// Fill the cells of the box [u0, u1] x [v0, v1] (town metres) that pass keep(u, v) with value t.
+function _gFill(type, u0, u1, v0, v1, t, keep) {
+  const a0 = clamp(Math.floor((u0 - TOWN_U0) / TOWN_CELL), 0, TOWN_NU - 1), a1 = clamp(Math.ceil((u1 - TOWN_U0) / TOWN_CELL) - 1, 0, TOWN_NU - 1);
+  const b0 = clamp(Math.floor((v0 - TOWN_V0) / TOWN_CELL), 0, TOWN_NV - 1), b1 = clamp(Math.ceil((v1 - TOWN_V0) / TOWN_CELL) - 1, 0, TOWN_NV - 1);
+  for (let iv = b0; iv <= b1; iv++) {
+    const v = TOWN_V0 + (iv + 0.5) * TOWN_CELL;
+    for (let iu = a0; iu <= a1; iu++) {
+      const u = TOWN_U0 + (iu + 0.5) * TOWN_CELL;
+      if (keep && !keep(u, v)) continue;
+      type[_gIdx(iu, iv)] = t;
+    }
+  }
+}
+function _segDist(u, v, p, q) {
+  const du = q[0] - p[0], dv = q[1] - p[1], L2 = du * du + dv * dv;
+  const t = L2 > 0 ? clamp(((u - p[0]) * du + (v - p[1]) * dv) / L2, 0, 1) : 0;
+  return Math.hypot(u - p[0] - du * t, v - p[1] - dv * t);
+}
+function _pathDist(u, v, pts) { let d = Infinity; for (let i = 1; i < pts.length; i++) d = Math.min(d, _segDist(u, v, pts[i - 1], pts[i])); return d; }
+
+// The grid, made in steps (each yield is a short piece of work). The last value is { type, dist }.
+function* townGridSteps(L) {
+  const type = new Uint8Array(TOWN_NU * TOWN_NV), C = TCELL;
+  for (let iv0 = 0; iv0 < TOWN_NV; iv0 += 100) {        // inside the town: walls until painted; outside: out
+    for (let iv = iv0; iv < Math.min(TOWN_NV, iv0 + 100); iv++) {
+      const v = TOWN_V0 + (iv + 0.5) * TOWN_CELL;
+      for (let iu = 0; iu < TOWN_NU; iu++) type[_gIdx(iu, iv)] = townInside(TOWN_U0 + (iu + 0.5) * TOWN_CELL, v) ? C.WALL : C.OUT;
+    }
+    yield null;
+  }
+  const box = st => (st.axis === 'v' ? [st.c - _ht(st), st.c + _ht(st), st.a0, st.a1] : [st.a0, st.a1, st.c - _ht(st), st.c + _ht(st)]);
+  const carr = st => (st.axis === 'v' ? [st.c - _hc(st), st.c + _hc(st), st.a0, st.a1] : [st.a0, st.a1, st.c - _hc(st), st.c + _hc(st)]);
+  for (const st of L.streets) { const b = box(st); _gFill(type, b[0], b[1], b[2], b[3], C.WALK); }
+  yield null;
+  // rounded kerbs: in each corner between two arms, the 12 m square outside the kerb circle is road, a ring inside it pavement
+  for (const n of L.nodes) {
+    const V = L.streets[n.streets[0]], U = L.streets[n.streets[1]], walk = Math.min(V.walkW, U.walkW), r = TOWN_CORNER_R;
+    for (const [su, sv] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      if (!n.arms[sv > 0 ? 'v+' : 'v-'] || !n.arms[su > 0 ? 'u+' : 'u-']) continue;
+      const ku = n.u + su * _hc(V), kv = n.v + sv * _hc(U), cu = ku + su * r, cv = kv + sv * r;
+      _gFill(type, Math.min(ku, cu), Math.max(ku, cu), Math.min(kv, cv), Math.max(kv, cv), C.WALK, (u, v) => Math.hypot(u - cu, v - cv) > r - walk);
+      _gFill(type, Math.min(ku, cu), Math.max(ku, cu), Math.min(kv, cv), Math.max(kv, cv), C.ROAD, (u, v) => Math.hypot(u - cu, v - cv) > r);
+    }
+  }
+  for (const st of L.streets) { const b = carr(st); _gFill(type, b[0], b[1], b[2], b[3], C.ROAD); }
+  yield null;
+  // the plaza roads (6 m either side of each path, so a trailer cutting the bend stays on them) and the booth islands
+  for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {   // each piece of the path as a 6 m capsule
+    const a = path[k - 1], b = path[k];
+    _gFill(type, Math.min(a[0], b[0]) - 6, Math.max(a[0], b[0]) + 6, Math.min(a[1], b[1]) - 6, Math.max(a[1], b[1]) + 6, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= 6);
+  }
+  for (const [u0, u1] of [[-1.2, 1.2], [-9.5, -7.5], [7.5, 9.5]]) _gFill(type, u0, u1, 24, 38, C.WALL);
+  yield null;
+  // warehouse yards and their gates, then the fences (1 m thick)
+  for (const w of L.warehouses) {
+    const y = w.yard; _gFill(type, y.u0, y.u1, y.v0, y.v1, C.YARD);
+    const g = w.gate, lu = -g.nv, lv = g.nu;     // across the gate
+    const p = [g.u + lu * 7, g.v + lv * 7], q = [g.u - lu * 7 + g.nu * 1.2, g.v - lv * 7 + g.nv * 1.2];
+    _gFill(type, Math.min(p[0], q[0]), Math.max(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[1], q[1]), C.YARD);
+  }
+  for (const f of L.fences) if (f.kind !== 'hedge') {
+    const pts = [[f.u0, f.v0], [f.u1, f.v1]];
+    _gFill(type, Math.min(f.u0, f.u1) - 0.5, Math.max(f.u0, f.u1) + 0.5, Math.min(f.v0, f.v1) - 0.5, Math.max(f.v0, f.v1) + 0.5, C.WALL, (u, v) => _pathDist(u, v, pts) <= 0.5);
+  }
+  yield null;
+  // signed distance (3-4 chamfer): to the nearest wall for free cells, to the nearest free cell for walls
+  const INF = 65000, dF = new Uint16Array(TOWN_NU * TOWN_NV), dW = new Uint16Array(TOWN_NU * TOWN_NV);
+  for (let i = 0; i < type.length; i++) { const fr = type[i] === C.ROAD || type[i] === C.WALK || type[i] === C.YARD; dF[i] = fr ? INF : 0; dW[i] = fr ? 0 : INF; }
+  yield null;
+  const relax = (D, i, j, c) => { const x = D[j] + c; if (x < D[i]) D[i] = x; };
+  for (let iv0 = 0; iv0 < TOWN_NV; iv0 += 50) {
+    for (let iv = iv0; iv < Math.min(TOWN_NV, iv0 + 50); iv++) for (let iu = 0; iu < TOWN_NU; iu++) {
+      const i = _gIdx(iu, iv);
+      for (const D of [dF, dW]) {
+        if (D[i] === 0) continue;
+        if (iu > 0) relax(D, i, i - 1, 3);
+        if (iv > 0) { relax(D, i, i - TOWN_NU, 3); if (iu > 0) relax(D, i, i - TOWN_NU - 1, 4); if (iu < TOWN_NU - 1) relax(D, i, i - TOWN_NU + 1, 4); }
+      }
+    }
+    yield null;
+  }
+  for (let iv0 = TOWN_NV - 1; iv0 >= 0; iv0 -= 50) {
+    for (let iv = iv0; iv > Math.max(-1, iv0 - 50); iv--) for (let iu = TOWN_NU - 1; iu >= 0; iu--) {
+      const i = _gIdx(iu, iv);
+      for (const D of [dF, dW]) {
+        if (D[i] === 0) continue;
+        if (iu < TOWN_NU - 1) relax(D, i, i + 1, 3);
+        if (iv < TOWN_NV - 1) { relax(D, i, i + TOWN_NU, 3); if (iu < TOWN_NU - 1) relax(D, i, i + TOWN_NU + 1, 4); if (iu > 0) relax(D, i, i + TOWN_NU - 1, 4); }
+      }
+    }
+    yield null;
+  }
+  const dist = new Int16Array(TOWN_NU * TOWN_NV), k = TOWN_CELL / 3;
+  for (let i0 = 0; i0 < dist.length; i0 += 100 * TOWN_NU) {
+    for (let i = i0; i < Math.min(dist.length, i0 + 100 * TOWN_NU); i++) {
+      const d = dF[i] > 0 ? dF[i] * k - TOWN_CELL / 2 : -(dW[i] * k - TOWN_CELL / 2);   // zero on the cell boundary
+      dist[i] = d >= 6 ? 600 : d <= -6 ? -600 : Math.round(d * 100);
+    }
+    yield null;
+  }
+  return { type, dist };
+}
+function townGrid(L) { const it = townGridSteps(L); for (;;) { const r = it.next(); if (r.done) return r.value; } }
+
+// The loaded towns (2 at most in the game; tests load any).
+const TOWNS_LOADED = new Map();
+function townAdd(i, layout, grid) {
+  TOWNS_LOADED.set(i, { layout, grid });
+  if (!GROUND.towns.includes(i)) GROUND.towns.push(i);
+}
+function townLoad(i) {
+  if (TOWNS_LOADED.has(i)) return TOWNS_LOADED.get(i);
+  let layout, grid;
+  try { layout = townLayout(i); grid = townGrid(layout); }
+  catch (e) { console.warn('town ' + i + ' could not be made; using a plain yard:', e && e.message); layout = townFallbackLayout(i); grid = townGrid(layout); }
+  townAdd(i, layout, grid);
+  return TOWNS_LOADED.get(i);
+}
+function townUnload(i) {
+  TOWNS_LOADED.delete(i);
+  const k = GROUND.towns.indexOf(i); if (k >= 0) GROUND.towns.splice(k, 1);
+}
+// Signed distance (m, positive on drivable ground) and cell type at a town point, from the grid.
+function townSample(grid, u, v) {
+  const fu = (u - TOWN_U0) / TOWN_CELL - 0.5, fv = (v - TOWN_V0) / TOWN_CELL - 0.5;
+  const iu = clamp(Math.floor(fu), 0, TOWN_NU - 2), iv = clamp(Math.floor(fv), 0, TOWN_NV - 2), tu = clamp(fu - iu, 0, 1), tv = clamp(fv - iv, 0, 1);
+  const D = grid.dist, i = _gIdx(iu, iv);
+  return ((D[i] * (1 - tu) + D[i + 1] * tu) * (1 - tv) + (D[i + TOWN_NU] * (1 - tu) + D[i + TOWN_NU + 1] * tu) * tv) / 100;
+}
+function townCellAt(grid, u, v) {
+  const iu = Math.floor((u - TOWN_U0) / TOWN_CELL), iv = Math.floor((v - TOWN_V0) / TOWN_CELL);
+  if (iu < 0 || iv < 0 || iu >= TOWN_NU || iv >= TOWN_NV) return TCELL.OUT;
+  return grid.type[_gIdx(iu, iv)];
+}
