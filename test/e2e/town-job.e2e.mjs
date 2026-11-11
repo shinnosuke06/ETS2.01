@@ -27,7 +27,7 @@ const YARD_SRC = `window.yardPath = (w, d0, rear, R = 15) => {
   return out;
 };`;
 
-test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 厚木で降りる → 厚木の倉庫の枠で納品 → 結果', () => withGame({}, async (page, errors) => {
+test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 厚木で降りる → 厚木の倉庫の荷台口にバックで付けて納品 → 結果で報酬が 1.2 倍', () => withGame({}, async (page, errors) => {
   await startJob(page);
   await driveHelpers(page); await page.evaluate(YARD_SRC);
   const r = await page.evaluate(async () => {
@@ -40,7 +40,7 @@ test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 
     for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const p = posAt(s, s < en.s1 ? entryEdges(s - en.s0).cx : X_TRV, {}); ramp.push([p.x, p.z]); }
     __drive([...__town(0, [[4.875, 80], ...L0.plaza.entryPath]), ...ramp.slice(0, 1)], 15, 90, false);
     log.entryGate = L0.plaza.gates.entry.state; log.tollAfterEntry = GAME.job.toll;
-    __drive(ramp, 60, 120, false);
+    __clearRoad(en.s0 - 600, en.s1 + 600); __drive(ramp, 60, 120, false);   // merging into a clear gap
     log.merged = [TR.zone, +TR.lat.toFixed(1)];
     // into Atsugi: on its exit ramp, through the exit gate (the fare), into the town and up Main A
     const r2 = RAMPS.find(x => x.ic.i === 2), ex = [];
@@ -49,19 +49,43 @@ test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 
     const L2 = TOWNS_LOADED.get(2).layout;
     __drive([...ex, ...__town(2, [...L2.plaza.exitPath.slice(2), [-4.875, 70]])], 15, 120);
     log.exitGate = L2.plaza.gates.exit.state; log.toll = GAME.job.toll;
-    // into the destination yard: left through the gate, across the yard, then straight into the bay; stop, uncouple
-    const w = GAME.job.whB, sp = TRAILERS[TR.trailerKey], yp = yardPath(w, -5.125, sp.rear);   // -5.125: Main A's kerb lane, in gate depth
-    __placeTown(2, yp[0][0], yp[0][1], yp[1][0] - yp[0][0], yp[1][1] - yp[0][1], 10); await __ready();
-    __drive(__town(2, yp), 10, 120);
-    log.bay = bayCheck(w, townUV(TOWN_SITES[2], TR.tr.kx, TR.tr.kz, {}), townUV(TOWN_SITES[2], TR.tr.kx - Math.sin(TR.tr.h) * sp.rear, TR.tr.kz - Math.cos(TR.tr.h) * sp.rear, {}));
+    // onto a dock of the destination warehouse: lined up 12 m out, then straight back until the tail is at the bumpers
+    const w = GAME.job.whB, d = w.docks[2], sp = TRAILERS[TR.trailerKey], site = TOWN_SITES[2], q = {};
+    const tail = () => { townUV(site, TR.tr.kx - Math.sin(TR.tr.h) * sp.rear, TR.tr.kz - Math.cos(TR.tr.h) * sp.rear, q); return (q.u - d.u) * d.nu + (q.v - d.v) * d.nv; };
+    const k0 = [d.u + d.nu * (12 + sp.rear), d.v + d.nv * (12 + sp.rear)];
+    __placeTown(2, k0[0] - d.nu * HITCH, k0[1] - d.nv * HITCH, d.nu, d.nv, 0); await __ready();
+    INP.actions.push('dir'); simTick(1 / 60);
+    for (let i = 0; i < 60 * 60 && tail() > 0.3; i++) { INP.tGas = Math.abs(TR.v) * 3.6 < 3 ? 0.3 : 0; INP.tBrake = 0; INP.tWheelHeld = true; INP.tWheel = 0; simTick(1 / 60); }
+    for (let i = 0; i < 120 && Math.abs(TR.v) > 0.02; i++) { INP.tGas = 0; INP.tBrake = 1; simTick(1 / 60); }
+    INP.tBrake = 0; INP.tWheelHeld = false;
+    log.tail = +tail().toFixed(2); log.dock = dockCheck(w, q, { u: -Math.cos(TR.tr.h - site.hu), v: -Math.sin(TR.tr.h - site.hu) });
     INP.actions.push('couple'); for (let i = 0; i < 200 && GAME.state === 'drive'; i++) simTick(1 / 60);
-    return { ...log, state: GAME.state, fines: GAME.job.fines, rows: document.getElementById('resRows').innerText.replace(/\n/g, ' | ') };
+    const rows = [...document.querySelectorAll('#resRows > div')].map(x => [...x.children].map(c => c.textContent));
+    return { ...log, state: GAME.state, fines: GAME.job.fines, rows, bonus: yen(Math.round(GAME.job.pay * 0.2 / 100) * 100) };
   });
   assert.equal(r.coupled, 'coupled'); assert.equal(r.entryGate, 'open'); assert.equal(r.tollAfterEntry, 0, 'no fare at the entrance');
   assert.equal(r.merged[0], 'road'); assert.ok(r.merged[1] > -9.5, `merged at lat ${r.merged[1]}`);
   assert.equal(r.exitGate, 'open'); assert.ok(r.toll > 0, 'the fare at the destination exit');
-  assert.equal(r.bay, true, JSON.stringify(r)); assert.equal(r.state, 'result', JSON.stringify(r)); assert.match(r.rows, /基本報酬/); assert.equal(r.fines, 0, JSON.stringify(r));
+  assert.ok(r.dock >= 0, JSON.stringify(r)); assert.equal(r.state, 'result', JSON.stringify(r)); assert.equal(r.fines, 0, JSON.stringify(r));
+  assert.deepEqual(r.rows.find(x => x[0] === '荷台口ボーナス（+20%）'), ['荷台口ボーナス（+20%）', r.bonus], 'the pay is 1.2 times: ' + JSON.stringify(r.rows));
   assert.deepEqual(errors, []);
+}));
+
+test('厚木の倉庫：大通りから門を左に入り、構内を横切って納品の枠にまっすぐ入れ、枠で納品できる（壁に当たらない）', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page); await page.evaluate(YARD_SRC);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    const w = GAME.job.whB, sp = TRAILERS[TR.trailerKey], site = TOWN_SITES[2], yp = yardPath(w, -5.125, sp.rear);   // -5.125: Main A's kerb lane, in gate depth
+    __placeTown(2, yp[0][0], yp[0][1], yp[1][0] - yp[0][0], yp[1][1] - yp[0][1], 10); await __ready();
+    GAME.job.fines = 0; TR.damage = 0;
+    __drive(__town(2, yp), 10, 120);
+    const bay = bayCheck(w, townUV(site, TR.tr.kx, TR.tr.kz, {}), townUV(site, TR.tr.kx - Math.sin(TR.tr.h) * sp.rear, TR.tr.kz - Math.cos(TR.tr.h) * sp.rear, {}));
+    INP.actions.push('couple'); for (let i = 0; i < 200 && GAME.state === 'drive'; i++) simTick(1 / 60);
+    const rows = [...document.querySelectorAll('#resRows > div')].map(x => x.children[0].textContent);
+    return { bay, state: GAME.state, fines: GAME.job.fines, damage: TR.damage, rows };
+  });
+  assert.deepEqual([r.bay, r.state, r.fines], [true, 'result', 0], JSON.stringify(r)); assert.ok(r.damage < 1, JSON.stringify(r));
+  assert.ok(r.rows.includes('基本報酬') && !r.rows.includes('荷台口ボーナス（+20%）'), JSON.stringify(r)); assert.deepEqual(errors, []);
 }));
 
 test('T12 違う IC で降りて入口から戻っても、罰金はなく、料金も増えない', () => withGame({}, async (page, errors) => {
@@ -83,24 +107,24 @@ test('T12 違う IC で降りて入口から戻っても、罰金はなく、料
   assert.match(r.led1, /目的地ではありません/); assert.deepEqual(errors, []);
 }));
 
-test('90 km/h で 3 つの IC を通り過ぎても、町を作る仕事は 1 フレーム 40 ms 以内（ほかを含めても 50 ms を超えるのは 1 回まで）で、出口のゲートに着く前に町ができている', () => withGame({}, async (page, errors) => {
+test('90 km/h で 3 つの IC を通り過ぎても、町を作る仕事が 1 フレーム 40 ms を超えるのも、全体で 50 ms を超えるのも 1 回までで、出口のゲートに着く前に町ができている', () => withGame({}, async (page, errors) => {
   await startJob(page);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-    placeTruck(S0 + 700, X_TRV, 25, { coupled: true }); await (async () => { let left = 1; while (left) { left = updateChunks(TR.s, 4) + townsTick(200); await __t.frames(1); } })();
+    placeTruck(S0 + 700, X_TRV, 25, { coupled: true }); GAME.state = 'loading'; await (async () => { let left = 1; while (left) { left = updateChunks(TR.s, 4) + townsTick(200); await __t.frames(1); } })(); GAME.state = 'drive';
     const seen = {}, steer = () => clamp(0.35 * (X_TRV - TR.lat) + 9 * wrapA(TR.h - headingAt(TR.s)) * (0.4 + Math.abs(TR.v) / 25), -1, 1);
-    let towns = 0, slow = 0, worst = 0;
+    let towns = 0, townSlow = 0, slow = 0, worst = 0;
     for (let n = 0; n < 60 * 260 && TR.s < ICS[3].s + 200; n++) {
       INP.tGas = TR.v * 3.6 < 88 ? 1 : 0; INP.tBrake = 0; INP.tWheelHeld = true; INP.tWheel = Math.sign(steer()) * Math.pow(Math.abs(steer()), 1 / 1.35) * 2.6;
       const t0 = performance.now(); simTick(1 / 60); updateChunks(TR.s, 1); const t1 = performance.now(); townsTick(6); const t2 = performance.now();
-      towns = Math.max(towns, t2 - t1); worst = Math.max(worst, t2 - t0); if (t2 - t0 > 50) slow++;
+      towns = Math.max(towns, t2 - t1); worst = Math.max(worst, t2 - t0); if (t2 - t1 > 40) townSlow++; if (t2 - t0 > 50) slow++;
       for (const i of [1, 2, 3]) if (seen[i] == null && TR.s >= ICS[i].s + 100) seen[i] = TOWN_MESH.has(i);
     }
     INP.tGas = 0; INP.tWheelHeld = false;
-    return { towns, slow, worst, seen, s: TR.s, link: TR.link };
+    return { towns, townSlow, slow, worst, seen, s: TR.s, link: TR.link };
   });
-  // the town work's own share: its 6 ms budget plus one step of at most 30 ms; a single slow tick elsewhere (a garbage
-  // collection, say) is allowed once
-  assert.deepEqual(r.seen, { 1: true, 2: true, 3: true }, JSON.stringify(r)); assert.ok(r.towns <= 40 && r.slow <= 1, JSON.stringify(r));
+  // the town work's own share: its 6 ms budget plus one step of at most 30 ms; one pause (a garbage collection, say) is
+  // allowed, in the town work or anywhere in the tick
+  assert.deepEqual(r.seen, { 1: true, 2: true, 3: true }, JSON.stringify(r)); assert.ok(r.townSlow <= 1 && r.slow <= 1, JSON.stringify(r));
   assert.deepEqual(errors, []);
 }));

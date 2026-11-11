@@ -96,6 +96,7 @@ const GAME = {
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
   assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
+  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 },   // red lights: seconds before the same junction can fine again; the front's last town point
 };
 
 // ---- jobs -------------------------------------------------------------------
@@ -112,7 +113,7 @@ function setupJob(idx) {
   townXZ(site, pk.u, pk.v, q); parkTrailerAt(q.x, q.z, h);
   townXZ(site, pk.u + pk.hu * (12 - HITCH), pk.v + pk.hv * (12 - HITCH), q); placeTruckAt(q.x, q.z, h, 0, { coupled: false });
   for (const T of TOWNS_LOADED.values()) for (const g of Object.values(T.layout.plaza.gates)) { g.state = 'closed'; g.open = 0; g.passed = false; }
-  GAME.blink = 0; GAME.hazard = true; GAME.autoHazard = true; GAME.leftT = 0; GAME.leftAt = 2;
+  GAME.blink = 0; GAME.hazard = true; GAME.autoHazard = true; GAME.leftT = 0; GAME.leftAt = 2; GAME.redCool = {}; GAME.rlPrev.town = -1;
   resetTraffic();
   fillJobCard();
 }
@@ -254,13 +255,26 @@ function gameLogic(dt) {
   }
   plazaGates(dt);
   if (GAME.autoHazard && TR.v > 14) { GAME.hazard = false; GAME.autoHazard = false; }
-  // drove off without the trailer: the road is one-way, so say so while a restart is still cheap
-  if (TR.link === 'free' && TR.trailerKey && TR.s - TR.tr.s - TRAILERS[TR.trailerKey].L2 > 150) {
+  // drove off without the trailer: on the expressway (one-way) by the distance along it, in or out of a town in a straight line
+  const away = TR.link === 'free' && TR.trailerKey && (TR.zone === 'town' || _groundTown(TR.tr.kx, TR.tr.kz)
+    ? Math.hypot(TR.x - TR.tr.kx, TR.z - TR.tr.kz) > 150 : TR.s - TR.tr.s - TRAILERS[TR.trailerKey].L2 > 150);
+  if (away) {
     GAME.leftT += dt;
     if (GAME.leftT >= GAME.leftAt) { led('トレーラーを置いたままです。メニューからやり直せます', true, 5); GAME.leftAt = GAME.leftT + 30; }
   } else { GAME.leftT = 0; GAME.leftAt = 2; }
-  // speeding (trucks: 90, or the posted limit if lower)
-  const lim = Math.min(90, regionAt(TR.s, {}).lim);
+  const T = TR.zone === 'town' ? TOWNS_LOADED.get(TR.town) : null;
+  // red lights: the front crossing a stop line on red, once per junction every 30 s
+  for (const k in GAME.redCool) if ((GAME.redCool[k] -= dt) <= 0) delete GAME.redCool[k];
+  if (T) {
+    townUV(T.layout.site, TR.x + Math.sin(TR.h) * RIGP.front, TR.z + Math.cos(TR.h) * RIGP.front, _rlc);
+    if (GAME.rlPrev.town === TR.town) {
+      const n = townRedLight(T.layout, GAME.rlPrev, _rlc, GAME.clock / TIME_SCALE), key = TR.town + ':' + n;
+      if (n >= 0 && !GAME.redCool[key]) { j.fines += 9000; led('信号無視 罰金 ¥9,000', true, 4); GAME.redCool[key] = 30; }
+    }
+    GAME.rlPrev.town = TR.town; GAME.rlPrev.u = _rlc.u; GAME.rlPrev.v = _rlc.v;
+  } else GAME.rlPrev.town = -1;
+  // speeding (trucks: 90, or the posted limit if lower; in a town, the street's limit, 20 in the plaza and the yards)
+  const lim = T ? townLimitAt(T.layout, TR.tu, TR.tv) : Math.min(90, regionAt(TR.s, {}).lim);
   GAME.limit = lim;
   if (TR.v * 3.6 > lim + 12) { GAME.overT += dt; if (GAME.overT > 4 && GAME.fineCool <= 0) { j.fines += 9000; led(`速度超過（制限${lim}km/h）罰金 ¥9,000`, true, 4); GAME.fineCool = 45; } }
   else GAME.overT = 0;
@@ -268,7 +282,7 @@ function gameLogic(dt) {
 }
 // The toll plaza's gates in the loaded towns: ETC at 22 km/h or less opens them (the fare is paid at the destination's
 // exit gate); faster, the bar is hit. Leaving through a town that is not the destination is allowed, and costs nothing.
-const _pgf = {};
+const _pgf = {}, _rlc = {};
 function plazaGates(dt) {
   const j = GAME.job;
   for (const [i, T] of TOWNS_LOADED) {
@@ -348,11 +362,13 @@ function completeJob(how = {}) {
   const late = Math.max(0, GAME.clock - j.due) / 60;
   const timeAdj = late > 0 ? -Math.round(Math.min(0.4, late / 5 * 0.02) * j.pay / 100) * 100 : Math.round(j.pay * 0.08 / 100) * 100;
   const dmgCost = Math.round(TR.damage * j.pay * 0.008 / 100) * 100;
-  const total = j.pay + timeAdj - dmgCost - j.fines - j.toll - j.missPen;
+  const dockBonus = how.dock ? Math.round(j.pay * 0.2 / 100) * 100 : 0;   // backed onto a dock
+  const total = j.pay + dockBonus + timeAdj - dmgCost - j.fines - j.toll - j.missPen;
   GAME.money += total;
   lsSet('nlh.money', GAME.money);
   const rows = [
     ['基本報酬', j.pay],
+    ...(how.dock ? [['荷台口ボーナス（+20%）', dockBonus]] : []),
     [late > 0 ? `遅延（${Math.round(late)}分）` : '早着ボーナス', timeAdj],
     ['高速料金（ETC）', -j.toll],
     [`車両の損傷（${Math.round(TR.damage)}%）`, -dmgCost],

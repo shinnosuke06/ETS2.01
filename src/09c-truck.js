@@ -184,6 +184,10 @@ function requestCouple() {
 // After a rollover or a jackknife: stand the rig back up, straight, on the shoulder (or in the ramp lane).
 function towReset() {
   const T = TR, r = ROAD.rampAt(T.s), towing = T.link !== 'free';
+  if (T.zone === 'town' && TOWNS_LOADED.has(T.town)) {   // in a town: onto the nearest lane, facing along it
+    const L = TOWNS_LOADED.get(T.town).layout, p = townNearestLane(L, T.tu, T.tv);
+    if (p) { const q = townXZ(L.site, p.u, p.v, {}); placeTruckAt(q.x, q.z, L.site.hu + p.h, 0, { coupled: towing }); return; }
+  }
   const lat = r && T.lat < -13.4 ? rampEdges(T.s - r.sDiv).cx : -10.75;
   placeTruck(T.s, lat, 0, { coupled: towing });
 }

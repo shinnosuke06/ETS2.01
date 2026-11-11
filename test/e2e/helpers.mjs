@@ -88,8 +88,12 @@ const DRIVE_SRC = `window.__drive = (path, kmh, seconds = 120, stopAtEnd = true)
   INP.tGas = INP.tBrake = 0; INP.tWheelHeld = false;
   return t;
 };
+// no expressway cars between s0 and s1 (they come back far ahead), for a merge that does not depend on where traffic is
+window.__clearRoad = (s0, s1) => { for (const c of CARS) if (!c.hidden && c.s > s0 && c.s < s1) { c.hidden = true; c.grp.visible = false; c.s = -1e6; } };
 window.__town = (i, pts) => { const site = TOWN_SITES[i], q = {}; return pts.map(([u, v]) => { townXZ(site, u, v, q); return [q.x, q.z]; }); };
 window.__placeTown = (i, u, v, du, dv, kmh, coupled = true) => { const site = TOWN_SITES[i], q = {}; townXZ(site, u, v, q); placeTruckAt(q.x, q.z, site.hu + Math.atan2(dv, du), kmh / 3.6, { coupled }); };
-window.__ready = async () => { let left = 1; while (left) { left = updateChunks(TR.s, 4) + townsTick(200); await __t.frames(1); } };`;
+// waits for the road and the towns near the rig with the game paused as on its loading screen, so the rig does not
+// roll on by itself while the frames go by
+window.__ready = async () => { const st = GAME.state; GAME.state = 'loading'; try { let left = 1; while (left) { left = updateChunks(TR.s, 4) + townsTick(200); await __t.frames(1); } } finally { GAME.state = st; } };`;
 // Put __drive, __town, __placeTown and __ready into the page.
 export const driveHelpers = page => page.evaluate(DRIVE_SRC);

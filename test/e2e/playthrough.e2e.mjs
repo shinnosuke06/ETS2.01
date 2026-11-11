@@ -21,6 +21,7 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
     for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const p = posAt(s, s < en.s1 ? entryEdges(s - en.s0).cx : X_TRV, {}); ramp.push([p.x, p.z]); }
     __drive([...__town(0, [[4.875, 80], ...L0.plaza.entryPath]), ramp[0]], 15, 90, false);
     log.entryGate = L0.plaza.gates.entry.state;
+    __clearRoad(en.s0 - 600, en.s1 + 600);                                   // a clear gap to merge into
     __drive(ramp, 60, 120, false);                                           // the entrance band, merging into the travel lane
     // the expressway (cruise for a while), Atsugi's exit and plaza, by lane-keeping
     const d = destRamp(); let n = 0, cruiseT = 0, cruiseMin = 99, cruiseMax = 0;

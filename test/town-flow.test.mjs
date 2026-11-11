@@ -81,3 +81,20 @@ test('止まっている町の車に 36 km/h で当たると、車が前に押�
   const v1 = Math.hypot(sim.RIG.t.vx, sim.RIG.t.vz); assert.ok(v1 < v0 && v1 > v0 * 0.7, `${v0} -> ${v1}`);
   assert.ok(sim.EVENTS.some(e => e.t === 'car'));
 });
+
+test('townNearestLane は町の車線の上の点と、その車線の向きを返す（曲がる道と広場は使わず、後ろにトレーラーの長さを残す）', () => {
+  for (const [u, v] of [[-20, 140], [3, 60], [-60, 200], [150, 300], [0, 45]]) {
+    const r = SIM.townNearestLane(L2, u, v), l = L2.lanes[r.lane];
+    assert.ok(!l.turn && !l.plaza, `lane ${r.lane}`);
+    // the point lies on the lane's polyline, and h is that piece's direction
+    let best = Infinity, hb = 0;
+    for (let k = 1; k < l.pts.length; k++) {
+      const a = l.pts[k - 1], b = l.pts[k], du = b[0] - a[0], dv = b[1] - a[1], s2 = du * du + dv * dv, t = Math.max(0, Math.min(1, ((r.u - a[0]) * du + (r.v - a[1]) * dv) / s2));
+      const d = Math.hypot(a[0] + du * t - r.u, a[1] + dv * t - r.v); if (d < best) { best = d; hb = Math.atan2(dv, du); }
+    }
+    assert.ok(best < 1e-6 && Math.abs(SIM.wrapA(r.h - hb)) < 1e-9, JSON.stringify({ u, v, r, best }));
+    assert.ok(r.d >= Math.min(20, l.len / 2) - 1e-9, `room behind: ${r.d}`);
+    // no other usable lane passes much nearer to (u, v) than the chosen one, give or take the room kept behind
+    for (const o of L2.lanes) if (!o.turn && !o.plaza) for (const p of o.pts) assert.ok(Math.hypot(p[0] - u, p[1] - v) >= Math.hypot(r.u - u, r.v - v) - 20.5 - 1e-6);
+  }
+});

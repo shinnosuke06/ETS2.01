@@ -213,6 +213,24 @@ function townRedLight(L, prev, cur, t) {
   }
   return -1;
 }
+// The nearest point on a town lane (not a turn or the plaza's bends) to (u, v), with the lane's direction there, kept at
+// least 20 m along the lane (or half of it) so a trailer fits behind, and 6 m short of its end. { u, v, h, lane, d }
+function townNearestLane(L, u, v) {
+  let best = null, bd = Infinity;
+  for (const l of L.lanes) {
+    if (l.turn || l.plaza) continue;
+    let acc = 0;
+    for (let k = 1; k < l.pts.length; k++) {
+      const a = l.pts[k - 1], b = l.pts[k], du = b[0] - a[0], dv = b[1] - a[1], s = Math.hypot(du, dv) || 1;
+      const t = clamp(((u - a[0]) * du + (v - a[1]) * dv) / (s * s), 0, 1), d2 = (a[0] + du * t - u) ** 2 + (a[1] + dv * t - v) ** 2;
+      if (d2 < bd) { bd = d2; best = { lane: l.id, d: acc + t * s }; }
+      acc += s;
+    }
+  }
+  if (!best) return null;
+  const l = L.lanes[best.lane], d = clamp(best.d, Math.min(20, l.len / 2), l.len - Math.min(6, l.len / 2)), p = _laneAt(l, d, {});
+  return { u: p.u, v: p.v, h: p.h, lane: l.id, d };
+}
 // The dock the trailer stands at: its rear end (town point) within 0.6 m of the bumpers, 0.5 m of the dock's centre line,
 // and pointing into the dock within 4 degrees (back: the trailer's backward unit vector). -1: none.
 function dockCheck(wh, rear, back) {
