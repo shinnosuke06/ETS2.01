@@ -98,3 +98,82 @@ test('町の中で横転すると、いちばん近い車線の上に車線の�
   assert.deepEqual([r.zone, r.link], ['town', 'coupled']); assert.match(r.led, /横転しました/);
   assert.deepEqual(errors, []);
 }));
+
+// ---- saving the drive and resuming it ("reopening" = a new page whose localStorage holds what the old one saved) ----
+const saved = page => page.evaluate(() => ({ 'nlh.drive': JSON.parse(localStorage.getItem('nlh.drive')), 'nlh.job': JSON.parse(localStorage.getItem('nlh.job') || '0') }));
+const pose = page => page.evaluate(() => ({ x: TR.x, z: TR.z, h: TR.h, kx: TR.tr.kx, kz: TR.tr.kz, kh: TR.tr.h, link: TR.link, zone: TR.zone, town: TR.town, state: GAME.state }));
+const near = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) < 0.05 && Math.abs(a.h - b.h) < 0.01 && Math.hypot(a.kx - b.kx, a.kz - b.kz) < 0.05 && Math.abs(a.kh - b.kh) < 0.01;
+
+test('E4 町の中で保存して開き直すと、同じ位置・向き・連結の状態（曲がった角度のまま）で再開する。保存は 10 秒ごとにも行われる', async () => {
+  let store, before;
+  await withGame({}, async (page, errors) => {
+    await startJob(page); await driveHelpers(page);
+    const periodic = await page.evaluate(() => {
+      INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+      __placeTown(0, -4.875, 60, 0, 1, 0); localStorage.removeItem('nlh.drive'); GAME.saveT = 0;
+      for (let i = 0; i < 60 * 6; i++) { INP.tGas = TR.v < 3 ? 0.4 : 0; INP.tWheelHeld = true; INP.tWheel = i > 120 ? 0.9 : 0; simTick(1 / 60); }   // ahead, then a bend
+      for (let i = 0; i < 60 * 5; i++) { INP.tGas = 0; INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0; INP.tWheelHeld = false;
+      const at10 = localStorage.getItem('nlh.drive') != null;
+      saveDrive(); return { at10, angle: Math.abs(wrapA(TR.h - TR.tr.h)) };
+    });
+    assert.ok(periodic.at10, 'saved after 10 s of driving'); assert.ok(periodic.angle > 0.05, `bent: ${periodic.angle}`);
+    store = await saved(page); before = await pose(page); assert.deepEqual(errors, []);
+  });
+  await withGame({ storage: store }, async (page, errors) => {
+    const title = await pose(page); await startJob(page); const after = await pose(page);
+    assert.ok(near(title, before) && near(after, before), JSON.stringify({ before, title, after }));
+    assert.deepEqual([after.link, after.zone, after.town], ['coupled', 'town', 0]); assert.deepEqual(errors, []);
+  });
+});
+
+test('トレーラーを荷台口に置いたまま保存して開き直すと、トレーラーは荷台口、トラクターは離れた位置に戻る', async () => {
+  let store, before;
+  await withGame({}, async (page, errors) => {
+    await startJob(page); await driveHelpers(page);
+    await page.evaluate(async () => {
+      INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+      const w = GAME.job.whA, d = w.docks[1], sp = TRAILERS[TR.trailerKey], kp = [d.u + d.nu * (0.2 + sp.rear), d.v + d.nv * (0.2 + sp.rear)];
+      __placeTown(0, kp[0] - d.nu * HITCH, kp[1] - d.nv * HITCH, d.nu, d.nv, 0);
+      for (let i = 0; i < 30; i++) { INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0;
+      INP.actions.push('couple'); for (let i = 0; i < 200 && TR.link !== 'free'; i++) simTick(1 / 60);
+      for (let i = 0; i < 60 * 6; i++) { INP.tGas = TR.v < 3 ? 0.4 : 0; INP.tWheelHeld = true; INP.tWheel = 0; simTick(1 / 60); }
+      for (let i = 0; i < 60 * 3; i++) { INP.tGas = 0; INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0; INP.tWheelHeld = false;
+      saveDrive();
+    });
+    store = await saved(page); before = await pose(page); assert.equal(before.link, 'free'); assert.deepEqual(errors, []);
+  });
+  assert.ok(Math.hypot(before.x - before.kx, before.z - before.kz) > 12, 'the tractor drove off');
+  await withGame({ storage: store }, async (page, errors) => {
+    await startJob(page); const after = await pose(page);
+    const dock = await page.evaluate(() => { const site = TOWN_SITES[0], sp = TRAILERS[TR.trailerKey], q = townUV(site, TR.tr.kx - Math.sin(TR.tr.h) * sp.rear, TR.tr.kz - Math.cos(TR.tr.h) * sp.rear, {});
+      return dockCheck(GAME.job.whA, q, { u: -Math.cos(TR.tr.h - site.hu), v: -Math.sin(TR.tr.h - site.hu) }); });
+    assert.ok(near(after, before) && after.link === 'free', JSON.stringify({ before, after })); assert.equal(dock, 1); assert.deepEqual(errors, []);
+  });
+});
+
+test('連結の途中（ロック中）で保存して開き直すと、離れた状態で戻り、もう一度連結できる', async () => {
+  let store, before;
+  await withGame({}, async (page, errors) => {
+    await startJob(page);
+    const link = await page.evaluate(() => {
+      TR.dir = -1;
+      for (let i = 0; i < 240 * 60 && TR.link === 'free'; i++) stepTruck(1 / 240, { throttle: -TR.v * 3.6 < 3 ? 0.25 : 0, brake: 0, steer: 0 });
+      saveDrive(); return TR.link;
+    });
+    assert.equal(link, 'locking'); store = await saved(page); before = await pose(page); assert.deepEqual(errors, []);
+  });
+  await withGame({ storage: store }, async (page, errors) => {
+    await startJob(page); const after = await pose(page);
+    assert.ok(near(after, before) && after.link === 'free', JSON.stringify({ before, after }));
+    const link = await page.evaluate(() => { INP.actions.push('couple'); for (let i = 0; i < 200; i++) simTick(1 / 60); return TR.link; });
+    assert.equal(link, 'coupled'); assert.deepEqual(errors, []);
+  });
+});
+
+test('壊れた保存（数値でない）は消して、仕事の始まりから始める', () => withGame({ storage: { 'nlh.drive': { job: 0, x: 'a' } } }, async (page, errors) => {
+  const r = await page.evaluate(() => {
+    const site = TOWN_SITES[0], pk = GAME.job.whA.park, k = townUV(site, TR.tr.kx, TR.tr.kz, {});
+    return { kept: localStorage.getItem('nlh.drive'), k: Math.hypot(k.u - pk.u, k.v - pk.v), link: TR.link };
+  });
+  assert.equal(r.kept, 'null'); assert.ok(r.k < 0.05, JSON.stringify(r)); assert.equal(r.link, 'free'); assert.deepEqual(errors, []);
+}));

@@ -96,7 +96,7 @@ const GAME = {
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
   assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
-  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 },   // red lights: seconds before the same junction can fine again; the front's last town point
+  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0,   // red lights: seconds before the same junction can fine again; the front's last town point
 };
 
 // ---- jobs -------------------------------------------------------------------
@@ -244,7 +244,7 @@ function gameLogic(dt) {
   if (!TR.onRamp && TR.s > dr.sDiv + dr.uSep + 30 && TR.s < dr.sEnd + 200 && TR.lat > -12.6) {
     if (j.to < ICS.length - 1) {
       j.missPen += Math.round(j.pay * 0.15 / 100) * 100;
-      j.to += 1; j.b = ICS[j.to];
+      j.to += 1; j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh);   // delivered to the same kind of warehouse in the next town
       j.due += (j.b.kp - ICS[j.to - 1].kp) / 70 * 3600;
       led(`出口を通過。次の${j.b.jp}ICで降ります`, true, 5);
     } else {
@@ -365,7 +365,7 @@ function completeJob(how = {}) {
   const dockBonus = how.dock ? Math.round(j.pay * 0.2 / 100) * 100 : 0;   // backed onto a dock
   const total = j.pay + dockBonus + timeAdj - dmgCost - j.fines - j.toll - j.missPen;
   GAME.money += total;
-  lsSet('nlh.money', GAME.money);
+  lsSet('nlh.money', GAME.money); lsSet('nlh.drive', null);
   const rows = [
     ['基本報酬', j.pay],
     ...(how.dock ? [['荷台口ボーナス（+20%）', dockBonus]] : []),
@@ -419,7 +419,7 @@ function toggleMenu() {
 $('resumeBtn').addEventListener('click', toggleMenu);
 $('restartBtn').addEventListener('click', async () => {
   $('menuOv').hidden = true;
-  GAME.clock = GAME.job.startClock;
+  GAME.clock = GAME.job.startClock; lsSet('nlh.drive', null);
   setupJob(GAME.jobIdx);
   GAME.state = 'loading';
   await preloadAround('やり直し');
@@ -674,6 +674,7 @@ function simTick(dt) {
     physicsAdvance(dt, { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: INP.steer });
     GAME.clock += dt * TIME_SCALE;
     gameLogic(dt);
+    if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); }
   }
   if (GAME.state !== 'menu') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }
   processEvents(dt);
@@ -712,6 +713,29 @@ function frame(now) {
   DIAG.frames++; DIAG.ms += performance.now() - t0;
 }
 
+// ---- saving the drive: every 10 s while driving and when the page is hidden; resumed at the next start ----
+function driveState() {
+  const j = GAME.job;
+  return { job: GAME.jobIdx, x: TR.x, z: TR.z, h: TR.h, v: TR.v, link: TR.link, trailer: { x: TR.tr.kx, z: TR.tr.kz, h: TR.tr.h },
+    clock: GAME.clock, money: GAME.money, damage: TR.damage, jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock } };
+}
+function saveDrive() { if (GAME.state === 'drive' && GAME.job) lsSet('nlh.drive', driveState()); }
+function driveSaveOk(d) {
+  if (!d || typeof d !== 'object' || d.job !== GAME.jobIdx || !d.trailer || !d.jp) return false;
+  const nums = [d.x, d.z, d.h, d.v, d.trailer.x, d.trailer.z, d.trailer.h, d.clock, d.money, d.damage, d.jp.to, d.jp.fines, d.jp.toll, d.jp.missPen, d.jp.due, d.jp.startClock];
+  return nums.every(Number.isFinite) && d.jp.to >= JOBS[GAME.jobIdx].to && d.jp.to < ICS.length && typeof d.link === 'string';
+}
+// Put the rig back as saved, at rest. A trailer that was not yet locked on is left standing where it was.
+function loadDrive(d) {
+  const j = GAME.job, free = d.link === 'free' || d.link === 'locking';
+  Object.assign(j, d.jp); j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh); TR.damage = d.damage;
+  placeTruckAt(d.x, d.z, d.h, 0, { coupled: false });
+  parkTrailerAt(d.trailer.x, d.trailer.z, d.trailer.h);
+  if (!free) { rigCouple(); TR.link = 'coupled'; syncTR(); }   // coupled at the angle it was saved at
+  GAME.hazard = GAME.autoHazard = false;
+}
+window.addEventListener('pagehide', saveDrive);
+
 // ---- boot -------------------------------------------------------------------------------
 async function fontsReady() {
   if (!document.fonts || !document.fonts.load) return;
@@ -740,14 +764,14 @@ async function boot(data) {
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();
-  if (data && typeof data.job === 'number') { GAME.jobIdx = data.job % JOBS.length; GAME.money = data.money || GAME.money; GAME.clock = data.clock || GAME.clock; }
+  if (data && typeof data.job === 'number') GAME.jobIdx = data.job % JOBS.length;
+  // a drive saved in this browser comes first; then what a page update handed over (the same shape); else the job's start
+  const saved = lsGet('nlh.drive', null), d = driveSaveOk(saved) ? saved : driveSaveOk(data) ? data : null;
+  if (saved && d !== saved) lsSet('nlh.drive', null);
+  if (d) { GAME.money = d.money; GAME.clock = d.clock; }
   applyTimeOfDay((GAME.clock / 3600) % 24, 0);
   setupJob(GAME.jobIdx);
-  if (data && data.s && data.state === 'drive') {   // resume where a page update interrupted the drive
-    const towing = data.link ? data.link !== 'free' : true;
-    if (!towing && Number.isFinite(data.ks)) parkTrailer(data.ks, data.klat);
-    placeTruck(data.s, data.lat, data.v || 0, { coupled: towing });
-  }
+  if (d) loadDrive(d);
   await preloadAround();
   GAME.state = 'title';
   $('startBtn').disabled = false;
@@ -756,8 +780,7 @@ async function boot(data) {
 }
 try {
   window.claude?.hot?.snapshot?.(() => {
-    const k = ROAD.project(TR.tr.kx, TR.tr.kz, TR.tr.idx, {});
-    return { job: GAME.jobIdx, money: GAME.money, clock: GAME.clock, s: TR.s, lat: TR.lat, v: TR.v, link: TR.link, ks: k.s, klat: k.lat, state: GAME.state === 'drive' ? 'drive' : 'title' };
+    return GAME.state === 'drive' || GAME.state === 'menu' ? { ...driveState(), state: GAME.state === 'drive' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
   });
 } catch (e) { /* not in a viewer */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
