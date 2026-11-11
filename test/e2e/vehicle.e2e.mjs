@@ -130,3 +130,12 @@ test('ハンドルとペダルは、今までどおり動く', () => withGame({}
     return [a, [INT.wheel.rotation.z, INT.gas.rotation.x, INT.brake.rotation.x]]; });
   assert.ok(Math.abs(r[1][0] - r[0][0]) > 0.5 && Math.abs(r[1][1] - r[0][1]) > 0.1, JSON.stringify(r));
 }));
+test('室内の後ろ：背の高いシートが 2 脚、間にコンソールがある', () => withGame({}, async page => {
+  const P = await partsOf(page);
+  for (const k of ['seatD', 'seatP', 'belts', 'console']) { assert.ok(P[k] && P[k].tris > 0, k); assert.ok(cabin(P[k].box), `${k} ${P[k].box}`); }
+  for (const [k, x] of [['seatD', 0.55], ['seatP', -0.6]]) { const b = P[k].box; assert.ok(Math.abs((b[0] + b[3]) / 2 - x) < 0.05, `${k} centre ${b}`); assert.ok(b[4] >= 2.85 && b[4] <= 2.95, `${k} top ${b[4]}`); assert.ok(P[k].tris <= 9000, `${k} tris ${P[k].tris}`); }
+  assert.ok(P.console.box[0] >= -0.3 && P.console.box[3] <= 0.25, String(P.console.box));
+}));
+test('運転席の背もたれと頭の部分は、目の後ろにある（目をふさがない）', () => withGame({}, async page => {
+  const P = await partsOf(page); assert.ok(P.seatDBack && P.seatDBack.box[2] > -4.28 + 0.08, JSON.stringify(P.seatDBack));
+}));
