@@ -227,6 +227,13 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
             <button type="button" data-v="red" aria-pressed="false">レッド</button>
           </div>
         </div>
+        <div class="row" style="margin-top:10px">
+          <span class="lbl">外装の仕様</span>
+          <div class="seg" id="trimSeg" role="group" aria-label="外装の仕様">
+            <button type="button" data-v="normal" aria-pressed="true">ノーマル</button>
+            <button type="button" data-v="custom" aria-pressed="false">飾り付き</button>
+          </div>
+        </div>
       </div>
       <div class="panel">
         <h2>操作</h2>
@@ -287,6 +294,12 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <button type="button" data-v="black" aria-pressed="true">ブラック</button>
           <button type="button" data-v="beige" aria-pressed="false">ライトグレー</button>
           <button type="button" data-v="red" aria-pressed="false">レッド</button>
+        </div>
+      </div>
+      <div class="row"><span class="lbl">外装の仕様</span>
+        <div class="seg" id="trimSeg2" role="group" aria-label="外装の仕様">
+          <button type="button" data-v="normal" aria-pressed="true">ノーマル</button>
+          <button type="button" data-v="custom" aria-pressed="false">飾り付き</button>
         </div>
       </div>
       <div class="row"><span class="lbl">安定装置</span>
@@ -2686,10 +2699,12 @@ function setCabAmbient(on) {
   const e = CAB_AMBIENT.base.clone().multiplyScalar(on ? 0.13 : 0);
   IM.floor.emissive.copy(e); IM.mat.emissive.copy(e);
 }
-// The trim ('normal' or 'custom'); T, the tractor, is updated from Task 4 on.
+// The trim: 'normal' (as in photos 7-9) or 'custom' (light bar, markers, chrome and a pinstripe livery).
+// T, the tractor, shows or hides its decorations; its roof lamps light with the headlights only on 'custom'.
 function applyTrim(name, T) {
   if (!TRIMS.includes(name)) return;
   trimName = name; lsSet('nlh.trim', name);
+  if (T && T.deco) { T.deco.visible = name === 'custom'; T.lightbar = name === 'custom' ? T.barLamps : []; }
 }
 
 makeVehicleMaterials(qualityName);
@@ -2870,7 +2885,8 @@ function makeWheel(dual, side) {
 }
 
 function buildTractor() {
-  const T = { blinkL: [], blinkR: [], heads: [], lightbar: [], spin: [], steer: [], rear: [] };
+  // lightbar: the roof lamps that light with the headlights (empty on the normal trim). deco: parts of the custom trim.
+  const T = { blinkL: [], blinkR: [], heads: [], lightbar: [], barLamps: [], spin: [], steer: [], rear: [] };
   const root = new THREE.Group(); root.rotation.order = 'YXZ';
   T.root = root;
 
@@ -3047,11 +3063,13 @@ function buildTractor() {
     const rep = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.12), TM.amberOff);
     rep.position.set(sx * 1.262, 1.95, -5.1); cab.add(rep); (sx < 0 ? T.blinkL : T.blinkR).push(rep);
   }
-  // light bar lamps and red end markers on the visor
+  // custom trim: light bar lamps on the visor
+  T.deco = new THREE.Group(); cab.add(T.deco);
   for (let k = 0; k < 6; k++) {
     const l = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.04, 16), TM.headOff);
-    l.rotation.x = Math.PI / 2; l.position.set(-0.75 + k * 0.3, 3.58, -5.56); cab.add(l); T.lightbar.push(l);
+    l.rotation.x = Math.PI / 2; l.position.set(-0.75 + k * 0.3, 3.58, -5.56); T.deco.add(l); T.barLamps.push(l);
   }
+  // red end markers on the visor
   const LED = new Parts();
   for (const sx of [-1, 1]) {
     LED.box(TM.ledRed, 0.06, 0.05, 0.03, sx * 0.94, 3.58, -5.56);
@@ -3092,7 +3110,7 @@ function buildTractor() {
     const arm = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.022, 0.02).translate(-0.44, 0, -0.012), TM.black);
     piv.add(arm); T.wipers.push(piv);
   }
-  applyPaint(paintName);
+  applyPaint(paintName); applyTrim(trimName, T);
   return T;
 }
 
@@ -5346,6 +5364,7 @@ for (const seg of ['qualSeg', 'qualSeg2']) $(seg).addEventListener('click', e =>
 function syncSeg(ids, value) { for (const id of ids) for (const b of $(id).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.v === value)); }
 for (const id of ['paintSeg', 'paintSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyPaint(b.dataset.v); syncSeg(['paintSeg', 'paintSeg2'], paintName); } });
 for (const id of ['intSeg', 'intSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyInteriorTheme(b.dataset.v); syncSeg(['intSeg', 'intSeg2'], interiorName); } });
+for (const id of ['trimSeg', 'trimSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyTrim(b.dataset.v, TRK); syncSeg(['trimSeg', 'trimSeg2'], trimName); } });
 
 // ---- HUD ------------------------------------------------------------------------
 function showHud(on) {
@@ -5473,7 +5492,11 @@ function updateVisuals(dt) {
 
 const _cv = new THREE.Vector3(), _ct = new THREE.Vector3();
 function updateCamera(dt) {
-  const ov = window.__camOverride; // dev hook: {p:[x,y,z], t:[x,y,z]} in tractor-local coordinates
+  // dev hook: { p: [x, y, z], t: [x, y, z] } in tractor-local coordinates, optional fov (degrees) and
+  // inCab (a view from inside the cab: near clipping close in, the small cab parts drawn)
+  const ov = window.__camOverride;
+  const fov = ov && ov.fov || 55, near = ov && ov.inCab ? 0.05 : 0.3;
+  if (chaseCam.fov !== fov || chaseCam.near !== near) { chaseCam.fov = fov; chaseCam.near = near; chaseCam.updateProjectionMatrix(); }
   if (ov) {
     const m = TRK.root.matrixWorld;
     chaseCam.position.set(...ov.p).applyMatrix4(m);
@@ -5570,7 +5593,7 @@ function frame(now) {
   if (GAME.state !== 'loading') updateChunks(TR.s, 1);
   updateVisuals(dt);
   updateCamera(dt);
-  setCabDetail(activeCam === cabCam);
+  setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
   audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
@@ -5614,7 +5637,7 @@ $('startBtn').addEventListener('click', startDriving);
 async function boot(data) {
   if (IS_TOUCH) document.body.classList.add('touch');
   for (const seg of ['qualSeg', 'qualSeg2']) for (const b of $(seg).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.q === qualityName));
-  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off');
+  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off'); syncSeg(['trimSeg', 'trimSeg2'], trimName);
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();

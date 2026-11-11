@@ -173,7 +173,8 @@ function makeWheel(dual, side) {
 }
 
 function buildTractor() {
-  const T = { blinkL: [], blinkR: [], heads: [], lightbar: [], spin: [], steer: [], rear: [] };
+  // lightbar: the roof lamps that light with the headlights (empty on the normal trim). deco: parts of the custom trim.
+  const T = { blinkL: [], blinkR: [], heads: [], lightbar: [], barLamps: [], spin: [], steer: [], rear: [] };
   const root = new THREE.Group(); root.rotation.order = 'YXZ';
   T.root = root;
 
@@ -350,11 +351,13 @@ function buildTractor() {
     const rep = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.12), TM.amberOff);
     rep.position.set(sx * 1.262, 1.95, -5.1); cab.add(rep); (sx < 0 ? T.blinkL : T.blinkR).push(rep);
   }
-  // light bar lamps and red end markers on the visor
+  // custom trim: light bar lamps on the visor
+  T.deco = new THREE.Group(); cab.add(T.deco);
   for (let k = 0; k < 6; k++) {
     const l = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.04, 16), TM.headOff);
-    l.rotation.x = Math.PI / 2; l.position.set(-0.75 + k * 0.3, 3.58, -5.56); cab.add(l); T.lightbar.push(l);
+    l.rotation.x = Math.PI / 2; l.position.set(-0.75 + k * 0.3, 3.58, -5.56); T.deco.add(l); T.barLamps.push(l);
   }
+  // red end markers on the visor
   const LED = new Parts();
   for (const sx of [-1, 1]) {
     LED.box(TM.ledRed, 0.06, 0.05, 0.03, sx * 0.94, 3.58, -5.56);
@@ -395,6 +398,6 @@ function buildTractor() {
     const arm = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.022, 0.02).translate(-0.44, 0, -0.012), TM.black);
     piv.add(arm); T.wipers.push(piv);
   }
-  applyPaint(paintName);
+  applyPaint(paintName); applyTrim(trimName, T);
   return T;
 }

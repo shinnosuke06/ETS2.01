@@ -376,6 +376,7 @@ for (const seg of ['qualSeg', 'qualSeg2']) $(seg).addEventListener('click', e =>
 function syncSeg(ids, value) { for (const id of ids) for (const b of $(id).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.v === value)); }
 for (const id of ['paintSeg', 'paintSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyPaint(b.dataset.v); syncSeg(['paintSeg', 'paintSeg2'], paintName); } });
 for (const id of ['intSeg', 'intSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyInteriorTheme(b.dataset.v); syncSeg(['intSeg', 'intSeg2'], interiorName); } });
+for (const id of ['trimSeg', 'trimSeg2']) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) { applyTrim(b.dataset.v, TRK); syncSeg(['trimSeg', 'trimSeg2'], trimName); } });
 
 // ---- HUD ------------------------------------------------------------------------
 function showHud(on) {
@@ -503,7 +504,11 @@ function updateVisuals(dt) {
 
 const _cv = new THREE.Vector3(), _ct = new THREE.Vector3();
 function updateCamera(dt) {
-  const ov = window.__camOverride; // dev hook: {p:[x,y,z], t:[x,y,z]} in tractor-local coordinates
+  // dev hook: { p: [x, y, z], t: [x, y, z] } in tractor-local coordinates, optional fov (degrees) and
+  // inCab (a view from inside the cab: near clipping close in, the small cab parts drawn)
+  const ov = window.__camOverride;
+  const fov = ov && ov.fov || 55, near = ov && ov.inCab ? 0.05 : 0.3;
+  if (chaseCam.fov !== fov || chaseCam.near !== near) { chaseCam.fov = fov; chaseCam.near = near; chaseCam.updateProjectionMatrix(); }
   if (ov) {
     const m = TRK.root.matrixWorld;
     chaseCam.position.set(...ov.p).applyMatrix4(m);
@@ -600,7 +605,7 @@ function frame(now) {
   if (GAME.state !== 'loading') updateChunks(TR.s, 1);
   updateVisuals(dt);
   updateCamera(dt);
-  setCabDetail(activeCam === cabCam);
+  setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
   audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
@@ -644,7 +649,7 @@ $('startBtn').addEventListener('click', startDriving);
 async function boot(data) {
   if (IS_TOUCH) document.body.classList.add('touch');
   for (const seg of ['qualSeg', 'qualSeg2']) for (const b of $(seg).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.q === qualityName));
-  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off');
+  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off'); syncSeg(['trimSeg', 'trimSeg2'], trimName);
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();

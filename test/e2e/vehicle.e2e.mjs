@@ -69,3 +69,23 @@ test('V9 外の視点では細かい部品を描かず、車内視点では描�
   const r = await page.evaluate(async () => { GAME.cam = 'cab'; await __t.frames(2); const a = [INT.fine.visible, INT.shell.visible]; GAME.cam = 'chase'; await __t.frames(2); return [a, [INT.fine.visible, INT.shell.visible], INT.fine.children.length > 0, INT.shell.children.length > 0]; });
   assert.deepEqual(r, [[true, true], [false, true], true, true]);
 }));
+
+test('V6 外装色 4 × 仕様 2 × 内装 3 のどれに切り替えても描ける。仕様で屋根のランプが入れ替わる', () => withGame({}, async (page, errors) => {
+  await startJob(page);
+  const r = await page.evaluate(async () => { const out = [];
+    for (const trim of ['normal', 'custom']) for (const paint of ['white', 'blue', 'red', 'silver']) for (const th of ['black', 'beige', 'red']) {
+      document.querySelector(`#trimSeg2 [data-v="${trim}"]`).click(); document.querySelector(`#paintSeg2 [data-v="${paint}"]`).click(); document.querySelector(`#intSeg2 [data-v="${th}"]`).click();
+      await __t.frames(1); out.push([trimName, paintName, interiorName, TRK.deco.visible, TRK.lightbar.length].join());
+    }
+    return { out, saved: JSON.parse(localStorage.getItem('nlh.trim')), pressed: document.querySelector('#trimSeg [data-v="custom"]').getAttribute('aria-pressed') };
+  });
+  assert.equal(r.out.length, 24); assert.ok(r.out.every(s => /^normal,.*,false,0$/.test(s) || /^custom,.*,true,[1-9]\d*$/.test(s)), r.out.join(' | '));
+  assert.equal(r.saved, 'custom'); assert.equal(r.pressed, 'true'); assert.deepEqual(errors, []);
+}));
+test('基準の視点 9 つを当てられ、車内の視点では細かい部品が描かれる', () => withGame({}, async (page, errors) => {
+  await startJob(page); const { REFVIEWS, applyRefView } = await import('./refviews.mjs'); assert.equal(Object.keys(REFVIEWS).length, 9);
+  for (const id of ['R1', 'R4']) { await applyRefView(page, id);
+    const r = await page.evaluate(() => [INT.fine.visible, paintName, trimName, interiorName, TR.link, Math.round(chaseCam.fov)]);
+    assert.deepEqual(r, id === 'R1' ? [true, r[1], r[2], 'black', r[4], 85] : [false, 'red', 'custom', r[3], 'free', 40]); }
+  assert.deepEqual(errors, []);
+}));

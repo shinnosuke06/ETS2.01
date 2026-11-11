@@ -375,10 +375,12 @@ function setCabAmbient(on) {
   const e = CAB_AMBIENT.base.clone().multiplyScalar(on ? 0.13 : 0);
   IM.floor.emissive.copy(e); IM.mat.emissive.copy(e);
 }
-// The trim ('normal' or 'custom'); T, the tractor, is updated from Task 4 on.
+// The trim: 'normal' (as in photos 7-9) or 'custom' (light bar, markers, chrome and a pinstripe livery).
+// T, the tractor, shows or hides its decorations; its roof lamps light with the headlights only on 'custom'.
 function applyTrim(name, T) {
   if (!TRIMS.includes(name)) return;
   trimName = name; lsSet('nlh.trim', name);
+  if (T && T.deco) { T.deco.visible = name === 'custom'; T.lightbar = name === 'custom' ? T.barLamps : []; }
 }
 
 makeVehicleMaterials(qualityName);
