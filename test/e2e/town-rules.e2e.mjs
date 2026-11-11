@@ -177,3 +177,64 @@ test('壊れた保存（数値でない）は消して、仕事の始まりか�
   });
   assert.equal(r.kept, 'null'); assert.ok(r.k < 0.05, JSON.stringify(r)); assert.equal(r.link, 'free'); assert.deepEqual(errors, []);
 }));
+
+test('E5 町の中で画質を 3 回切り替え、メニューを開いて閉じ、やり直しても、町と町の車と車両が動き続ける', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    const out = [];
+    const check = async label => {
+      for (let i = 0; i < 60; i++) { INP.tGas = 0.5; INP.tWheelHeld = true; INP.tWheel = 0; simTick(1 / 60); } INP.tGas = 0; INP.tWheelHeld = false;
+      await __t.frames(2);
+      const X = TOWN_TRAFFIC.get(0), moved = X ? X.cars.filter(c => c.v > 0.5).length : 0;
+      out.push({ label, mesh: TOWN_MESH.has(0), cars: X ? X.cars.length : -1, want: Q.townCars, moved, v: +TR.v.toFixed(2), state: GAME.state });
+      for (let i = 0; i < 90; i++) { INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0;
+    };
+    __placeTown(0, 4.875, 200, 0, -1, 0, false); await __ready();
+    for (const q of ['low', 'mid', 'high']) { setQuality(q); await check(q); }
+    toggleMenu(); await __t.frames(2); toggleMenu(); await check('menu');
+    document.getElementById('restartBtn').click();
+    for (let n = 0; n < 600 && GAME.state !== 'drive'; n++) await __t.frames(1);
+    await check('restart');
+    return out;
+  });
+  for (const x of r) {
+    assert.ok(x.mesh && x.cars === x.want && x.moved > 0 && x.v > 0.3 && x.state === 'drive', JSON.stringify(r));
+  }
+  assert.deepEqual(errors, []);
+}));
+
+test('E2（ゲームの中）：町の中の車内視点で、町 1 つの三角形と描く回数が画質ごとの上限に収まる', async () => {
+  for (const [q, triMax] of [['high', 150000], ['mid', 90000], ['low', 50000]]) await withGame({ storage: { 'nlh.quality': q } }, async (page, errors) => {
+    await startJob(page);
+    const r = await page.evaluate(async () => {
+      setCam('cab'); await __t.frames(2);
+      // the town alone, seen from the cab: its group moved for one render into a scene of its own, with the same lights
+      const town = TOWN_MESH.get(0).grp, solo = new THREE.Scene(), h = hemi.clone(), s = sun.clone();
+      solo.add(town, h, s); s.target.position.copy(sun.target.position); solo.add(s.target);
+      const se = renderer.shadowMap.enabled; renderer.shadowMap.enabled = false;
+      renderer.render(solo, activeCam);
+      const info = { tris: renderer.info.render.triangles, calls: renderer.info.render.calls, stats: townStats(0) };
+      renderer.shadowMap.enabled = se; scene.add(town);
+      return info;
+    });
+    console.log('E2 in game', q, JSON.stringify(r));
+    assert.ok(r.tris > 1000 && r.tris <= triMax && r.calls <= 90, `${q} ${JSON.stringify(r)}`);
+    assert.deepEqual(errors, []);
+  });
+});
+
+test('町の車の上に車両を置いても（レッカーのあとなど）、その車は別の所へ移り、接触の罰金が続かない', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    const L = TOWNS_LOADED.get(0).layout, site = L.site, X = TOWN_TRAFFIC.get(0);
+    const c = X.cars.find(o => !o.hidden && !L.lanes[o.lane].turn && o.d > 30 && o.d < L.lanes[o.lane].len - 10);
+    const p = townCarPose(L, c, {});
+    __placeTown(0, p.u, p.v, Math.cos(p.h), Math.sin(p.h), 0);   // the tractor right on top of it
+    GAME.job.fines = 0;
+    for (let k = 0; k < 60 * 8; k++) { INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0;
+    const inside = X.cars.filter(o => !o.hidden && Math.hypot(o.x - TR.x, o.z - TR.z) < 2).length;
+    return { fines: GAME.job.fines, inside };
+  });
+  assert.deepEqual(r, { fines: 0, inside: 0 }); assert.deepEqual(errors, []);
+}));

@@ -39,18 +39,22 @@ function townTrafficStep(dt, active) {
       townCarPose(L, c, _ttp); townXZ(site, _ttp.u, _ttp.v, _ttq);
       c.x = _ttq.x; c.z = _ttq.z; c.h = site.hu + _ttp.h;
       g.position.set(c.x, townHeight(site, _ttp.u, _ttp.v), c.z); g.rotation.y = c.h + Math.PI;
-      if (near && active) townCarBump(c, L, site);
+      if (near && active) townCarBump(c, L, site, X);
     });
   }
 }
 // The rig against one town car (world boxes): resolveBoxContact moves the car along its lane and pushes the rig.
-function townCarBump(c, L, site) {
+// A car whose centre is inside the rig was not driven into it: the rig was put down on top of it (after a tow, a restart
+// or a resume), or it came in at a lane's start where the rig stands. It goes elsewhere instead of bumping every step.
+function townCarBump(c, L, site, X) {
   const P = RIGP, T = TR, ax = (P.front - P.back) / 2;
   const boxes = [{ x: T.x + Math.sin(T.h) * ax, z: T.z + Math.cos(T.h) * ax, h: T.h, len: P.front + P.back, wid: 2.5, tractor: true }];
   const sp = TRAILERS[T.trailerKey];
   if (sp) { const a = (sp.nose - sp.rear) / 2; boxes.push({ x: T.tr.kx + Math.sin(T.tr.h) * a, z: T.tr.kz + Math.cos(T.tr.h) * a, h: T.tr.h, len: sp.nose + sp.rear, wid: 2.5, tractor: false }); }
   for (const b of boxes) {
     if (Math.hypot(b.x - c.x, b.z - c.z) > (b.len + c.len) / 2 + 3) continue;
+    const dx = c.x - b.x, dz = c.z - b.z, al = dx * Math.sin(b.h) + dz * Math.cos(b.h), sd = dx * Math.cos(b.h) - dz * Math.sin(b.h);
+    if (Math.abs(al) < b.len / 2 && Math.abs(sd) < b.wid / 2) { _respawn(L, _townIndex(L), X.cars, c, X.rand); return; }
     if (resolveBoxContact(c, b)) { c.d = clamp(c.d, 0, L.lanes[c.lane].len); break; }
   }
 }

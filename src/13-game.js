@@ -448,6 +448,7 @@ function setQuality(name) {
   rebuildVehicle();
   resizeMirrors();
   if (GAME.state !== 'loading') resetTraffic();
+  for (const i of [...TOWN_TRAFFIC.keys()]) { townTrafficStop(i); townTrafficStart(i); }   // the towns' cars, as many as the new quality has
   onResize();
 }
 for (const seg of ['qualSeg', 'qualSeg2']) $(seg).addEventListener('click', e => { const b = e.target.closest('button'); if (b) setQuality(b.dataset.q); });
