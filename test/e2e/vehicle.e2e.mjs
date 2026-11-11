@@ -189,3 +189,10 @@ test('映る鏡のカメラは、新しい導風板やミラーの殻にふさ�
       return out; }); });
   for (const side of r) assert.ok(side.filter(d => d !== null && d < 3).length <= 1, JSON.stringify(r));   // of four rays, at most one meets the own truck within 3 m
 }));
+test('外観：前まわりの部品があり、前端は今のまま、灯火は今までどおり点く', () => withGame({}, async page => {
+  await startJob(page); const P = await partsOf(page);
+  for (const k of ['grille', 'bumper', 'headlamps', 'fogs', 'spoiler', 'visor', 'wipers', 'plateF']) assert.ok(P[k] && P[k].tris > 0, k);
+  assert.ok(Math.min(P.bumper.box[2], P.grille.box[2], P.visor.box[2]) >= -5.75, 'front end'); const gw = P.grille.box[3] - P.grille.box[0]; assert.ok(gw > 1.7 && gw < 1.9, String(gw));
+  const r = await page.evaluate(async () => { GAME.lights = true; GAME.hazard = true; await __t.frames(3); return [TRK.heads.length, TRK.heads.every(m => m.material === TM.headOn), TRK.blinkL.length > 0 && TRK.blinkR.length > 0, TRK.wipers.length]; });
+  assert.ok(r[0] >= 2 && r[1] && r[2] && r[3] === 2, JSON.stringify(r));
+}));

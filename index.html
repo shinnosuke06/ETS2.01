@@ -2566,6 +2566,7 @@ function makeVehicleMaterials(quality) {
 
   Object.assign(TM, {
     paint: kind.paint(),
+    trim: kind.paint(),          // grille slats and mirror covers: body colour, or chrome on the custom trim
     paintDark: phong({ color: 0x2a2c2f, specular: 0x333333, shininess: 40 }),
     chrome: kind.polished(0xe2e6e9, 0.08, envPhong(0xe2e6e9, 120, 0.75)),
     black: kind.plastic(0x131415, false),
@@ -2672,6 +2673,15 @@ function applyPaint(name) {
   paintName = name; lsSet('nlh.paint', name);
   TM.paint.color.setHex(PAINTS[name].color);
   if (!VEH.pbr) TM.paint.reflectivity = name === 'white' ? 0.12 : 0.24;
+  _trimLook();
+}
+// The trim material follows the paint on the normal trim and turns to chrome on the custom trim.
+function _trimLook() {
+  const m = TM.trim; if (!m) return;
+  const chrome = trimName === 'custom';
+  m.color.setHex(chrome ? 0xe2e6e9 : PAINTS[paintName].color);
+  if (VEH.pbr) { m.metalness = chrome ? 1 : 0; m.roughness = chrome ? 0.08 : 0.35; m.clearcoat = chrome ? 0 : 1; }
+  else m.reflectivity = chrome ? 0.75 : paintName === 'white' ? 0.12 : 0.24;
 }
 function applyInteriorTheme(name) {
   const th = INTERIOR_THEMES[name]; if (!th) return;
@@ -2707,6 +2717,7 @@ function setCabAmbient(on) {
 function applyTrim(name, T) {
   if (!TRIMS.includes(name)) return;
   trimName = name; lsSet('nlh.trim', name);
+  _trimLook();
   if (T && T.deco) { T.deco.visible = name === 'custom'; T.lightbar = name === 'custom' ? T.barLamps : []; }
 }
 
@@ -2907,34 +2918,9 @@ function buildTractor() {
     C.box(TM.amberOff, 0.1, 0.08, 0.02, sx * 0.62, 1.06, 0.915);
   }
   C.box(TM.dark, 1.0, 0.12, 0.08, 0, 0.82, 0.9);
-  // bumper: body-coloured top, grey lower part, corner headlamp housings, centre step
-  C.box(TM.paint, 2.5, 0.36, 0.3, 0, 0.99, -5.47);
-  C.box(TM.bumper, 2.42, 0.34, 0.32, 0, 0.64, -5.46);
-  C.box(TM.black, 2.2, 0.08, 0.34, 0, 0.43, -5.45);
-  C.box(TM.gloss, 0.68, 0.12, 0.02, 0, 0.8, -5.625);
-  C.box(TM.chequer, 0.62, 0.03, 0.22, 0, 0.865, -5.56);
-  for (const sx of [-1, 1]) {
-    C.box(TM.gloss, 0.6, 0.34, 0.05, sx * 0.92, 0.97, -5.605);
-    C.box(TM.gloss, 0.06, 0.34, 0.28, sx * 1.235, 0.97, -5.5);
-    C.box(TM.drl, 0.54, 0.024, 0.02, sx * 0.92, 1.125, -5.635);
-    C.box(TM.drl, 0.024, 0.28, 0.02, sx * 1.205, 0.98, -5.635);
-    C.add(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 16), TM.headOff, sx * 0.92, 0.62, -5.625, Math.PI / 2, 0, 0);
-    C.box(TM.rubber, 0.3, 0.035, 0.3, sx * 0.95, 0.32, -5.4); // front mud flap stub
-  }
-  C.build(root, { cast: true });
   const LP = new Parts();
   for (const sx of [-1, 1]) LP.box(TM.redDim, 0.3, 0.085, 0.02, sx * 0.97, 1.06, 0.915);
   LP.build(root);
-  for (const sx of [-1, 1]) {
-    for (const dx of [0.07, 0.25]) { // twin LED projector units
-      const h = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.19, 0.03), TM.headOff);
-      h.position.set(sx * (0.92 + dx - 0.07), 0.97, -5.638); root.add(h); T.heads.push(h);
-    }
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.03), TM.amberOff);
-    b.position.set(sx * 0.7, 0.97, -5.638); root.add(b); (sx < 0 ? T.blinkL : T.blinkR).push(b);
-  }
-  const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.22), PLATE_MAT);
-  plate.position.set(0, 0.6, -5.63); plate.rotation.y = Math.PI; root.add(plate);
   // wheels
   for (const sx of [-1, 1]) {
     const st = new THREE.Group(); st.position.set(sx * 1.03, 0.52, -3.9); root.add(st);
@@ -2955,23 +2941,8 @@ function buildTractor() {
 
   const K = new Parts();
   tractorCab(T, K, root, cab);
-  // black band at the windscreen base (wiper cowl)
-  K.box(TM.gloss, 2.24, 0.12, 0.06, 0, 2.18, -5.445);
-  // grille: honeycomb mesh with three body-coloured slats, a blank badge rail, lower intake
-  const gb = 1.30, gt = 1.94, gwb = 0.8, gwt = 0.98;
-  const zg = y => zfAt(y) - 0.006;
-  K.add(quadGeo([-gwb, gb, zg(gb)], [gwb, gb, zg(gb)], [gwt, gt, zg(gt)], [-gwt, gt, zg(gt)], [0, 0, -1], [0, 0, 1, 0, 1, 1, 0, 1]), TM.mesh);
-  for (const y of [1.84, 1.66, 1.48]) {
-    const hw = lerp(gwb, gwt, (y - gb) / (gt - gb)) + 0.03;
-    K.box(TM.paint, hw * 2, 0.085, 0.05, 0, y, zfAt(y) - 0.03, -0.09, 0, 0);
-    K.box(TM.chrome, hw * 2, 0.012, 0.052, 0, y + 0.045, zfAt(y) - 0.031, -0.09, 0, 0);
-  }
-  K.box(TM.chrome, 2.0, 0.018, 0.02, 0, 1.955, zfAt(1.955) - 0.01, -0.09, 0, 0);
-  K.box(TM.gloss, 1.26, 0.05, 0.012, 0, 2.03, zfAt(2.03) - 0.006, -0.09, 0, 0);
-  K.box(TM.gloss, 2.1, 0.07, 0.02, 0, 1.255, zfAt(1.255) - 0.01);
-  // sun visor (body colour) and light bar
-  K.box(TM.paint, 2.46, 0.05, 0.42, 0, 3.5, -5.41, 0.12, 0, 0);
-  K.box(TM.black, 1.95, 0.07, 0.1, 0, 3.58, -5.5);
+  tractorFront(T, C, K, root, cab);
+  C.build(root, { cast: true });
   tractorMirrors(T, K, cab);
   K.build(cab, { cast: true });
 
@@ -2985,6 +2956,7 @@ function buildTractor() {
   }
   // custom trim: light bar lamps on the visor
   T.deco = new THREE.Group(); cab.add(T.deco);
+  { const D = new Parts(); D.add(roundBox(1.95, 0.07, 0.1, 0.02), TM.black, 0, 3.58, -5.5); D.build(T.deco); }
   for (let k = 0; k < 6; k++) {
     const l = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.04, 16), TM.headOff);
     l.rotation.x = Math.PI / 2; l.position.set(-0.75 + k * 0.3, 3.58, -5.56); T.deco.add(l); T.barLamps.push(l);
@@ -2995,14 +2967,6 @@ function buildTractor() {
     LED.box(TM.ledRed, 0.06, 0.05, 0.03, sx * 0.94, 3.58, -5.56);
   }
   LED.build(cab);
-  // wipers parked along the cowl
-  T.wipers = [];
-  const wg = new THREE.Group(); wg.position.set(0, 2.27, -5.455); wg.rotation.x = 0.14; cab.add(wg);
-  for (const px of [0.95, -0.12]) {
-    const piv = new THREE.Group(); piv.position.set(px, 0.02, 0); wg.add(piv);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.022, 0.02).translate(-0.44, 0, -0.012), TM.black);
-    piv.add(arm); T.wipers.push(piv);
-  }
   applyPaint(paintName); applyTrim(trimName, T);
   return T;
 }
@@ -3144,6 +3108,82 @@ function tractorMirrors(T, K, cab) {
     const wide = new THREE.Mesh(wideG, mat); wide.position.set(0, -0.24, 0.071); head.add(wide);
     T.mirrors[key] = { anchor, main, wide, mat, side: sx };
   }
+}
+
+// ---- front: grille, visor, wipers on the cab; bumper, lamps and plate on the chassis -----------------
+// Half width of the trapezoid grille at height y: 0.75 at the bottom (y 1.25), 0.90 at the top (y 2.20).
+const _grilleHW = y => 0.75 + 0.15 * (y - 1.25) / 0.95;
+// A mesh-faced patch that follows the cab's front face (which bulges forward around y 2.1).
+function _grillePatch() {
+  const rows = seg(8, 3), pos = [], uv = [];
+  const at = (y, s) => { const hw = _grilleHW(y); return [[s * hw, y, zfAt(y) - 0.006], [(s + 1) / 2, (y - 1.25) / 0.95]]; };
+  for (let r = 0; r < rows; r++) {
+    const y0 = 1.25 + 0.95 * r / rows, y1 = 1.25 + 0.95 * (r + 1) / rows;
+    const [a, ua] = at(y0, -1), [b, ub] = at(y0, 1), [c, uc] = at(y1, 1), [d, ud] = at(y1, -1);
+    for (const [p, u] of [[a, ua], [c, uc], [b, ub], [a, ua], [d, ud], [c, uc]]) { pos.push(...p); uv.push(...u); }   // facing -z
+  }
+  return _kitFinish(pos, uv, 40);
+}
+function tractorFront(T, C, K, root, cab) {
+  // grille: honeycomb mesh, five rounded slats in the trim colour, a blank badge rail
+  K.part('grille');
+  K.add(_grillePatch(), TM.mesh);
+  const slat = [[0, -0.04], [0.04, -0.03], [0.05, 0], [0.04, 0.03], [0, 0.04], [-0.01, 0]];
+  for (const y of [1.36, 1.53, 1.70, 1.87, 2.04]) {
+    const hw = _grilleHW(y) + 0.03, z = zfAt(y) - 0.02;
+    K.add(sweep(slat, [{ p: [-hw, y, z] }, { p: [0, y, z - 0.008] }, { p: [hw, y, z] }], { closed: true, capStart: true, capEnd: true }), TM.trim);
+  }
+  K.add(roundBox(0.34, 0.07, 0.03, 0.012), TM.gloss, 0, 2.12, zfAt(2.12) - 0.02);
+  K.part('wipers');
+  K.add(roundBox(2.24, 0.12, 0.06, 0.02), TM.gloss, 0, 2.18, -5.445);                       // cowl
+  // sun visor in body colour, following the top of the windscreen and reaching 0.28 m forward
+  K.part('visor');
+  const vp = [];
+  for (let i = 0; i <= 12; i++) { const x = -1.18 + 2.36 * i / 12; vp.push({ p: [x, 3.50 + 0.03 * (x / 1.18) ** 2, zfAt(3.5) + 0.02 + 0.10 * (x / 1.18) ** 4] }); }
+  K.add(sweep([[0, -0.02], [0.27, -0.07], [0.28, -0.05], [0, 0.02]], vp, { closed: true, capStart: true, capEnd: true }), TM.paint);
+  K.part(null);
+  // wipers parked along the cowl: arm and blade on each pivot
+  T.wipers = [];
+  const wg = new THREE.Group(); wg.position.set(0, 2.27, -5.455); wg.rotation.x = 0.14; wg.updateMatrix(); cab.add(wg);
+  for (const px of [0.95, -0.12]) {
+    const piv = new THREE.Group(); piv.position.set(px, 0.02, 0); piv.updateMatrix(); wg.add(piv);
+    const P = new Parts(); P.part('wipers', new THREE.Matrix4().multiplyMatrices(wg.matrix, piv.matrix));
+    P.add(roundBox(0.62, 0.022, 0.02, 0.006, 1), TM.black, -0.31, 0, -0.012);
+    P.add(roundBox(0.84, 0.016, 0.022, 0.006, 1), TM.black, -0.45, 0.012, -0.022);
+    P.part(null); P.build(piv);
+    T.wipers.push(piv);
+  }
+  // bumper: body-coloured top, plastic lower part, black lip, a step in the middle
+  C.part('bumper');
+  C.add(roundBox(2.50, 0.34, 0.30, 0.05), TM.paint, 0, 0.99, -5.46);
+  C.add(roundBox(2.42, 0.34, 0.32, 0.05), TM.bumper, 0, 0.64, -5.45);
+  C.add(roundBox(2.2, 0.08, 0.34, 0.03), TM.black, 0, 0.43, -5.45);
+  C.add(roundBox(0.68, 0.12, 0.02, 0.01), TM.gloss, 0, 0.8, -5.625);
+  C.add(roundBox(0.62, 0.03, 0.22, 0.01), TM.chequer, 0, 0.865, -5.56);
+  C.part('headlamps');
+  for (const sx of [-1, 1]) {
+    C.add(roundBox(0.62, 0.34, 0.06, 0.04), TM.gloss, sx * 0.92, 0.97, -5.605);              // housing in the bumper corner
+    C.add(roundBox(0.06, 0.34, 0.28, 0.02), TM.gloss, sx * 1.235, 0.97, -5.5);
+    C.add(roundBox(0.54, 0.024, 0.02, 0.008, 1), TM.drl, sx * 0.92, 1.125, -5.635);         // daytime light line
+    C.add(roundBox(0.024, 0.28, 0.02, 0.008, 1), TM.drl, sx * 1.205, 0.98, -5.635);
+  }
+  C.part('fogs');
+  for (const sx of [-1, 1]) {
+    C.add(lathe([[0, 0], [0.055, 0], [0.055, 0.02], [0, 0.03]], 16), TM.headOff, sx * 0.92, 0.62, -5.61, -Math.PI / 2, 0, 0);
+    C.add(lathe([[0.055, 0], [0.065, 0.01], [0.06, 0.025]], 16), TM.gloss, sx * 0.92, 0.62, -5.61, -Math.PI / 2, 0, 0);
+  }
+  C.part('spoiler');
+  C.add(roundBox(2.3, 0.05, 0.18, 0.02), TM.black, 0, 0.36, -5.50, 0.1, 0, 0);
+  for (const sx of [-1, 1]) C.add(roundBox(0.3, 0.035, 0.3, 0.01), TM.rubber, sx * 0.95, 0.32, -5.4);   // front mud flap stubs
+  C.part(null);
+  // lamps that switch material at run time: two projector units and the indicator in each corner
+  const lamp = (g, m, list, name) => { statPart(name, g); const mesh = new THREE.Mesh(g, m); root.add(mesh); list.push(mesh); };
+  for (const sx of [-1, 1]) {
+    for (const dx of [0.07, 0.25]) lamp(roundBox(0.17, 0.19, 0.03, 0.03).translate(sx * (0.92 + dx - 0.07), 0.97, -5.638), TM.headOff, T.heads, 'headlamps');
+    lamp(roundBox(0.08, 0.2, 0.03, 0.012).translate(sx * 0.7, 0.97, -5.638), TM.amberOff, sx < 0 ? T.blinkL : T.blinkR, 'headlamps');
+  }
+  const plate = new THREE.PlaneGeometry(0.44, 0.22).rotateY(Math.PI).translate(0, 0.6, -5.63);
+  statPart('plateF', plate); root.add(new THREE.Mesh(plate, PLATE_MAT));
 }
 
 // ==== 06d-trailers.js ====

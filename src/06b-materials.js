@@ -242,6 +242,7 @@ function makeVehicleMaterials(quality) {
 
   Object.assign(TM, {
     paint: kind.paint(),
+    trim: kind.paint(),          // grille slats and mirror covers: body colour, or chrome on the custom trim
     paintDark: phong({ color: 0x2a2c2f, specular: 0x333333, shininess: 40 }),
     chrome: kind.polished(0xe2e6e9, 0.08, envPhong(0xe2e6e9, 120, 0.75)),
     black: kind.plastic(0x131415, false),
@@ -348,6 +349,15 @@ function applyPaint(name) {
   paintName = name; lsSet('nlh.paint', name);
   TM.paint.color.setHex(PAINTS[name].color);
   if (!VEH.pbr) TM.paint.reflectivity = name === 'white' ? 0.12 : 0.24;
+  _trimLook();
+}
+// The trim material follows the paint on the normal trim and turns to chrome on the custom trim.
+function _trimLook() {
+  const m = TM.trim; if (!m) return;
+  const chrome = trimName === 'custom';
+  m.color.setHex(chrome ? 0xe2e6e9 : PAINTS[paintName].color);
+  if (VEH.pbr) { m.metalness = chrome ? 1 : 0; m.roughness = chrome ? 0.08 : 0.35; m.clearcoat = chrome ? 0 : 1; }
+  else m.reflectivity = chrome ? 0.75 : paintName === 'white' ? 0.12 : 0.24;
 }
 function applyInteriorTheme(name) {
   const th = INTERIOR_THEMES[name]; if (!th) return;
@@ -383,6 +393,7 @@ function setCabAmbient(on) {
 function applyTrim(name, T) {
   if (!TRIMS.includes(name)) return;
   trimName = name; lsSet('nlh.trim', name);
+  _trimLook();
   if (T && T.deco) { T.deco.visible = name === 'custom'; T.lightbar = name === 'custom' ? T.barLamps : []; }
 }
 
