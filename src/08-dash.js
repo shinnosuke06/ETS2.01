@@ -115,7 +115,7 @@ function drawNav(st) {
   g.strokeStyle = 'rgba(120,150,180,.07)'; g.lineWidth = 1;
   for (let x = 0; x < W; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
   for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-  const scale = 0.085, cx = W / 2, cy = 250;
+  const scale = st.inTown ? 0.35 : 0.085, cx = W / 2, cy = 250;   // closer in a town
   const h = st.heading, sh = Math.sin(h), ch = Math.cos(h);
   const toScr = (x, z) => { const dx = x - st.x, dz = z - st.z; const f = dx * sh + dz * ch, r = dx * -ch + dz * sh; return [cx + r * scale, cy - f * scale]; };
   // road
@@ -149,6 +149,24 @@ function drawNav(st) {
     roundRect(g, p[0] - tw - 6, p[1] - 12, tw, 24, 5); g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(r.ic.jp + ' IC', p[0] - tw + 1, p[1] + 1);
   }
+  // the nearest town: its streets' centre lines, and the destination warehouse's gate
+  const TL = st.town >= 0 && TOWNS_LOADED.get(st.town);
+  if (TL) {
+    const L = TL.layout, site = L.site, q = {};
+    g.strokeStyle = '#7f8e9b';
+    for (const S of L.streets) {
+      const a = S.axis === 'v' ? [S.c, S.a0] : [S.a0, S.c], b = S.axis === 'v' ? [S.c, S.a1] : [S.a1, S.c];
+      townXZ(site, a[0], a[1], q); const p0 = toScr(q.x, q.z); townXZ(site, b[0], b[1], q); const p1 = toScr(q.x, q.z);
+      g.lineWidth = S.kind === 'main' ? 7 : 5; g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke();
+    }
+    townXZ(site, 0, 0, q); const pz = toScr(q.x, q.z); townXZ(site, 0, 45, q); const pg = toScr(q.x, q.z);   // the plaza to Main A
+    g.lineWidth = 7; g.beginPath(); g.moveTo(pz[0], pz[1]); g.lineTo(pg[0], pg[1]); g.stroke();
+  }
+  if (st.destWh && (TL || st.inTown)) {
+    const p = toScr(st.destWh.x, st.destWh.z);
+    g.fillStyle = '#2f9cff'; g.beginPath(); g.arc(p[0], p[1], 9, 0, TAU); g.fill();
+    g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.stroke();
+  }
   // the trailer waiting to be picked up
   if (st.trailer) {
     const p = toScr(st.trailer.x, st.trailer.z);
@@ -161,8 +179,15 @@ function drawNav(st) {
   g.beginPath(); g.moveTo(cx, cy - 16); g.lineTo(cx + 11, cy + 12); g.lineTo(cx, cy + 6); g.lineTo(cx - 11, cy + 12); g.closePath(); g.fill(); g.stroke();
   // header
   g.fillStyle = 'rgba(8,12,16,.92)'; g.fillRect(0, 0, W, 54);
+  let gx = 16;
+  if (st.target && st.inTown) {   // which way the target lies, seen from the truck (up: straight ahead)
+    const p = toScr(st.target.x, st.target.z), a = Math.atan2(p[0] - cx, cy - p[1]);
+    g.save(); g.translate(30, 27); g.rotate(a); g.fillStyle = '#2f9cff';
+    g.beginPath(); g.moveTo(0, -17); g.lineTo(12, 3); g.lineTo(4, 3); g.lineTo(4, 16); g.lineTo(-4, 16); g.lineTo(-4, 3); g.lineTo(-12, 3); g.closePath(); g.fill(); g.restore();
+    gx = 58;
+  }
   g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = font(22);
-  g.fillText(st.guide, 16, 28);
+  g.fillText(st.guide, gx, 28);
   g.textAlign = 'right'; g.fillStyle = '#9fd0ff'; g.font = font(26); g.fillText(st.guideDist, W - 16, 28);
   // footer
   g.fillStyle = 'rgba(8,12,16,.92)'; g.fillRect(0, H - 40, W, 40);

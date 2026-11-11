@@ -515,10 +515,20 @@ function navState() {
   }
   const rem = destRemainKm();
   const eta = GAME.clock + rem / 80 * 3600;
+  // towns: the nearest within 3 km is drawn; inside one, the way to the destination's gate, or back to the expressway
+  let town = -1, td = 3000;
+  for (const t of TOWN_SITES) { const d = Math.hypot(TR.x - t.ox, TR.z - t.oz); if (d < td) { td = d; town = t.i; } }
+  const gw = townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, {}), destWh = { x: gw.x, z: gw.z, name: j.whB.name };
+  let target = null;
+  if (TR.zone === 'town' && TR.town === j.to) { target = destWh; guide = `${destWh.name}まで ${Math.round(Math.hypot(TR.x - gw.x, TR.z - gw.z) / 10) * 10} m`; gd = ''; }
+  else if (TR.zone === 'town') {
+    const site = TOWN_SITES[TR.town], g = jobLayout(TR.town).plaza.gates.entry, q = townXZ(site, g.u, g.v, {});
+    target = { x: q.x, z: q.z }; guide = `${site.ic.jp} IC 入口まで ${Math.round(Math.hypot(TR.x - q.x, TR.z - q.z) / 10) * 10} m`; gd = '';
+  }
   const trailer = TR.link === 'free' && TR.trailerKey ? { x: TR.tr.kx, z: TR.tr.kz } : null;
-  if (trailer && !TR.onRamp) { guide = 'トレーラーを連結してください'; gd = Math.round(Math.hypot(TR.x - trailer.x, TR.z - trailer.z)) + ' m'; }
+  if (trailer && !TR.onRamp) { guide = 'トレーラーを連結してください'; gd = Math.round(Math.hypot(TR.x - trailer.x, TR.z - trailer.z)) + ' m'; target = trailer; }
   return {
-    trailer,
+    trailer, town, destWh, target, inTown: TR.zone === 'town',
     x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sEnd, destIc: j.to,
     guide, guideDist: gd, footer: `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`, limit: GAME.limit || 90,
   };

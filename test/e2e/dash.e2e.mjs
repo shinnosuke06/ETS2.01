@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { withGame, startJob, tick } from './helpers.mjs';
+import { withGame, startJob, tick, driveHelpers } from './helpers.mjs';
 
 test('メーターに総重量、連結の状態、装置のランプが出る', () => withGame({}, async (page, errors) => {
   await startJob(page);
@@ -43,5 +43,28 @@ test('音を始めたあと、滑りの音量が slip に従う', () => withGame
   });
   assert.equal(g.on, true); assert.ok(g.loud > 0.02 && g.quiet < g.loud / 4, JSON.stringify(g));
   await page.evaluate(() => { sfxClunk(); sfxHiss(1); sfxWarn(); });
+  assert.deepEqual(errors, []);
+}));
+
+test('町の中ではナビに町の道と目的の倉庫の印が出て、案内文が「〇〇まで 〇 m」になる。目的地でない町では IC の入口までを案内する', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    __placeTown(0, 4.875, 120, 0, -1, 0); await __ready();
+    const tokyo = navState().guide;
+    const gate = GAME.job.whB.gate;
+    __placeTown(2, -4.875, gate.v - 100, 0, 1, 0); await __ready();
+    for (let i = 0; i < 10; i++) { INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0;   // a physics step notes that the rig is in the town
+    const st = navState(); drawNav(st);
+    // the same projection as drawNav's (0.35 px per metre in a town, the truck at (256, 250) facing up)
+    const sh = Math.sin(st.heading), ch = Math.cos(st.heading), scr = (x, z) => { const dx = x - st.x, dz = z - st.z; return [Math.round(256 + (dx * -ch + dz * sh) * 0.35), Math.round(250 - (dx * sh + dz * ch) * 0.35)]; };
+    const px = (x, y) => [...DASH.ng.getImageData(x, y, 1, 1).data].slice(0, 3);
+    const q = townXZ(TOWN_SITES[2], 0, gate.v + 100, {}), main = scr(q.x, q.z), wh = scr(st.destWh.x, st.destWh.z);
+    return { tokyo, guide: st.guide, name: GAME.job.whB.name, town: st.town, wh: px(...wh), main: px(...main), arrow: px(30, 27), at: wh };
+  });
+  assert.match(r.tokyo, /^東京 IC 入口まで \d*0 m$/);
+  assert.equal(r.town, 2); assert.match(r.guide, new RegExp('^' + r.name + 'まで \\d*0 m$'), JSON.stringify(r));
+  assert.deepEqual(r.wh, [47, 156, 255], 'the blue mark at the gate ' + JSON.stringify(r));
+  assert.deepEqual(r.main, [127, 142, 155], 'Main A drawn grey ' + JSON.stringify(r)); assert.deepEqual(r.arrow, [47, 156, 255], 'the arrow');
   assert.deepEqual(errors, []);
 }));
