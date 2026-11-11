@@ -89,3 +89,31 @@ test('基準の視点 9 つを当てられ、車内の視点では細かい部�
     assert.deepEqual(r, id === 'R1' ? [true, r[1], r[2], 'black', r[4], 85] : [false, 'red', 'custom', r[3], 'free', 40]); }
   assert.deepEqual(errors, []);
 }));
+
+// ---- cab interior: parts in place ----
+const cabin = b => b[0] >= -1.2 && b[3] <= 1.2 && b[1] >= 1.40 && b[4] <= 3.85 && b[2] >= -5.35 && b[5] <= -3.15;
+const partsOf = page => page.evaluate(() => vehicleStats().parts);
+test('室内の前：ダッシュ、ひさし、センターパネルが決まった場所と大きさにある', () => withGame({}, async page => {
+  const P = await partsOf(page);
+  for (const k of ['floor', 'dash', 'hood', 'centerPanel', 'sidePanel', 'vents', 'table', 'etc']) { assert.ok(P[k] && P[k].tris > 0, k); assert.ok(cabin(P[k].box), `${k} ${P[k].box}`); }
+  assert.ok(P.dash.box[4] <= 2.42 && P.dash.box[4] >= 2.28 && P.dash.box[3] - P.dash.box[0] > 2.2, String(P.dash.box)); assert.ok(P.hood.box[4] <= 2.47, String(P.hood.box));
+  assert.ok(P.dash.tris <= 9000 && P.hood.tris <= 3000 && P.centerPanel.tris <= 6000, JSON.stringify([P.dash.tris, P.hood.tris, P.centerPanel.tris]));
+}));
+// from the eye, a ray through screen point (u, v) (-1..1): the first thing shown that it hits
+const firstHit = (page, fov, aspect, pts) => page.evaluate(([fov, aspect, pts]) => {
+  GAME.cam = 'cab'; setCabDetail(true); TRK.root.updateMatrixWorld(true); cabCam.fov = fov; cabCam.aspect = aspect; cabCam.rotation.set(-0.18, 0, 0); cabCam.updateProjectionMatrix(); cabCam.updateMatrixWorld(true);
+  const rc = new THREE.Raycaster(); return pts.map(([u, v]) => { rc.setFromCamera({ x: u, y: v }, cabCam); const h = __t.first(rc, TRK.root);
+    return h ? { d: +h.distance.toFixed(2), glass: h.object.material === TM.glassIn || h.object.material === TM.glassOut, screen: h.object === INT.cluster ? 'cluster' : h.object === INT.nav ? 'nav' : null } : null; });
+}, [fov, aspect, pts]);
+test('V11 目の前：正面の視線はフロントガラスまで何にも当たらず、2 つの画面が見える', () => withGame({}, async page => {
+  const [c] = await firstHit(page, 64, 16 / 9, [[0, 0.33]]); assert.ok(c === null || c.glass, JSON.stringify(c));
+  const scr = await page.evaluate(() => { setCabDetail(true); TRK.root.updateMatrixWorld(true); const eye = INT.eye.getWorldPosition(new THREE.Vector3()), rc = new THREE.Raycaster();
+    return [INT.cluster, INT.nav].map(m => { const c = m.getWorldPosition(new THREE.Vector3()); rc.set(eye, c.clone().sub(eye).normalize()); const h = __t.first(rc, TRK.root); return h && h.object === m; }); });
+  assert.deepEqual(scr, [true, true]);
+}));
+test('縦持ち（視野 80°）でも、計器が画面に入り、前の道路が隠れない', () => withGame({ width: 390, height: 844, touch: true }, async page => {
+  const r = await page.evaluate(() => { GAME.cam = 'cab'; TRK.root.updateMatrixWorld(true); cabCam.fov = 80; cabCam.aspect = 390 / 844; cabCam.rotation.set(-0.18, 0, 0); cabCam.updateProjectionMatrix(); cabCam.updateMatrixWorld(true);
+    return INT.cluster.getWorldPosition(new THREE.Vector3()).project(cabCam).toArray(); });
+  assert.ok(Math.abs(r[0]) < 0.9 && Math.abs(r[1]) < 0.9, String(r));
+  const road = await firstHit(page, 80, 390 / 844, [[0, 0.1], [-0.5, 0.1], [0.4, 0.1]]); for (const h of road) assert.ok(h === null || h.glass, JSON.stringify(road));
+}));

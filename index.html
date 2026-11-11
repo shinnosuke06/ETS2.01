@@ -3261,69 +3261,9 @@ function buildTankTrailer() {   // 3-axle food-grade tanker: no baffles, so the 
 // R.shell or R.fine.
 // ---------------------------------------------------------------------------
 function buildCabinFront(I, S, R) {
-  // flat floor with mats, firewall
-  I.box(IM.floor, 2.36, 0.04, 2.1, 0, 1.43, -4.2);
-  for (const x of [0.55, -0.6]) S.box(IM.mat, 0.66, 0.012, 0.78, x, 1.456, -4.72);
-  I.box(IM.lower, 2.36, 0.64, 0.06, 0, 1.77, -5.31);
-
-  // ---- dashboard -----------------------------------------------------------------
-  const upperProf = [[-5.34, 2.225], [-5.06, 2.205], [-4.95, 2.165], [-4.895, 2.1], [-4.895, 2.0], [-5.34, 2.0]];
-  const lowerProf = [[-5.34, 2.0], [-4.895, 2.0], [-4.91, 1.9], [-4.99, 1.72], [-5.08, 1.5], [-5.34, 1.5]];
-  for (const [x0, x1] of [[-1.17, -0.24], [-0.24, 0.22], [0.88, 1.17]]) {
-    I.add(extrudeX(upperProf, x0, x1, 0.012), IM.upper);
-    I.add(extrudeX(lowerProf, x0, x1, 0.01), IM.lower);
-  }
-  I.add(extrudeX([[-5.34, 2.07], [-4.97, 2.045], [-4.905, 2.0], [-4.905, 1.93], [-4.96, 1.83], [-5.03, 1.68], [-5.10, 1.5], [-5.34, 1.5]], 0.22, 0.88, 0.01), IM.lower);
-  S.box(IM.silver, 0.92, 0.008, 0.008, -0.7, 2.0, -4.892);          // chrome line along the passenger dash
-  S.box(IM.lower, 0.6, 0.008, 0.2, -0.66, 2.214, -5.14);             // storage tray in the dash top
-  S.box(IM.black, 0.62, 0.006, 0.006, -0.66, 1.86, -4.948, 0.6, 0, 0);
-  // passenger pull-out table with two cup holders (as in the S-series cab)
-  I.box(IM.lower, 0.58, 0.04, 0.3, -0.66, 1.9, -4.76);
-  S.box(IM.silver, 0.58, 0.012, 0.012, -0.66, 1.92, -4.612);
-  for (const x of [-0.82, -0.7]) S.add(new THREE.CylinderGeometry(0.038, 0.038, 0.01, 16), IM.black, x, 1.922, -4.72);
-  // instrument hood and screen bezel
-  I.add(extrudeX([[-5.16, 2.05], [-5.16, 2.34], [-5.06, 2.355], [-4.97, 2.33], [-4.955, 2.302], [-4.985, 2.296], [-5.05, 2.315], [-5.12, 2.292], [-5.12, 2.05]], 0.21, 0.89, 0.008), IM.upper);
-  for (const x of [0.225, 0.875]) I.box(IM.upper, 0.03, 0.27, 0.2, x, 2.175, -5.03);
-  S.box(IM.gloss, 0.62, 0.24, 0.01, 0.55, 2.16, -5.058, -0.59, 0, 0);
-  S.box(IM.silver, 0.64, 0.008, 0.008, 0.55, 2.298, -4.96);
-
-  // control panel angled toward the driver: screen, hard keys, switch rows, climate
-  for (const P of [S, I]) { P.push(-0.03, 1.86, -4.84, 0, 0.32, 0); P.push(0, 0, 0, -0.1, 0, 0); }
-  I.box(IM.lower, 0.48, 0.66, 0.1, 0, 0, 0);
-  I.box(IM.upper, 0.5, 0.03, 0.12, 0, 0.335, 0);
-  S.box(IM.gloss, 0.34, 0.21, 0.025, 0, 0.18, 0.06);
-  for (let k = 0; k < 5; k++) S.box(IM.button, 0.05, 0.026, 0.014, -0.13 + k * 0.055, 0.048, 0.056);
-  S.add(new THREE.CylinderGeometry(0.022, 0.024, 0.024, 18), IM.silver, 0.185, 0.048, 0.06, Math.PI / 2, 0, 0);
-  S.box(IM.silver, 0.46, 0.006, 0.006, 0, 0.012, 0.052);
-  for (let row = 0; row < 2; row++) for (let k = 0; k < 6; k++) {
-    S.box(IM.button, 0.036, 0.046, 0.018, -0.15 + k * 0.06, -0.05 - row * 0.065, 0.055);
-    if ((row + k) % 3 === 0) S.box(k % 2 ? IM.ledAmber : IM.ledGreen, 0.008, 0.005, 0.004, -0.15 + k * 0.06, -0.034 - row * 0.065, 0.066);
-  }
-  for (const x of [-0.165, 0.165]) { S.add(new THREE.CylinderGeometry(0.03, 0.032, 0.026, 20), IM.button, x, -0.22, 0.062, Math.PI / 2, 0, 0); S.box(IM.silver, 0.004, 0.018, 0.004, x, -0.205, 0.077); }
-  S.box(IM.black, 0.15, 0.045, 0.01, 0, -0.22, 0.053);
-  S.box(IM.lcdAmber, 0.11, 0.022, 0.004, 0, -0.22, 0.059);
-  S.box(IM.black, 0.2, 0.05, 0.03, 0, -0.29, 0.04);
-  for (const P of [S, I]) { P.pop(); P.pop(); }
-  // driver's outer panel: light switch, buttons, parking brake
-  for (const P of [S, I]) P.push(1.0, 1.98, -4.915, 0, -0.5, 0);
-  I.box(IM.lower, 0.27, 0.3, 0.06, 0, 0, 0);
-  S.add(new THREE.CylinderGeometry(0.036, 0.038, 0.03, 20), IM.button, 0.05, 0.06, 0.04, Math.PI / 2, 0, 0);
-  S.box(IM.ledGreen, 0.004, 0.02, 0.004, 0.05, 0.075, 0.057);
-  for (let k = 0; k < 3; k++) S.box(IM.button, 0.035, 0.035, 0.014, -0.07 + k * 0.045, -0.05, 0.035);
-  S.box(IM.black, 0.03, 0.03, 0.09, -0.07, 0.07, 0.06);
-  S.box(new THREE.MeshPhongMaterial({ color: 0xd4a017, shininess: 40 }), 0.034, 0.034, 0.03, -0.07, 0.07, 0.11);
-  for (const P of [S, I]) P.pop();
-  // vents with chrome surrounds
-  for (const x of [-0.98, -0.42, 1.03]) {
-    S.box(IM.silver, 0.185, 0.082, 0.012, x, 2.055, -4.886);
-    S.box(IM.black, 0.168, 0.068, 0.02, x, 2.055, -4.882);
-    for (let k = 0; k < 3; k++) S.box(IM.lower, 0.155, 0.008, 0.02, x, 2.035 + k * 0.02, -4.874);
-  }
-  // ETC unit on the dash top
-  S.box(IM.black, 0.12, 0.035, 0.08, 0.96, 2.233, -5.16);
-  S.box(IM.ledGreen, 0.01, 0.006, 0.004, 0.92, 2.243, -5.119);
-  // red footwell LEDs
-  S.box(IM.ambient, 2.0, 0.012, 0.012, 0, 1.52, -5.04);
+  cabFloorAndDash(I, S, R);
+  cabCentreStack(I, S, R);
+  cabSidePanel(I, S);
 
   // ---- pillars, doors, curtains --------------------------------------------------------------
   for (const sx of [-1, 1]) {
@@ -3351,11 +3291,6 @@ function buildCabinFront(I, S, R) {
   }
   I.box(IM.door, 2.3, 0.1, 0.08, 0, 3.31, -5.15);
   S.box(IM.metal, 2.2, 0.01, 0.01, 0, 3.26, -5.12);
-
-  R.cluster = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.215), new THREE.MeshBasicMaterial({ color: 0x000000 }));
-  R.cluster.position.set(0.55, 2.165, -5.04); R.cluster.rotation.x = -0.59; R.shell.add(R.cluster);
-  R.nav = new THREE.Mesh(new THREE.PlaneGeometry(0.31, 0.18), new THREE.MeshBasicMaterial({ color: 0x000000 }));
-  { const g = new THREE.Group(); g.position.set(-0.03, 1.86, -4.84); g.rotation.y = 0.32; const g2 = new THREE.Group(); g2.rotation.x = -0.1; g.add(g2); R.nav.position.set(0, 0.18, 0.074); g2.add(R.nav); R.shell.add(g); }
 
   // steering wheel: axis points up and toward the driver
   const wf = new THREE.Group(); wf.position.set(0.55, 2.03, -4.64); wf.rotation.x = -0.96; R.shell.add(wf);
@@ -3387,6 +3322,117 @@ function buildCabinFront(I, S, R) {
   R.brake = new THREE.Group(); R.brake.position.set(0.42, 1.98, -4.98); R.fine.add(R.brake);
   R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.32, 0.03).translate(0, -0.16, 0), IM.metal));
   R.brake.add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.09, 0.02).translate(0, -0.34, 0.03), IM.black));
+}
+
+// ---- floor and dashboard ---------------------------------------------------------
+// How much of the driver's dash a point at x has: 0 on the passenger side, 1 in front of the driver.
+// The rise from x = 0 to 0.3 is the 25-degree wrap of the dash around the centre stack.
+const _dashW = x => smooth(0, 0.3, x) * (1 - smooth(0.98, 1.12, x));
+// Cross-sections [z, y] at x, listed counter-clockwise seen from +x (forward is -z).
+// The upper dash reaches further back in front of the driver and is lower there, under the instrument pod.
+function _dashUpper(x) {
+  const w = _dashW(x), d = 0.14 * w, top = 2.345 - 0.13 * w, r = top - 0.08 - 2.0;
+  return [[-4.90 + d, 2.0], [-5.31, 2.0], [-5.31, top - 0.025], [-5.2, top - 0.005], [-5.05, top], [-4.93 + d, top - 0.01],
+    [-4.895 + d, top - 0.035], [-4.877 + d, top - 0.08], [-4.875 + d, 2.0 + r * 0.55], [-4.88 + d, 2.0 + r * 0.25]];
+}
+function _dashLower(x) {   // the knee panel: hardly any deeper in front of the driver, who needs the room
+  const w = _dashW(x), d = 0.03 * w;
+  return [[-4.99 + d, 1.455], [-5.31, 1.455], [-5.31, 2.0], [-4.90 + 0.14 * w, 2.0], [-4.93 + d, 1.88], [-4.96 + d, 1.70], [-4.985 + d, 1.55]];
+}
+// The top of the dash at x (for parts that sit on it).
+const dashTop = x => 2.345 - 0.13 * _dashW(x);
+function _dashLoft(section) {
+  const n = seg(56, 14), rings = [];
+  for (let i = 0; i <= n; i++) { const x = -1.16 + 2.32 * i / n; rings.push(section(x).map(([z, y]) => [x, y, z])); }
+  // darker toward the floor and under overhangs
+  return shade(loft(rings, { capStart: true, capEnd: true }), (x, y, z, nx, ny) => (0.62 + 0.38 * smooth(1.5, 2.3, y)) * (ny < -0.4 ? 0.6 : 1));
+}
+function cabFloorAndDash(I, S, R) {
+  I.part('floor'); S.part('floor');
+  I.add(roundBox(2.36, 0.04, 2.08, 0.01), IM.floor, 0, 1.43, -4.2);
+  for (const x of [0.55, -0.6]) S.add(roundBox(0.66, 0.012, 0.78, 0.005), IM.mat, x, 1.456, -4.72);
+  S.add(roundBox(2.0, 0.012, 0.012, 0.004, 1), IM.ambient, 0, 1.5, -4.945);          // red footwell light along the knee panel
+
+  I.part('dash'); S.part('dash');
+  I.add(_dashLoft(_dashUpper), IM.upper);
+  I.add(_dashLoft(_dashLower), IM.lower);
+  S.add(roundBox(0.9, 0.06, 0.012, 0.004, 1), IM.gloss, -0.705, 2.08, -4.873);        // gloss black band across the passenger dash
+  S.add(roundBox(0.9, 0.008, 0.008, 0.003, 1), IM.silver, -0.705, 2.042, -4.874);     // aluminium line under it
+  S.add(roundBox(0.6, 0.008, 0.2, 0.004, 1), IM.lower, -0.66, dashTop(-0.66) + 0.002, -5.12);   // storage tray in the dash top
+
+  // instrument pod: a visor over the cluster screen, a housing and a gloss bezel, tilted toward the eye
+  I.part('hood'); S.part('hood');
+  const visor = [[-4.905, 2.425], [-4.98, 2.43], [-5.08, 2.40], [-5.10, 2.34], [-5.11, 2.40], [-5.04, 2.462], [-4.95, 2.466], [-4.90, 2.45], [-4.895, 2.435]];
+  const vn = seg(16, 6), vr = [];
+  for (let i = 0; i <= vn; i++) { const x = 0.30 + 0.5 * i / vn; vr.push(visor.map(([z, y]) => [x, y, z])); }
+  I.add(shade(loft(vr, { capStart: true, capEnd: true }), (x, y, z, nx, ny) => (ny < -0.3 ? 0.55 : 1)), IM.upper);
+  I.add(roundBox(0.48, 0.24, 0.10, 0.02), IM.upper, 0.55, 2.31, -5.10, -0.39, 0, 0);
+  S.add(roundBox(0.44, 0.18, 0.012, 0.01), IM.gloss, 0.55, 2.31, -5.046, -0.39, 0, 0);
+  R.cluster = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 0.15), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+  R.cluster.position.set(0.55, 2.31, -5.037); R.cluster.rotation.x = -0.39; R.shell.add(R.cluster);
+
+  // passenger side: two vents in the dash face, the pull-out table with two cup holders, the ETC unit on the driver's side
+  I.part('vents'); S.part('vents');
+  for (const x of [-0.95, -0.42]) {
+    S.add(roundBox(0.19, 0.085, 0.016, 0.01), IM.silver, x, 2.17, -4.870);
+    S.add(roundBox(0.17, 0.068, 0.02, 0.008), IM.black, x, 2.17, -4.868);
+    for (let k = 0; k < 3; k++) S.add(roundBox(0.155, 0.007, 0.018, 0.002, 1), IM.lower, x, 2.148 + k * 0.022, -4.862);
+  }
+  I.part('table'); S.part('table');
+  I.add(roundBox(0.58, 0.035, 0.30, 0.012), IM.lower, -0.66, 1.90, -4.76);
+  S.add(roundBox(0.58, 0.01, 0.01, 0.003, 1), IM.silver, -0.66, 1.912, -4.612);
+  for (const x of [-0.82, -0.70]) S.add(lathe([[0, 0], [0.038, 0], [0.038, 0.012], [0, 0.012]], 20), IM.black, x, 1.912, -4.72);
+  I.part('etc'); S.part('etc');
+  S.add(roundBox(0.12, 0.035, 0.08, 0.008), IM.black, 0.96, dashTop(0.96) + 0.0175, -5.16);
+  S.add(roundBox(0.01, 0.006, 0.004, 0.001, 1), IM.ledGreen, 0.92, dashTop(0.96) + 0.027, -5.119);
+  I.part(null); S.part(null);
+}
+
+// ---- centre stack: turned 25 degrees toward the driver -------------------------------
+function cabCentreStack(I, S, R) {
+  const at = [-0.02, 1.98, -4.82], turn = 0.436, tilt = -0.12;
+  I.part('centerPanel'); S.part('centerPanel');
+  for (const P of [I, S]) { P.push(at[0], at[1], at[2], 0, turn, 0); P.push(0, 0, 0, tilt, 0, 0); }
+  I.add(roundBox(0.46, 0.72, 0.12, 0.025), IM.lower, 0, 0, -0.04);
+  I.add(roundBox(0.48, 0.03, 0.14, 0.012), IM.upper, 0, 0.36, -0.04);
+  S.add(roundBox(0.38, 0.24, 0.02, 0.012), IM.gloss, 0, 0.19, 0.026);              // screen surround
+  for (const x of [-0.1, 0.1]) {                                                     // vents under the screen
+    S.add(roundBox(0.16, 0.05, 0.016, 0.008), IM.silver, x, 0.035, 0.025);
+    S.add(roundBox(0.145, 0.036, 0.018, 0.006), IM.black, x, 0.035, 0.026);
+    for (let k = 0; k < 2; k++) S.add(roundBox(0.135, 0.006, 0.016, 0.002, 1), IM.lower, x, 0.025 + k * 0.02, 0.031);
+  }
+  for (let row = 0; row < 2; row++) for (let k = 0; k < 8; k++) {                     // two rows of switches
+    const x = -0.175 + k * 0.05, y = -0.05 - row * 0.055;
+    S.add(roundBox(0.036, 0.042, 0.014, 0.004, 1), IM.button, x, y, 0.024);
+    if ((row + k) % 3 === 0) S.add(roundBox(0.008, 0.005, 0.004, 0.001, 1), k % 2 ? IM.ledAmber : IM.ledGreen, x, y + 0.014, 0.032);
+  }
+  const knob = [[0, 0], [0.027, 0], [0.028, 0.012], [0.025, 0.024], [0, 0.026]];      // climate knobs
+  for (const x of [-0.13, 0, 0.13]) {
+    S.add(lathe(knob, 24), IM.button, x, -0.2, 0.02, Math.PI / 2, 0, 0);
+    S.add(lathe([[0.029, 0], [0.03, 0.004], [0.029, 0.008]], 24), IM.silver, x, -0.2, 0.02, Math.PI / 2, 0, 0);
+  }
+  S.add(roundBox(0.11, 0.022, 0.006, 0.002, 1), IM.lcdAmber, 0, -0.265, 0.022);
+  for (const P of [I, S]) P.pop().pop();
+  I.part(null); S.part(null);
+  // the navigation screen (the game draws on it)
+  const g = new THREE.Group(); g.position.set(...at); g.rotation.y = turn;
+  const g2 = new THREE.Group(); g2.rotation.x = tilt; g.add(g2);
+  R.nav = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.20), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+  R.nav.position.set(0, 0.19, 0.037); g2.add(R.nav); R.shell.add(g);
+}
+
+// ---- the panel right of the driver: light switch, buttons, parking brake --------------
+function cabSidePanel(I, S) {
+  I.part('sidePanel'); S.part('sidePanel');
+  for (const P of [I, S]) P.push(1.06, 2.06, -4.86, 0, -0.55, 0);
+  I.add(roundBox(0.20, 0.28, 0.06, 0.015), IM.lower, 0, 0, 0);
+  S.add(lathe([[0, 0], [0.034, 0], [0.036, 0.016], [0.03, 0.03], [0, 0.032]], 24), IM.button, 0.035, 0.07, 0.03, Math.PI / 2, 0, 0);
+  S.add(roundBox(0.004, 0.02, 0.004, 0.001, 1), IM.ledGreen, 0.035, 0.088, 0.064);
+  for (let k = 0; k < 6; k++) S.add(roundBox(0.034, 0.034, 0.012, 0.004, 1), IM.button, -0.05 + (k % 3) * 0.045, -0.02 - Math.floor(k / 3) * 0.045, 0.034);
+  S.add(roundBox(0.03, 0.03, 0.09, 0.008), IM.black, -0.06, -0.11, 0.06);            // parking brake lever
+  S.add(roundBox(0.034, 0.012, 0.03, 0.004, 1), IM.silver, -0.06, -0.11, 0.105);
+  for (const P of [I, S]) P.pop();
+  I.part(null); S.part(null);
 }
 
 // ==== 07b-cabin-rear.js ====
