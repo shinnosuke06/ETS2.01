@@ -89,3 +89,6 @@ test('基準の視点 9 つを当てられ、車内の視点では細かい部�
     assert.deepEqual(r, id === 'R1' ? [true, r[1], r[2], 'black', r[4], 85] : [false, 'red', 'custom', r[3], 'free', 40]); }
   assert.deepEqual(errors, []);
 }));
+test('画質 高・中・低のどれでも、連結して走り出せる', async () => { for (const q of ['high', 'mid', 'low']) await withGame({ storage: { 'nlh.quality': q } }, async (page, errors) => { await startJob(page);
+  const r = await page.evaluate(() => { INP.actions.push('couple'); for (let i = 0; i < 150; i++) simTick(1 / 60); INP.tGas = 1; for (let i = 0; i < 600; i++) simTick(1 / 60); return [TR.link, TR.v > 5]; });
+  assert.deepEqual(r, ['coupled', true]); assert.deepEqual(errors, []); }); });

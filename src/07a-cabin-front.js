@@ -13,8 +13,8 @@ function buildCabinFront(I, S, R) {
 
   for (const sx of [-1, 1]) cabDoor(I, S, sx);
   cabPillars(I, S);
-  cabWheel(R);
-  cabPedals(R);
+  cabWheel(I, R);
+  cabPedals(S, R);
 }
 
 // ---- floor and dashboard ---------------------------------------------------------
@@ -171,16 +171,15 @@ function cabPillars(I, S) {
 
 // ---- steering wheel, column and stalks, pedals ------------------------------------------------
 // The wheel frame wf: axis points up and toward the driver. R.wheel turns inside it.
-function cabWheel(R) {
+function cabWheel(I, R) {
   const wf = new THREE.Group(); wf.position.set(0.55, 2.03, -4.64); wf.rotation.x = -0.96; wf.updateMatrix(); R.shell.add(wf);
-  const W = new Parts();
-  W.part('stalks', wf.matrix);
-  W.add(roundBox(0.12, 0.11, 0.36, 0.03), IM.lower, 0, -0.01, -0.23);                         // column shroud
+  I.part('stalks'); I.push(0.55, 2.03, -4.64, -0.96, 0, 0);                                     // column and stalks: fixed, so they join the cab's parts
+  I.add(roundBox(0.12, 0.11, 0.36, 0.03), IM.lower, 0, -0.01, -0.23);                         // column shroud
   for (const sx of [-1, 1]) {
-    W.add(tube([[sx * 0.06, 0.02, -0.085], [sx * 0.13, 0.025, -0.09], [sx * 0.21, 0.03, -0.095]], 0.009, 8), IM.black);
-    W.add(roundBox(0.03, 0.022, 0.022, 0.008), IM.black, sx * 0.215, 0.03, -0.095);
+    I.add(tube([[sx * 0.06, 0.02, -0.085], [sx * 0.13, 0.025, -0.09], [sx * 0.21, 0.03, -0.095]], 0.009, 8), IM.black);
+    I.add(roundBox(0.03, 0.022, 0.022, 0.008), IM.black, sx * 0.215, 0.03, -0.095);
   }
-  W.part(null); W.build(wf, { cast: true, receive: true });
+  I.pop(); I.part(null);
   R.wheel = new THREE.Group(); wf.add(R.wheel);
   const SW = new Parts(), N = seg(48, 16), ring = [];
   for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2; ring.push([0.208 * Math.cos(a), 0.208 * Math.sin(a), 0]); }
@@ -197,7 +196,7 @@ function cabWheel(R) {
   SW.part(null); SW.build(R.wheel, { cast: true, receive: true });
   R.wheelFrame = wf;
 }
-function cabPedals(R) {
+function cabPedals(S, R) {
   R.gas = new THREE.Group(); R.gas.position.set(0.72, 1.47, -5.0); R.gas.updateMatrix(); R.fine.add(R.gas);
   const G = new Parts(); G.part('pedals', R.gas.matrix);
   G.add(roundBox(0.085, 0.26, 0.016, 0.006), IM.black, 0, 0.13, 0);
@@ -208,7 +207,7 @@ function cabPedals(R) {
   B.add(tube([[0, 0, 0], [0, -0.30, 0.02]], 0.014, 8), IM.silver);
   B.add(roundBox(0.14, 0.09, 0.02, 0.008), IM.black, 0, -0.34, 0.03);
   B.part(null); B.build(R.brake, { cast: true });
-  const F = new Parts(); F.part('pedals');
-  F.add(roundBox(0.12, 0.05, 0.22, 0.01), IM.lower, 0.22, 1.50, -4.92, -0.5, 0, 0);       // footrest
-  F.part(null); F.build(R.fine);
+  S.part('pedals');
+  S.add(roundBox(0.12, 0.05, 0.22, 0.01), IM.lower, 0.22, 1.50, -4.92, -0.5, 0, 0);       // footrest
+  S.part(null);
 }

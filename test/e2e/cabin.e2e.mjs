@@ -59,6 +59,11 @@ test('V4 室内の上限：三角形と素材の数。画質を下げると三�
   for (const [q, max] of [['high', 100000], ['mid', 60000], ['low', 35000]]) await withGame({ storage: { 'nlh.quality': q } }, async page => {
     const s = await page.evaluate(() => vehicleStats().interior); tris.push(s.tris); assert.ok(s.tris <= max, `${q} ${s.tris}`); assert.ok(s.mats <= 24, `${q} mats ${s.mats}`); });
   assert.ok(tris[0] > tris[1] && tris[1] > tris[2], String(tris)); });
+test('V4 上限：画質ごとの三角形、部品の数、素材の数', async () => { for (const [q, inMax, exMax] of [['high', 100000, 60000], ['mid', 60000, 36000], ['low', 35000, 21000]])
+  await withGame({ storage: { 'nlh.quality': q, 'nlh.trim': 'custom' } }, async (page, errors) => { await startJob(page);
+    const s = await page.evaluate(async () => { GAME.cam = 'cab'; await __t.frames(3); return vehicleStats(); });
+    assert.ok(s.interior.tris <= inMax && s.exterior.tris <= exMax, `${q} ${s.interior.tris} ${s.exterior.tris}`); assert.ok(s.exterior.tris >= exMax * 0.4, `${q} too coarse`);
+    assert.ok(s.interior.meshes + s.exterior.meshes <= 110, `${q} meshes ${s.interior.meshes + s.exterior.meshes}`); assert.ok(s.interior.mats <= 24 && s.exterior.mats <= 30, `${q} mats ${s.interior.mats} ${s.exterior.mats}`); assert.deepEqual(errors, []); }); });
 test('夜の赤い間接照明は、足元と頭上の両方で点く', () => withGame({}, async page => {
   const r = await page.evaluate(() => { setCabAmbient(false); const off = IM.ambient.color.r; setCabAmbient(true); const P = vehicleStats().parts; return [off, IM.ambient.color.r, !!P.shelf, !!P.floor]; });
   assert.ok(r[1] > r[0] * 2 && r[2] && r[3], String(r));

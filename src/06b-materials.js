@@ -17,9 +17,9 @@ if (!PAINTS[paintName]) paintName = 'white';
 
 // The saved name 'beige' is kept for old saves; the cab it describes is light grey (photo 2).
 const INTERIOR_THEMES = {
-  black: { label: 'ブラック', upper: 0x3b3d41, lower: 0x1c1d1f, head: 0xcac7c0, cabinet: 0xd3d0c9, door: 0x2f3134, stitch: '#61656a', mattress: 0x34373d, drawer: 0x2c2e31, curtain: 0x1a1b1d, ambient: 0xff1e2c, quilt: false },
-  beige: { label: 'ライトグレー', upper: 0xcfd0cc, lower: 0x1e1f21, head: 0xe3e3df, cabinet: 0xd9d9d4, door: 0xc9cac6, stitch: '#4a4a4a', mattress: 0xcbc8c0, drawer: 0xd4d4cf, curtain: 0x2b2c2e, ambient: 0xffcf8a, quilt: false },
-  red: { label: 'レッド', upper: 0x9b111b, lower: 0x141415, head: 0x8a0f18, cabinet: 0x930f19, door: 0x930f19, stitch: '#d0202c', mattress: 0x1a1a1b, drawer: 0x930f19, curtain: 0x121213, ambient: 0xff1e2c, quilt: true },
+  black: { label: 'ブラック', upper: 0x3b3d41, lower: 0x1c1d1f, head: 0xcac7c0, cabinet: 0xd3d0c9, stitch: '#61656a', mattress: 0x34373d, drawer: 0x2c2e31, curtain: 0x1a1b1d, ambient: 0xff1e2c, quilt: false },
+  beige: { label: 'ライトグレー', upper: 0xcfd0cc, lower: 0x1e1f21, head: 0xe3e3df, cabinet: 0xd9d9d4, stitch: '#4a4a4a', mattress: 0xcbc8c0, drawer: 0xd4d4cf, curtain: 0x2b2c2e, ambient: 0xffcf8a, quilt: false },
+  red: { label: 'レッド', upper: 0x9b111b, lower: 0x141415, head: 0x8a0f18, cabinet: 0x930f19, stitch: '#d0202c', mattress: 0x1a1a1b, drawer: 0x930f19, curtain: 0x121213, ambient: 0xff1e2c, quilt: true },
 };
 let interiorName = lsGet('nlh.interior', 'black');
 if (!INTERIOR_THEMES[interiorName]) interiorName = 'black';
@@ -270,10 +270,8 @@ function makeVehicleMaterials(quality) {
   Object.assign(TM, {
     paint: kind.paint(),
     trim: kind.paint(),          // grille slats and mirror covers: body colour, or chrome on the custom trim
-    paintDark: phong({ color: 0x2a2c2f, specular: 0x333333, shininess: 40 }),
     chrome: kind.polished(0xe2e6e9, 0.08, envPhong(0xe2e6e9, 120, 0.75)),
     black: kind.plastic(0x131415, false),
-    blackDS: kind.plastic(0x131415, false, { side: THREE.DoubleSide }),
     dark: kind.plastic(0x2c2e31, false),
     frame: kind.plastic(0x1c1d1f, false),
     bumper: kind.plastic(0x34373a, false),
@@ -293,7 +291,6 @@ function makeVehicleMaterials(quality) {
     redOn: basic({ color: 0xff2b18 }),
     whiteOn: basic({ color: 0xffffff }),
     marker: basic({ color: 0xffa21a }),
-    mirrorStatic: envPhong(0x8e98a0, 120, 0.9),
     trailerBody: phong({ map: TEX.alu, specular: 0x777777, shininess: 50 }),
     gloss: kind.gloss(0x0b0c0d, false),
     rubber: kind.rubber(0x17181a, false),
@@ -317,29 +314,22 @@ function makeVehicleMaterials(quality) {
     lower: kind.plastic(0x1c1d1f, true),
     head: kind.fabric(0xcac7c0, TEX.headW),
     cabinet: kind.plastic(0xd3d0c9, true),
-    door: kind.plastic(0x2f3134, true),
     drawer: kind.plastic(0x2c2e31, true),
     seat: kind.leather(P.leather.map ? 0xffffff : 0x1b1b1c, P.leather.map),
     seatPlain: kind.leather(0x18181a),
     mattress: kind.fabric(0x34373d, TEX.headW),
-    leather: kind.leather(0x1b1b1c),
     floor: kind.rubber(0xffffff, true, TEX.floor),
     mat: kind.rubber(0x121314, true),
-    metal: kind.hairline(0xa5a9ad, ip({ color: 0xa5a9ad, specular: 0xffffff, shininess: 90, envMap: ENV, reflectivity: 0.35, combine: THREE.MixOperation })),
     silver: kind.hairline(0xc4c8cb, ip({ color: 0xc4c8cb, specular: 0xffffff, shininess: 100, envMap: ENV, reflectivity: 0.45, combine: THREE.MixOperation })),
     black: kind.plastic(0x0f1011, true),
     gloss: kind.gloss(0x0a0b0c, true),
     button: kind.plastic(0x1f2022, true),
     red: ip({ color: 0xb3141b, specular: 0x333333, shininess: 30 }),
-    gold: ip({ color: 0xd8b04a, specular: 0xffffff, shininess: 80 }),
     curtain: kind.fabric(0x1a1b1d, TEX.fabric),
     can: ip({ color: 0x23365a, specular: 0xffffff, shininess: 70 }),
     ambient: ib({ color: 0xff1e2c }),
-    tv: ib({ color: 0x0b1016 }),
     ledGreen: ib({ color: 0x3dff8a }),
     ledAmber: ib({ color: 0xffa21a }),
-    lcdGreen: ib({ color: 0x46c07a }),
-    lcdAmber: ib({ color: 0xd88a1c }),
     lcdBlue: ib({ color: 0x3a8ad8 }),
   });
   CAB_AMBIENT.on = null;
@@ -399,7 +389,7 @@ function applyInteriorTheme(name) {
   if (lm) { _drawLeather(lm.userData.c, th.stitch); lm.needsUpdate = true; }
   const quilted = th.quilt && !!qm;
   if (quilted) { _drawQuilt(qm.userData.c, th.upper); qm.needsUpdate = true; }
-  for (const [m, c, plainMap] of [[IM.upper, th.upper, null], [IM.head, th.head, TEX.headW], [IM.cabinet, th.cabinet, null], [IM.door, th.door, null]]) {
+  for (const [m, c, plainMap] of [[IM.upper, th.upper, null], [IM.head, th.head, TEX.headW], [IM.cabinet, th.cabinet, null]]) {
     const want = quilted ? qm : plainMap;
     if (m.map !== want) { m.map = want; m.needsUpdate = true; }
     if (VEH.pbr) {
