@@ -2,9 +2,9 @@
 // Renderer, quality presets, procedural textures and shared materials.
 // ---------------------------------------------------------------------------
 const QUALITY_PRESETS = {
-  high: { dpr: 2, shadow: 2048, mirror: [256, 400], mirrorEvery: 1, trees: 1.0, houses: 1.0, traffic: 34, far: 1500, detail: 1.0, pbr: true, tex: 512 },
-  mid: { dpr: 1.5, shadow: 1024, mirror: [192, 300], mirrorEvery: 2, trees: 0.7, houses: 0.8, traffic: 26, far: 1250, detail: 0.6, pbr: true, tex: 256 },
-  low: { dpr: 1, shadow: 0, mirror: [128, 200], mirrorEvery: 3, trees: 0.45, houses: 0.6, traffic: 18, far: 1000, detail: 0.35, pbr: false, tex: 256 },
+  high: { dpr: 2, shadow: 2048, mirror: [256, 400], mirrorEvery: 1, trees: 1.0, houses: 1.0, traffic: 34, far: 1500, detail: 1.0, pbr: true, tex: 512, townCars: 25 },
+  mid: { dpr: 1.5, shadow: 1024, mirror: [192, 300], mirrorEvery: 2, trees: 0.7, houses: 0.8, traffic: 26, far: 1250, detail: 0.6, pbr: true, tex: 256, townCars: 20 },
+  low: { dpr: 1, shadow: 0, mirror: [128, 200], mirrorEvery: 3, trees: 0.45, houses: 0.6, traffic: 18, far: 1000, detail: 0.35, pbr: false, tex: 256, townCars: 15 },
 };
 let qualityName = lsGet('nlh.quality', IS_TOUCH ? 'mid' : 'high');
 if (!QUALITY_PRESETS[qualityName]) qualityName = 'mid';
@@ -166,6 +166,12 @@ TEX.stripes = (() => { // cushion drum / gate bar
   g.fillStyle = '#151515'; g.fillRect(0, 0, W, H / 4); g.fillRect(0, H / 2, W, H / 4);
   return canvasTex(c, { repeat: true });
 })();
+TEX.townRoad = (() => { // town streets: plain worn asphalt, tiled every 8 m
+  const W = 256, c = makeCanvas(W, W), g = c.getContext('2d');
+  g.fillStyle = '#505154'; g.fillRect(0, 0, W, W);
+  speckle(g, W, W, 9000, 1.6, 45, 125, 0.2, 0.55, 23);
+  return canvasTex(c, { repeat: true, aniso: 8 });
+})();
 TEX.bay = (() => { // delivery bay: yellow hatching on asphalt
   const W = 128, c = makeCanvas(W, W), g = c.getContext('2d');
   g.fillStyle = '#4f5053'; g.fillRect(0, 0, W, W);
@@ -230,6 +236,10 @@ const MAT = {
   black: new THREE.MeshLambertMaterial({ color: 0x1a1b1c }),
   bay: new THREE.MeshLambertMaterial({ map: TEX.bay, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }),
   bayLine: new THREE.MeshLambertMaterial({ color: 0xf2c21b, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }),
+  townRoad: new THREE.MeshLambertMaterial({ map: TEX.townRoad }),
+  mark: new THREE.MeshLambertMaterial({ color: 0xeeeeea, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }),
+  hedge: new THREE.MeshLambertMaterial({ color: 0x3f6a34 }),
+  sigLamp: new THREE.MeshBasicMaterial({ color: 0xffffff }),
 };
 for (const k of ['road', 'rampA', 'rampB', 'zebra', 'concrete', 'median', 'terrain', 'lattice', 'grassFill']) MAT[k].userData.keep = true;
 

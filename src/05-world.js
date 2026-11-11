@@ -44,6 +44,8 @@ function terrainY(s, x, d, side) {
   let y = roadY + rel;
   const w = waterAt(s, side);
   if (w > 0) y = lerp(y, Math.min(y, -5 + (n2 - 0.5) * 3), w * smooth(6, 30, d));
+  const tb = townGroundBlend(s, x);   // give way to a town's ground (just under it)
+  if (tb.w > 0) y = lerp(y, tb.y - 0.3, tb.w);
   return y;
 }
 
@@ -351,6 +353,7 @@ function buildTrees(ctx) {
     const w = waterAt(s, side);
     if (w > 0.2 && d > 10) continue;
     if (d < 15 && tunnelAt(s, 6)) continue;
+    if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townGroundBlend(s + a, x + b).w > 0)) continue;   // the town has its own street trees
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 6, d + 6, side);
     const slope = Math.abs(y2 - y) / 6;
@@ -384,27 +387,30 @@ function buildHouses(ctx) {
   for (let t = 0; t < n; t++) {
     const i = i0 + Math.floor(rand() * (i1 - i0)), s = i * DS;
     const side = rand() < 0.5 ? -1 : 1;
-    const d = 16 + Math.pow(rand(), 1.3) * 210;
+    let d = 16 + Math.pow(rand(), 1.3) * 210;
     if (waterAt(s, side) > 0.1) continue;
     if (tunnelFactor(s) > 0.05) continue;
+    const big = p.town > 0.65 && rand() < 0.12;
+    const fac = !big && rand() < 0.08;
+    // the size first, so that even a large building stands clear of the road (its centre at least half its size + 2 m out)
+    const w = big ? 12 + rand() * 20 : fac ? 30 + rand() * 40 : 7 + rand() * 4, dd = big ? 9 + rand() * 4 : fac ? 20 + rand() * 25 : 6.5 + rand() * 3.5;
+    const h = big ? 12 + rand() * 22 : fac ? 8 + rand() * 6 : rand() < 0.7 ? 6 : 3.2;
+    d = Math.max(d, Math.max(w, dd) / 2 * 1.1 + 2);
     const inner = side < 0 ? leftInner(s) : ROAD_IN;
     const x = side * (inner + d);
+    const hw = Math.hypot(w, dd) / 2 + 1;   // half the diagonal: clear at any turn
+    if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townGroundBlend(s + a, x + b).w > 0)) continue;   // towns place their own buildings
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 8, d + 8, side);
     if (Math.abs(y2 - y) > 2.5) continue;
     const c = localPt(O, s, x, 0);
-    const big = p.town > 0.65 && rand() < 0.12;
-    const fac = !big && rand() < 0.08;
     const ry = c.h + (rand() < 0.7 ? 0 : Math.PI / 2) + (rand() - 0.5) * 0.3;
     if (big) { // apartment block
-      const w = 12 + rand() * 20, dd = 9 + rand() * 4, h = 12 + rand() * 22;
       walls.push({ x: c.x, y: y - O.y - 0.5, z: c.z, sx: w, sy: h, sz: dd, ry, c: WALLS[Math.floor(rand() * 3)] });
     } else if (fac) { // factory / warehouse
-      const w = 30 + rand() * 40, dd = 20 + rand() * 25, h = 8 + rand() * 6;
       walls.push({ x: c.x, y: y - O.y - 0.5, z: c.z, sx: w, sy: h, sz: dd, ry, c: rand() < 0.5 ? 0xb9c0c4 : 0x9aa7b0 });
       roofs.push({ x: c.x, y: y - O.y - 0.5 + h, z: c.z, sx: w * 1.02, sy: 1.6, sz: dd * 1.02, ry, c: 0x6f7b82 });
     } else {
-      const w = 7 + rand() * 4, dd = 6.5 + rand() * 3.5, h = rand() < 0.7 ? 6 : 3.2;
       walls.push({ x: c.x, y: y - O.y - 0.5, z: c.z, sx: w, sy: h + 0.5, sz: dd, ry, c: WALLS[Math.floor(rand() * WALLS.length)] });
       roofs.push({ x: c.x, y: y - O.y + h, z: c.z, sx: w * 1.15, sy: 1.8 + rand() * 0.8, sz: dd * 1.15, ry: ry + Math.PI / 2, c: ROOFS[Math.floor(rand() * ROOFS.length)] });
     }
