@@ -248,6 +248,43 @@ function resolveCarContact(c, b) {
   return hit;
 }
 
+// A town car c = { x, z, h, v, len, wid, heavy, d } against the box b = { x, z, h, len, wid, tractor } of the
+// tractor or the trailer (world positions). Works like resolveCarContact in the car's own frame: a car the truck
+// runs into is shoved ahead along its lane (c.d), a car that runs into the truck is held back, a side swipe
+// pushes both apart. Returns how hard the contact was (0: none).
+const _bcw = { x: 0, z: 0 };
+function resolveBoxContact(c, b) {
+  const fx = Math.sin(c.h), fz = Math.cos(c.h), rx = Math.cos(c.h), rz = -Math.sin(c.h);   // the car's forward and left
+  const dx = b.x - c.x, dz = b.z - c.z, along = dx * fx + dz * fz, side = dx * rx + dz * rz;
+  const bf = [Math.sin(b.h), Math.cos(b.h)], ext = (ax, ay) => Math.abs(bf[0] * ax + bf[1] * ay) * b.len / 2 + Math.abs(bf[1] * ax - bf[0] * ay) * b.wid / 2;
+  const penA = c.len / 2 + ext(fx, fz) - Math.abs(along), penS = c.wid / 2 + ext(rx, rz) - Math.abs(side);
+  if (penA <= 0 || penS <= 0) return 0;
+  const unit = b.tractor ? 't' : 'r', towed = RIG.coupled, movable = b.tractor || towed;
+  const M = towed ? RIG.t.m + RIG.r.m : RIG[unit].m, mc = c.heavy ? 12000 : 1500, red = mc * M / (mc + M);
+  const body = RIG[unit], vTruck = movable ? body.vx * fx + body.vz * fz : 0;   // the truck's speed along the car's way
+  let hit = 0;
+  if (penA <= penS) {
+    if (along > 0) {                                  // the truck is ahead: the car ran into it
+      const dv = Math.max(0, c.v - vTruck), J = 1.1 * (movable ? red : mc) * dv;
+      c.v = Math.max(0, Math.min(c.v - J / mc, vTruck - 0.3)); if (c.d != null) c.d -= penA + 0.05; hit = dv > 0 ? 0.6 + dv * 0.2 : 0.6;
+      _bcw.x = c.x + fx * c.len / 2; _bcw.z = c.z + fz * c.len / 2;
+      rigApplyImpulse(unit, _bcw.x, _bcw.z, J * fx, J * fz);
+    } else {                                          // the car is ahead: the truck ran into it
+      const dv = Math.max(0, vTruck - c.v), J = 1.1 * red * dv;
+      c.v += J / mc; if (c.d != null) c.d += penA + 0.05; hit = dv;
+      _bcw.x = c.x - fx * c.len / 2; _bcw.z = c.z - fz * c.len / 2;
+      rigApplyImpulse(unit, _bcw.x, _bcw.z, -J * fx, -J * fz);
+    }
+  } else {                                            // side swipe
+    const sgn = Math.sign(side) || 1, J = red * 1.0;
+    hit = 1 + Math.abs(vTruck - c.v) * 0.2; c.v *= 0.97;
+    rigApplyImpulse(unit, c.x + rx * sgn * c.wid / 2, c.z + rz * sgn * c.wid / 2, sgn * J * rx, sgn * J * rz);
+  }
+  if (hit > 0.4) EVENTS.push({ t: 'car', hit });
+  TR.damage = Math.min(100, TR.damage + hit * 0.7);
+  return hit;
+}
+
 const finite = v => (Number.isFinite(v) ? v : 0);
 // inp: { throttle 0..1, brake 0..1, steer -1..1 (right positive) }
 function stepTruck(dt, inp) {
