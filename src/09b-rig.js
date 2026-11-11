@@ -170,22 +170,16 @@ function rigRollSlosh(h, aLat, aLongT, aLatT) {
 }
 
 // ---- contacts: guardrails and walls push on the body corners, barriers stop the nose ----
-const _iv = [];
+const _gc = { pen: 0, nx: 0, nz: 0, tx: 0, tz: 0, i: 0 }, _ga = { y: 0, gx: 0, gz: 0, zone: 'road', town: -1, s: 0, lat: 0, i: 0 };
 let _cFx = 0, _cFz = 0, _cT = 0;
 // One corner of body b at (a forward, side * half-width right) of its centre of mass.
 function rigCorner(b, rec, a, side, h) {
   const fx = Math.sin(b.h), fz = Math.cos(b.h), w = side * RIGP.half;
   const ox = a * fx - w * fz, oz = a * fz + w * fx;
-  ROAD.project(b.x + ox, b.z + oz, b.i, _pr);
-  const ivs = ROAD.drivable(_pr.s, _iv), lat = _pr.lat;
-  let iv = ivs[0], bd = Infinity;
-  for (const c of ivs) {
-    const d = lat < c[0] ? c[0] - lat : lat > c[1] ? lat - c[1] : 0;
-    if (d < bd) { bd = d; iv = c; }
-  }
+  GROUND.contact(b.x + ox, b.z + oz, b.i, _gc);
+  const bd = _gc.pen;
   if (!(bd > 0)) return;
-  const dir = lat < iv[0] ? 1 : -1;                       // push back toward the road
-  const hr = ROAD.headingAt(_pr.s), tx = Math.sin(hr), tz = Math.cos(hr), nx = -dir * tz, nz = dir * tx;
+  const tx = _gc.tx, tz = _gc.tz, nx = _gc.nx, nz = _gc.nz;   // push back toward the drivable ground
   const vpx = b.vx + b.w * oz, vpz = b.vz - b.w * ox;
   const vn = vpx * nx + vpz * nz, vt = vpx * tx + vpz * tz;
   if (vn > 3) return;                                     // already leaving fast enough
@@ -230,12 +224,21 @@ function rigCouple() {
   R.coupled = true; R.r.vx = R.r.vz = R.r.w = 0; R.r.i = R.t.i;
   rigStatic();
 }
+// The pull of the slope under body b: m g sin(angle) down the steepest way (also updates b.i).
+let _slx = 0, _slz = 0;
+function rigSlope(b) {
+  GROUND.at(b.x, b.z, b.i, _ga); b.i = _ga.i;
+  const g = Math.hypot(_ga.gx, _ga.gz);
+  if (!(g > 0)) { _slx = _slz = 0; return; }
+  const k = -b.m * G * (g / Math.sqrt(1 + g * g)) / g;
+  _slx = k * _ga.gx; _slz = k * _ga.gz;
+}
 // The closure at the end of the road or of a ramp: takes all forward momentum at once.
 function rigBarrier(h) {
   const R = RIG, t = R.t, a = RIGP.front - RIGP.b1, ox = a * Math.sin(t.h), oz = a * Math.cos(t.h);
-  ROAD.project(t.x + ox, t.z + oz, t.i, _pr);
-  const pen = _pr.s - ROAD.barrier(_pr.s, _pr.lat);
+  const pen = GROUND.barrier(t.x + ox, t.z + oz, t.i);
   if (!(pen > 0)) return;
+  ROAD.project(t.x + ox, t.z + oz, t.i, _pr);
   const hr = ROAD.headingAt(_pr.s), tx = Math.sin(hr), tz = Math.cos(hr);
   const u = t.vx * tx + t.vz * tz, M = t.m + (R.coupled ? R.r.m : 0);
   let F = u > -0.5 ? 1.5e6 * Math.min(pen, 0.5) : 0;
@@ -301,9 +304,7 @@ function rigStep(h, cmd) {
   Fu += _Fu; Fv += _Fv; T1 += _Fv * P.b1;
   Fu -= Math.sign(u1) * 0.5 * 1.2 * 0.6 * 10.2 * u1 * u1 * (coupled ? 1 : 0.75);
   let F1x = Fu * f1x + Fv * r1x, F1z = Fu * f1z + Fv * r1z;
-  ROAD.project(t.x, t.z, t.i, _pr); t.i = _pr.i;
-  let g = ROAD.gradeAt(_pr.s), hr = ROAD.headingAt(_pr.s), sg = g / Math.sqrt(1 + g * g);
-  F1x -= t.m * G * sg * Math.sin(hr); F1z -= t.m * G * sg * Math.cos(hr);
+  rigSlope(t); F1x += _slx; F1z += _slz;
   rigWalls(t, R.hit.t, P.front - P.b1, -P.back - P.b1, h); rigBarrier(h);
   if (!coupled && R.spec) rigParkedTrailer(h);
   F1x += _cFx; F1z += _cFz; T1 += _cT;
@@ -323,9 +324,7 @@ function rigStep(h, cmd) {
       const Fsx = R.ms * (wx * wx * S.x + 2 * sl.zx * wx * S.vx), Fsy = R.ms * (wy * wy * S.y + 2 * sl.zy * wy * S.vy);
       F2x += Fsx * f2x + Fsy * r2x; F2z += Fsx * f2z + Fsy * r2z;
     }
-    ROAD.project(r.x, r.z, r.i, _pr); r.i = _pr.i;
-    g = ROAD.gradeAt(_pr.s); hr = ROAD.headingAt(_pr.s); sg = g / Math.sqrt(1 + g * g);
-    F2x -= r.m * G * sg * Math.sin(hr); F2z -= r.m * G * sg * Math.cos(hr);
+    rigSlope(r); F2x += _slx; F2z += _slz;
     rigWalls(r, R.hit.r, R.d2 + R.spec.nose - 0.2, R.d2 - R.spec.rear, h);
     F2x += _cFx; F2z += _cFz; T2 += _cT;
   } else { R.axle[2].Fz = R.axle[2].Fx = R.axle[2].Fy = R.axle[2].alpha = 0; R.FxT = 0; }

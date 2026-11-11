@@ -29,7 +29,7 @@ const TR = {
   sentRoll: false, sentJack: false, dlPrev: null,
 };
 const _tkPos = { x: 0, y: 0, z: 0, h: 0 }, _po = {};
-const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 };
+const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 }, _gt = {};
 const _cmd = { steer: 0, drive: 0, drag: 0, service: 0, hold: false };
 
 // Largest front wheel angle the steering allows at this speed.
@@ -49,13 +49,15 @@ function syncTR() {
   ROAD.project(T.x, T.z, T.idx, _pj); T.idx = _pj.i; T.s = _pj.s; T.lat = _pj.lat;
   ROAD.project(T.x + Math.sin(T.h) * RIGP.front, T.z + Math.cos(T.h) * RIGP.front, T.idx, _pjF);
   T.frontS = _pjF.s; T.frontLat = _pjF.lat;
-  T.y = ROAD.elevAt(T.s); T.pitch = Math.atan2(ROAD.elevAt(T.s + WB) - T.y, WB);
+  T.y = GROUND.at(T.x, T.z, T.idx, _gt).y;
+  T.pitch = Math.atan2(GROUND.at(T.x + Math.sin(T.h) * WB, T.z + Math.cos(T.h) * WB, T.idx, _gt).y - T.y, WB);
   const tr = T.tr;
   if (spec) {
     tr.x = P.tx; tr.z = P.tz; tr.h = P.th;
     ROAD.project(tr.x, tr.z, tr.idx, _pjT); tr.idx = _pjT.i; tr.s = _pjT.s; tr.lat = _pjT.lat;
     tr.kx = tr.x + Math.sin(tr.h) * spec.L2; tr.kz = tr.z + Math.cos(tr.h) * spec.L2;
-    tr.y = ROAD.elevAt(tr.s); tr.pitch = Math.atan2(ROAD.elevAt(tr.s + spec.L2) - tr.y, spec.L2);
+    tr.y = GROUND.at(tr.x, tr.z, tr.idx, _gt).y;
+    tr.pitch = Math.atan2(GROUND.at(tr.x + Math.sin(tr.h) * spec.L2, tr.z + Math.cos(tr.h) * spec.L2, tr.idx, _gt).y - tr.y, spec.L2);
   } else {
     tr.x = P.hx; tr.z = P.hz; tr.h = T.h; tr.idx = T.idx; tr.s = T.s; tr.lat = T.lat; tr.kx = P.hx; tr.kz = P.hz; tr.y = T.y; tr.pitch = T.pitch;
   }

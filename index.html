@@ -828,6 +828,52 @@ function roadBarrier(s, lat) {
 // Road queries used by the physics. Tests swap these for a flat straight road.
 const ROAD = { project, posAt, elevAt, gradeAt, headingAt, drivable, rampAt, barrier: roadBarrier };
 
+// ==== 02c-ground.js ====
+// ---------------------------------------------------------------------------
+// GROUND: what the physics and the truck ask about the ground at a point —
+// its height and slope, and how far a point has gone into a wall. On the
+// expressway and its ramps the answers come from ROAD (the same numbers the
+// physics used before); towns add their own answers (see 02b-towns.js).
+// GROUND looks at ROAD on every call, so tests that swap ROAD for a flat road
+// also change what GROUND says.
+// ---------------------------------------------------------------------------
+const _gpr = { i: 0, s: 0, lat: 0 }, _giv = [];
+const GROUND = {
+  towns: [],
+  // out = { y, gx, gz, zone, town, s, lat, i }: height, uphill slope along x and z, 'road' | 'town'
+  at(x, z, hint, out) {
+    const R = ROAD;
+    R.project(x, z, hint, _gpr);
+    const s = _gpr.s, g = R.gradeAt(s), h = R.headingAt(s);
+    out.y = R.elevAt(s); out.gx = g * Math.sin(h); out.gz = g * Math.cos(h);
+    out.zone = 'road'; out.town = -1; out.s = s; out.lat = _gpr.lat; out.i = _gpr.i;
+    return out;
+  },
+  // out = { pen, nx, nz, tx, tz, i }: how far the point is outside the drivable ground (0: inside),
+  // the way back in, and the direction along the wall
+  contact(x, z, hint, out) {
+    const R = ROAD;
+    R.project(x, z, hint, _gpr);
+    const ivs = R.drivable(_gpr.s, _giv), lat = _gpr.lat;
+    let iv = ivs[0], bd = Infinity;
+    for (const c of ivs) {
+      const d = lat < c[0] ? c[0] - lat : lat > c[1] ? lat - c[1] : 0;
+      if (d < bd) { bd = d; iv = c; }
+    }
+    const h = R.headingAt(_gpr.s), tx = Math.sin(h), tz = Math.cos(h);
+    out.i = _gpr.i; out.tx = tx; out.tz = tz;
+    if (!(bd > 0)) { out.pen = 0; out.nx = out.nz = 0; return out; }
+    const dir = lat < iv[0] ? 1 : -1;                       // back toward the road
+    out.pen = bd; out.nx = -dir * tz; out.nz = dir * tx;
+    return out;
+  },
+  // how far the point is past the closure ahead (positive: into it)
+  barrier(x, z, hint) {
+    ROAD.project(x, z, hint, _gpr);
+    return _gpr.s - ROAD.barrier(_gpr.s, _gpr.lat);
+  },
+};
+
 // ==== 03-gfx.js ====
 // ---------------------------------------------------------------------------
 // Renderer, quality presets, procedural textures and shared materials.
@@ -4352,22 +4398,16 @@ function rigRollSlosh(h, aLat, aLongT, aLatT) {
 }
 
 // ---- contacts: guardrails and walls push on the body corners, barriers stop the nose ----
-const _iv = [];
+const _gc = { pen: 0, nx: 0, nz: 0, tx: 0, tz: 0, i: 0 }, _ga = { y: 0, gx: 0, gz: 0, zone: 'road', town: -1, s: 0, lat: 0, i: 0 };
 let _cFx = 0, _cFz = 0, _cT = 0;
 // One corner of body b at (a forward, side * half-width right) of its centre of mass.
 function rigCorner(b, rec, a, side, h) {
   const fx = Math.sin(b.h), fz = Math.cos(b.h), w = side * RIGP.half;
   const ox = a * fx - w * fz, oz = a * fz + w * fx;
-  ROAD.project(b.x + ox, b.z + oz, b.i, _pr);
-  const ivs = ROAD.drivable(_pr.s, _iv), lat = _pr.lat;
-  let iv = ivs[0], bd = Infinity;
-  for (const c of ivs) {
-    const d = lat < c[0] ? c[0] - lat : lat > c[1] ? lat - c[1] : 0;
-    if (d < bd) { bd = d; iv = c; }
-  }
+  GROUND.contact(b.x + ox, b.z + oz, b.i, _gc);
+  const bd = _gc.pen;
   if (!(bd > 0)) return;
-  const dir = lat < iv[0] ? 1 : -1;                       // push back toward the road
-  const hr = ROAD.headingAt(_pr.s), tx = Math.sin(hr), tz = Math.cos(hr), nx = -dir * tz, nz = dir * tx;
+  const tx = _gc.tx, tz = _gc.tz, nx = _gc.nx, nz = _gc.nz;   // push back toward the drivable ground
   const vpx = b.vx + b.w * oz, vpz = b.vz - b.w * ox;
   const vn = vpx * nx + vpz * nz, vt = vpx * tx + vpz * tz;
   if (vn > 3) return;                                     // already leaving fast enough
@@ -4412,12 +4452,21 @@ function rigCouple() {
   R.coupled = true; R.r.vx = R.r.vz = R.r.w = 0; R.r.i = R.t.i;
   rigStatic();
 }
+// The pull of the slope under body b: m g sin(angle) down the steepest way (also updates b.i).
+let _slx = 0, _slz = 0;
+function rigSlope(b) {
+  GROUND.at(b.x, b.z, b.i, _ga); b.i = _ga.i;
+  const g = Math.hypot(_ga.gx, _ga.gz);
+  if (!(g > 0)) { _slx = _slz = 0; return; }
+  const k = -b.m * G * (g / Math.sqrt(1 + g * g)) / g;
+  _slx = k * _ga.gx; _slz = k * _ga.gz;
+}
 // The closure at the end of the road or of a ramp: takes all forward momentum at once.
 function rigBarrier(h) {
   const R = RIG, t = R.t, a = RIGP.front - RIGP.b1, ox = a * Math.sin(t.h), oz = a * Math.cos(t.h);
-  ROAD.project(t.x + ox, t.z + oz, t.i, _pr);
-  const pen = _pr.s - ROAD.barrier(_pr.s, _pr.lat);
+  const pen = GROUND.barrier(t.x + ox, t.z + oz, t.i);
   if (!(pen > 0)) return;
+  ROAD.project(t.x + ox, t.z + oz, t.i, _pr);
   const hr = ROAD.headingAt(_pr.s), tx = Math.sin(hr), tz = Math.cos(hr);
   const u = t.vx * tx + t.vz * tz, M = t.m + (R.coupled ? R.r.m : 0);
   let F = u > -0.5 ? 1.5e6 * Math.min(pen, 0.5) : 0;
@@ -4483,9 +4532,7 @@ function rigStep(h, cmd) {
   Fu += _Fu; Fv += _Fv; T1 += _Fv * P.b1;
   Fu -= Math.sign(u1) * 0.5 * 1.2 * 0.6 * 10.2 * u1 * u1 * (coupled ? 1 : 0.75);
   let F1x = Fu * f1x + Fv * r1x, F1z = Fu * f1z + Fv * r1z;
-  ROAD.project(t.x, t.z, t.i, _pr); t.i = _pr.i;
-  let g = ROAD.gradeAt(_pr.s), hr = ROAD.headingAt(_pr.s), sg = g / Math.sqrt(1 + g * g);
-  F1x -= t.m * G * sg * Math.sin(hr); F1z -= t.m * G * sg * Math.cos(hr);
+  rigSlope(t); F1x += _slx; F1z += _slz;
   rigWalls(t, R.hit.t, P.front - P.b1, -P.back - P.b1, h); rigBarrier(h);
   if (!coupled && R.spec) rigParkedTrailer(h);
   F1x += _cFx; F1z += _cFz; T1 += _cT;
@@ -4505,9 +4552,7 @@ function rigStep(h, cmd) {
       const Fsx = R.ms * (wx * wx * S.x + 2 * sl.zx * wx * S.vx), Fsy = R.ms * (wy * wy * S.y + 2 * sl.zy * wy * S.vy);
       F2x += Fsx * f2x + Fsy * r2x; F2z += Fsx * f2z + Fsy * r2z;
     }
-    ROAD.project(r.x, r.z, r.i, _pr); r.i = _pr.i;
-    g = ROAD.gradeAt(_pr.s); hr = ROAD.headingAt(_pr.s); sg = g / Math.sqrt(1 + g * g);
-    F2x -= r.m * G * sg * Math.sin(hr); F2z -= r.m * G * sg * Math.cos(hr);
+    rigSlope(r); F2x += _slx; F2z += _slz;
     rigWalls(r, R.hit.r, R.d2 + R.spec.nose - 0.2, R.d2 - R.spec.rear, h);
     F2x += _cFx; F2z += _cFz; T2 += _cT;
   } else { R.axle[2].Fz = R.axle[2].Fx = R.axle[2].Fy = R.axle[2].alpha = 0; R.FxT = 0; }
@@ -4617,7 +4662,7 @@ const TR = {
   sentRoll: false, sentJack: false, dlPrev: null,
 };
 const _tkPos = { x: 0, y: 0, z: 0, h: 0 }, _po = {};
-const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 };
+const _pj = { i: 0, s: 0, lat: 0 }, _pjF = { i: 0, s: 0, lat: 0 }, _pjT = { i: 0, s: 0, lat: 0 }, _gt = {};
 const _cmd = { steer: 0, drive: 0, drag: 0, service: 0, hold: false };
 
 // Largest front wheel angle the steering allows at this speed.
@@ -4637,13 +4682,15 @@ function syncTR() {
   ROAD.project(T.x, T.z, T.idx, _pj); T.idx = _pj.i; T.s = _pj.s; T.lat = _pj.lat;
   ROAD.project(T.x + Math.sin(T.h) * RIGP.front, T.z + Math.cos(T.h) * RIGP.front, T.idx, _pjF);
   T.frontS = _pjF.s; T.frontLat = _pjF.lat;
-  T.y = ROAD.elevAt(T.s); T.pitch = Math.atan2(ROAD.elevAt(T.s + WB) - T.y, WB);
+  T.y = GROUND.at(T.x, T.z, T.idx, _gt).y;
+  T.pitch = Math.atan2(GROUND.at(T.x + Math.sin(T.h) * WB, T.z + Math.cos(T.h) * WB, T.idx, _gt).y - T.y, WB);
   const tr = T.tr;
   if (spec) {
     tr.x = P.tx; tr.z = P.tz; tr.h = P.th;
     ROAD.project(tr.x, tr.z, tr.idx, _pjT); tr.idx = _pjT.i; tr.s = _pjT.s; tr.lat = _pjT.lat;
     tr.kx = tr.x + Math.sin(tr.h) * spec.L2; tr.kz = tr.z + Math.cos(tr.h) * spec.L2;
-    tr.y = ROAD.elevAt(tr.s); tr.pitch = Math.atan2(ROAD.elevAt(tr.s + spec.L2) - tr.y, spec.L2);
+    tr.y = GROUND.at(tr.x, tr.z, tr.idx, _gt).y;
+    tr.pitch = Math.atan2(GROUND.at(tr.x + Math.sin(tr.h) * spec.L2, tr.z + Math.cos(tr.h) * spec.L2, tr.idx, _gt).y - tr.y, spec.L2);
   } else {
     tr.x = P.hx; tr.z = P.hz; tr.h = T.h; tr.idx = T.idx; tr.s = T.s; tr.lat = T.lat; tr.kx = P.hx; tr.kz = P.hz; tr.y = T.y; tr.pitch = T.pitch;
   }
