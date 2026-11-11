@@ -320,9 +320,11 @@ function disposeVehicleMaterials() {
 }
 
 // Daylight (1 noon .. 0 night) and tunnel (0..1) set how strongly the environment pictures light the vehicle.
+// While the cab's own lights are on (night, tunnels) the cab keeps at least 0.45 of its daytime fill.
 function setVehicleLight(day, tunnel) {
+  VEH.light = [day, tunnel];
   if (!VEH.pbr) return;
-  const out = (0.12 + 0.88 * day) * (1 - 0.6 * tunnel), cab = (0.10 + 0.90 * day) * (1 - 0.5 * tunnel);
+  const out = (0.12 + 0.88 * day) * (1 - 0.6 * tunnel), cab = Math.max((0.10 + 0.90 * day) * (1 - 0.5 * tunnel), CAB_AMBIENT.on ? 0.45 : 0);
   for (const [m, b] of VEH.base) m.envMapIntensity = b.base * (b.cab ? cab : out);
 }
 // Keep the cab's environment picture fixed to the tractor (call after the tractor's rotation is set).
@@ -374,6 +376,7 @@ function setCabAmbient(on) {
   IM.ambient.color.copy(CAB_AMBIENT.base).multiplyScalar(on ? 1 : 0.28);
   const e = CAB_AMBIENT.base.clone().multiplyScalar(on ? 0.13 : 0);
   IM.floor.emissive.copy(e); IM.mat.emissive.copy(e);
+  if (VEH.light) setVehicleLight(VEH.light[0], VEH.light[1]);
 }
 // The trim: 'normal' (as in photos 7-9) or 'custom' (light bar, markers, chrome and a pinstripe livery).
 // T, the tractor, shows or hides its decorations; its roof lamps light with the headlights only on 'custom'.

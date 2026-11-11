@@ -53,3 +53,15 @@ export const led = page => page.evaluate(() => document.getElementById('ledText'
 // Move game time forward by `seconds` without waiting for frames (headless software GL draws about 2 a second).
 // Returns what the LED board says right afterwards (start-up messages on real-time timers can replace it later).
 export const tick = (page, seconds) => page.evaluate(n => { for (let i = 0; i < n; i++) simTick(1 / 60); return document.getElementById('ledText').textContent; }, Math.round(seconds * 60));
+// Draw one frame with the current camera and, in the same task, read the average brightness (0..255) of each
+// screen rectangle [x0, y0, x1, y1] given as fractions of the canvas, (0, 0) at the bottom left.
+export const luma = (page, rects) => page.evaluate(rects => {
+  renderer.render(scene, activeCam);
+  const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+  return rects.map(([x0, y0, x1, y1]) => {
+    const X = Math.floor(x0 * w), Y = Math.floor(y0 * h), W = Math.max(1, Math.floor((x1 - x0) * w)), H = Math.max(1, Math.floor((y1 - y0) * h));
+    const px = new Uint8Array(W * H * 4); gl.readPixels(X, Y, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let s = 0; for (let i = 0; i < px.length; i += 4) s += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+    return s / (W * H);
+  });
+}, rects);

@@ -138,10 +138,11 @@ function _sideCard(zy, thick, bevel = 0.006) {
 function cabDoor(I, S, sx) {
   const name = sx > 0 ? 'doorR' : 'doorL', xin = sx * 1.125, x0 = sx > 0 ? 1.125 : -1.17;   // inner face, and the card's -x side
   I.part(name); S.part(name);
-  I.add(_sideCard([[-5.22, 1.47], [-4.16, 1.47], [-4.16, 2.27], [-4.74, 2.27], [-4.86, 2.08], [-5.14, 2.08], [-5.22, 1.98]], 0.045), IM.upper, x0, 0, 0);
-  I.add(_sideCard([[-4.96, 3.17], [-4.16, 3.17], [-4.16, 3.78], [-4.92, 3.78]], 0.04), IM.upper, sx > 0 ? 1.13 : -1.17, 0, 0);   // above the window
+  // the card's top runs 1.5 cm above the glass's lower edge, so no gap opens between them
+  I.add(_sideCard([[-5.22, 1.47], [-4.16, 1.47], [-4.16, 2.335], [-4.76, 2.335], [-4.88, 2.135], [-5.14, 2.135], [-5.22, 2.03]], 0.045), IM.upper, x0, 0, 0);
+  I.add(_sideCard([[-4.99, 3.13], [-4.16, 3.13], [-4.16, 3.78], [-4.92, 3.78]], 0.04), IM.upper, sx > 0 ? 1.13 : -1.17, 0, 0);   // above the window, overlapping its top
   // sill along the window line
-  S.add(tube([[sx * 1.135, 2.09, -5.15], [sx * 1.135, 2.09, -4.88], [sx * 1.135, 2.28, -4.75], [sx * 1.135, 2.28, -4.16]], 0.016, 8), IM.lower);
+  S.add(tube([[sx * 1.135, 2.14, -5.15], [sx * 1.135, 2.14, -4.88], [sx * 1.135, 2.34, -4.76], [sx * 1.135, 2.34, -4.16]], 0.016, 8), IM.lower);
   // armrest with a leather top, door pull, window switches on the driver's side
   I.add(roundBox(0.08, 0.05, 0.42, 0.018), IM.lower, sx * 1.095, 2.09, -4.50);
   S.add(roundBox(0.07, 0.014, 0.38, 0.006), IM.seatPlain, sx * 1.093, 2.118, -4.50);
@@ -157,7 +158,8 @@ function cabDoor(I, S, sx) {
 function cabPillars(I, S) {
   I.part('pillars'); S.part('pillars');
   for (const sx of [-1, 1]) {
-    I.add(roundBox(0.07, 1.07, 0.11, 0.025), IM.upper, sx * 1.14, 2.78, -5.16, 0.164, 0, 0);    // A-pillar between windscreen and door
+    // A-pillar trim, wide enough to meet both the windscreen's wrapped corner and the door window's front edge
+    I.add(roundBox(0.07, 1.05, 0.30, 0.03), IM.upper, sx * 1.14, 2.83, -5.10, 0.153, 0, 0);
     I.add(roundBox(0.07, 2.30, 0.13, 0.025), IM.upper, sx * 1.15, 2.62, -4.12);                // B-pillar behind the door
   }
   I.add(roundBox(2.30, 0.10, 0.08, 0.02), IM.upper, 0, 3.31, -5.15);                          // windscreen header

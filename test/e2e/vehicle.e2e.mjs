@@ -1,6 +1,6 @@
 // The tractor and cab model: materials, lighting, structure, budgets and the trim switch.
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { withGame, startJob } from './helpers.mjs';
+import { withGame, startJob, luma } from './helpers.mjs';
 
 const vehMats = () => { const s = new Set(); TRK.root.traverse(o => { if (o.isMesh) s.add(o.material); }); return [...s]; };
 
@@ -151,4 +151,25 @@ test('V4 室内の上限：三角形と素材の数。画質を下げると三�
 test('夜の赤い間接照明は、足元と頭上の両方で点く', () => withGame({}, async page => {
   const r = await page.evaluate(() => { setCabAmbient(false); const off = IM.ambient.color.r; setCabAmbient(true); const P = vehicleStats().parts; return [off, IM.ambient.color.r, !!P.shelf, !!P.floor]; });
   assert.ok(r[1] > r[0] * 2 && r[2] && r[3], String(r));
+}));
+test('車内で見回しても、面の欠けや穴から外が見えない', () => withGame({}, async page => {
+  const holes = await page.evaluate(() => { GAME.cam = 'cab'; setCabDetail(true); TRK.root.updateMatrixWorld(true);
+    const eye = INT.eye.getWorldPosition(new THREE.Vector3()), q = TRK.root.getWorldQuaternion(new THREE.Quaternion()), rc = new THREE.Raycaster(), out = [];
+    for (let yaw = -140; yaw <= 140; yaw += 5) for (let pitch = -35; pitch <= 35; pitch += 5) {
+      const a = yaw * Math.PI / 180, b = pitch * Math.PI / 180, dir = new THREE.Vector3(-Math.sin(a) * Math.cos(b), Math.sin(b), -Math.cos(a) * Math.cos(b)).applyQuaternion(q);   // the tractor's front is -z
+      rc.set(eye, dir); const h = __t.first(rc, TRK.root);
+      if (!h || h.distance > 3.2) out.push([yaw, pitch, h ? +h.distance.toFixed(2) : 'none']);   // nothing in the cab is 3.2 m away; glass counts as a hit
+    }
+    return out; });
+  assert.deepEqual(holes, []);
+}));
+test('夜とトンネルの車内は、真っ黒にならず、昼より暗い', () => withGame({}, async page => {
+  await startJob(page);
+  // todT = 0: apply the new time on the next frame (it is otherwise re-applied every half second of game time)
+  const set = h => page.evaluate(async h => { GAME.cam = 'cab'; INP.lookYaw = 0; INP.lookPitch = -0.18; GAME.clock = Math.floor(GAME.clock / 86400) * 86400 + h * 3600; GAME.todT = 0; await __t.frames(12); }, h);
+  const dash = [[0.25, 0.05, 0.75, 0.35]];   // the bottom of the picture: dash and wheel
+  await set(12); const [day] = await luma(page, dash); await set(21); const [night] = await luma(page, dash);
+  assert.ok(day > 25 && day < 200, `day ${day}`); assert.ok(night > 6 && night < day * 0.8, `night ${night} day ${day}`);
+  const tun = await page.evaluate(async () => { GAME.clock = Math.floor(GAME.clock / 86400) * 86400 + 12 * 3600; const t = TUNNELS[0]; placeTruck((t.s0 + t.s1) / 2, X_TRV, 0, { coupled: false }); await __t.frames(40); return GAME.tunnelBlend; });
+  assert.ok(tun > 0.8, String(tun)); const [inTun] = await luma(page, dash); assert.ok(inTun > 6 && inTun < day, `tunnel ${inTun} day ${day}`);
 }));

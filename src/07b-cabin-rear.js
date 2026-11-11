@@ -155,7 +155,7 @@ function cabBed(I, S) {
   }
   I.part('rearWall'); S.part('rearWall');
   I.add(roundBox(2.36, 1.70, 0.04, 0.01), IM.head, 0, 2.95, -3.175);
-  for (const sx of [-1, 1]) I.add(roundBox(0.04, 1.70, 0.92, 0.01), IM.head, sx * 1.16, 2.95, -3.65);
+  for (const sx of [-1, 1]) I.add(roundBox(0.04, 2.35, 0.92, 0.01), IM.head, sx * 1.16, 2.625, -3.65);   // sleeper side walls, floor to ceiling
   S.add(roundBox(0.5, 0.30, 0.03, 0.01), IM.gloss, -0.55, 2.62, -3.20);                       // screen
   S.add(roundBox(0.14, 0.20, 0.025, 0.008), IM.black, 0.78, 2.52, -3.20);                     // control panel
   S.add(roundBox(0.09, 0.055, 0.004, 0.001, 1), IM.lcdBlue, 0.78, 2.56, -3.186);
