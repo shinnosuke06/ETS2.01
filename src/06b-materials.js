@@ -106,7 +106,8 @@ function _vehPattern(S, { rep = 1, colorRep = rep, height = null, color = null }
   try {
     let normal = null, map = null;
     if (VEH.pbr && height) {
-      const c = makeCanvas(S, S), g = c.getContext('2d');
+      // read back below: a canvas kept on the CPU avoids waiting for the GPU
+      const c = makeCanvas(S, S), g = c.getContext('2d', { willReadFrequently: true });
       g.fillStyle = '#808080'; g.fillRect(0, 0, S, S); height(g, S);
       const src = g.getImageData(0, 0, S, S).data, img = g.createImageData(S, S), d = img.data;
       const h = (x, y) => src[(((y + S) % S) * S + ((x + S) % S)) * 4] / 255;
@@ -125,11 +126,36 @@ function _vehPattern(S, { rep = 1, colorRep = rep, height = null, color = null }
     return { normal, map };
   } catch (e) { return { normal: null, map: null }; }
 }
+// Seamless value noise: S x S values in 0..1 with blobs about S / cells pixels across.
+function _tileNoise(S, cells, seed) {
+  const r = rng(seed), G = new Float32Array(cells * cells), out = new Float32Array(S * S), k = cells / S;
+  for (let i = 0; i < G.length; i++) G[i] = r();
+  const sm = t => t * t * (3 - 2 * t);
+  for (let y = 0; y < S; y++) {
+    const fy = y * k, y0 = Math.floor(fy), ty = sm(fy - y0), r0 = (y0 % cells) * cells, r1 = ((y0 + 1) % cells) * cells;
+    for (let x = 0; x < S; x++) {
+      const fx = x * k, x0 = Math.floor(fx), tx = sm(fx - x0), c0 = x0 % cells, c1 = (x0 + 1) % cells;
+      const a = G[r0 + c0] + (G[r0 + c1] - G[r0 + c0]) * tx, b = G[r1 + c0] + (G[r1 + c1] - G[r1 + c0]) * tx;
+      out[y * S + x] = a + (b - a) * ty;
+    }
+  }
+  return out;
+}
+// Write a colour per pixel (f(i) -> [r, g, b], 0..255) straight into the picture.
+function _putPixels(g, S, f) {
+  const img = g.createImageData(S, S), d = img.data;
+  for (let i = 0; i < S * S; i++) { const c = f(i); d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255; }
+  g.putImageData(img, 0, 0);
+}
+// Height from two layers of noise (fine grain on coarser blobs).
+const _noiseHeight = (fine, coarse, seed) => (g, S) => {
+  const a = _tileNoise(S, Math.max(4, Math.round(S / fine)), seed), b = _tileNoise(S, Math.max(4, Math.round(S / coarse)), seed + 7), v = [0, 0, 0];
+  _putPixels(g, S, i => { v[0] = v[1] = v[2] = (a[i] * 0.7 + b[i] * 0.3) * 255; return v; });
+};
 // Leather with stitched horizontal channels (seat centres); drawn again when the interior changes.
 function _drawLeather(c, stitch) {
-  const g = c.getContext('2d'), W = c.width, k = W / 256;
-  g.fillStyle = '#1b1b1c'; g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 5000 * k * k, k, 10, 50, 0.3, 0.6, 221);
+  const g = c.getContext('2d'), W = c.width, k = W / 256, n = _tileNoise(W, Math.round(W / 3), 221), v = [0, 0, 0];
+  _putPixels(g, W, i => { v[0] = v[1] = v[2] = 20 + n[i] * 16; return v; });
   for (let y = 0; y < W; y += 32 * k) {
     const grd = g.createLinearGradient(0, y, 0, y + 32 * k);
     grd.addColorStop(0, 'rgba(255,255,255,.06)'); grd.addColorStop(0.5, 'rgba(255,255,255,0)'); grd.addColorStop(1, 'rgba(0,0,0,.35)');
@@ -140,9 +166,8 @@ function _drawLeather(c, stitch) {
 }
 // Diamond quilting (the red interior's walls, ceiling and doors).
 function _drawQuilt(c, hex) {
-  const g = c.getContext('2d'), W = c.width, k = W / 256;
-  g.fillStyle = '#' + new THREE.Color(hex).getHexString(); g.fillRect(0, 0, W, W);
-  speckle(g, W, W, 3000 * k * k, k, 0, 60, 0.15, 0.3, 231);
+  const g = c.getContext('2d'), W = c.width, k = W / 256, col = new THREE.Color(hex), n = _tileNoise(W, Math.round(W / 3), 231), v = [0, 0, 0];
+  _putPixels(g, W, i => { const m = 0.88 + n[i] * 0.2; v[0] = col.r * 255 * m; v[1] = col.g * 255 * m; v[2] = col.b * 255 * m; return v; });
   const lines = (dx, style, lw, dash) => {
     g.strokeStyle = style; g.lineWidth = lw * k; g.setLineDash(dash.map(d => d * k));
     for (let x = -W; x < 2 * W; x += 32 * k) { g.beginPath(); g.moveTo(x + dx, 0); g.lineTo(x + dx + W, W); g.stroke(); g.beginPath(); g.moveTo(x + dx, W); g.lineTo(x + dx + W, 0); g.stroke(); }
@@ -150,10 +175,9 @@ function _drawQuilt(c, hex) {
   lines(0, 'rgba(0,0,0,.45)', 3, []); lines(3 * k, 'rgba(255,255,255,.16)', 1, [3, 3]); g.setLineDash([]);
 }
 function _vehPatterns(S) {
-  const dots = (n, r, lo, hi, seed) => (g, W) => speckle(g, W, W, n * (W / 256) ** 2, r * W / 256, lo, hi, 0.5, 1, seed);
   return {
-    plastic: _vehPattern(S, { rep: 6, height: dots(9000, 1.2, 90, 170, 301) }),
-    leather: _vehPattern(S, { rep: 8, colorRep: 1, height: dots(2500, 3, 60, 200, 311), color: (g, W) => _drawLeather(g.canvas, INTERIOR_THEMES[interiorName].stitch) }),
+    plastic: _vehPattern(S, { rep: 6, height: _noiseHeight(2, 8, 301) }),
+    leather: _vehPattern(S, { rep: 8, colorRep: 1, height: _noiseHeight(4, 16, 311), color: (g, W) => _drawLeather(g.canvas, INTERIOR_THEMES[interiorName].stitch) }),
     quilt: _vehPattern(S, { rep: 3, height: (g, W) => {
       g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, W); g.strokeStyle = '#000000'; g.lineWidth = W / 18;
       for (let x = -W; x < 2 * W; x += W / 8) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + W, W); g.stroke(); g.beginPath(); g.moveTo(x, W); g.lineTo(x + W, 0); g.stroke(); }
