@@ -26,6 +26,7 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
     // the expressway (cruise for a while), Atsugi's exit and plaza, by lane-keeping
     const d = destRamp(); let n = 0, cruiseT = 0, cruiseMin = 99, cruiseMax = 0;
     while (GAME.state === 'drive' && n++ < 60 * 400 && TR.zone === 'road') {
+      if (n % 30 === 0) __clearRoad(TR.s + 8, TR.s + 400);   // the driver does not brake for slower trucks ahead (cars behind stay)
       const u = TR.s - d.sDiv, kmh = TR.v * 3.6;
       let lat = X_TRV, want = 85;
       if (u > -150 && u < 120) lat = -9.8;                                  // drift left toward the exit lane
