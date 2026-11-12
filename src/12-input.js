@@ -15,7 +15,7 @@ window.addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.repeat) { INP.keys.add(e.code); return; }
   INP.keys.add(e.code);
-  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', KeyT: 'couple', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
+  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', KeyT: 'couple', KeyM: 'map', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
   if (map[e.code]) INP.actions.push(map[e.code]);
 });
 window.addEventListener('keyup', e => { INP.keys.delete(e.code); if (e.code === 'KeyH') INP.actions.push('hornOff'); });
@@ -77,7 +77,7 @@ holdButton($('tHorn'), () => INP.actions.push('hornOn'), () => INP.actions.push(
 $('tGear').addEventListener('click', () => INP.actions.push('dir'));
 $('tBlinkL').addEventListener('click', () => INP.actions.push('blinkL'));
 $('tBlinkR').addEventListener('click', () => INP.actions.push('blinkR'));
-for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
+for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMap', 'map'], ['mapClose', 'map'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
 
 function enableTouchUI() {
   if (document.body.classList.contains('touch')) return;

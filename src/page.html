@@ -48,6 +48,19 @@ body.touch .tb.only-touch{display:inline-block}
 .led{background-color:var(--led-bg);border:2px solid var(--led-frame);border-radius:4px;padding:7px 16px 8px;font-family:var(--f-led);color:var(--led);font-size:18px;letter-spacing:.14em;text-shadow:0 0 7px rgba(255,176,32,.6);background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1.3px);background-size:4px 4px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.4)}
 #led{position:absolute;left:50%;top:74px;transform:translateX(-50%);max-width:92%;overflow:hidden;text-overflow:ellipsis;transition:opacity .25s}
 #led.warn{color:#ff6a4a;text-shadow:0 0 7px rgba(255,90,60,.6)}
+/* the navigation card: top right, below the buttons and the message board */
+#navCard{position:absolute;right:0;top:122px;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);max-width:min(46vw,300px);box-sizing:border-box}
+#navCard svg{flex:none;width:44px;height:44px}
+#navCard .nc-t{font-weight:700;font-size:15px;line-height:1.2}
+#navCard .nc-d{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+#navCard .nc-th,#navCard .nc-m{font-size:11px;color:var(--ink-2)}
+#navCard .nc-m{color:var(--led)}
+#navCard .nc-l{display:flex;gap:3px;margin-top:3px}
+#navCard .nc-l span{min-width:24px;height:20px;border-radius:4px;background:rgba(40,52,64,.95);color:#7f8e9b;font-size:12px;display:flex;align-items:center;justify-content:center}
+#navCard .nc-l span.on{background:#2f9cff;color:#fff}
+#mapOv .mapbox{margin:auto;display:flex;flex-direction:column;gap:8px;width:min(960px,100%);max-height:100%}
+#mapCanvas{width:100%;aspect-ratio:4/3;max-height:calc(100vh - 90px);border-radius:10px;border:1px solid var(--stroke);background:#121b24;object-fit:contain}
+@media (max-width:1000px){#navCard{top:174px}}
 /* narrow screens: a long message would run into the destination sign, so the board drops below it */
 @media (max-width:1000px){#led{top:126px}}
 /* portrait: destination sign, then the buttons across the full width, then the message board */
@@ -55,6 +68,8 @@ body.touch .tb.only-touch{display:inline-block}
   #topbar{top:132px;left:0;right:0;max-width:none;justify-content:flex-start}
   #topbar .tb{height:32px;font-size:11px;padding:0 8px;min-width:40px}
   #led{top:212px;left:0;right:0;margin:0 auto;transform:none;width:fit-content;max-width:100%;box-sizing:border-box;white-space:normal;text-align:center;font-size:14px;letter-spacing:.08em;padding:6px 10px 7px}
+  #navCard{top:290px;max-width:70vw}
+  #mapCanvas{aspect-ratio:3/4}
 }
 
 #speedo{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);font-variant-numeric:tabular-nums}
@@ -141,10 +156,16 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
       <button class="tb" id="bHazard" type="button" aria-pressed="false" title="ハザード (F)">ハザード</button>
       <button class="tb" id="bCouple" type="button" title="連結・切り離し (T)" hidden>自動連結</button>
+      <button class="tb" id="bMap" type="button" title="地図 (M)">地図</button>
       <button class="tb" id="bMenu" type="button" title="メニュー (Esc)">メニュー</button>
     </div>
 
     <div id="led" class="led" hidden><span id="ledText"></span></div>
+
+    <div id="navCard" hidden>
+      <svg viewBox="-22 -22 44 44" aria-hidden="true"><g id="ncArrow"><path d="M0,-17 L12,3 L4,3 L4,16 L-4,16 L-4,3 L-12,3 Z" fill="#2f9cff"/></g><circle id="ncDot" r="12" fill="#2f9cff" hidden/></svg>
+      <div><div class="nc-t" id="ncText"></div><div class="nc-d" id="ncDist"></div><div class="nc-l" id="ncLanes"></div><div class="nc-th" id="ncThen"></div><div class="nc-m" id="ncMsg"></div></div>
+    </div>
 
     <div id="speedo" hidden>
       <div><div class="num" id="spdNum">0</div><div class="u">km/h</div></div>
@@ -267,6 +288,12 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
   </div>
 </div>
 
+<div id="mapOv" class="overlay" hidden>
+  <div class="mapbox">
+    <canvas id="mapCanvas" width="960" height="720" aria-label="全体地図"></canvas>
+    <button class="tb" id="mapClose" type="button">閉じる（M）</button>
+  </div>
+</div>
 <div id="menuOv" class="overlay" hidden>
   <div class="card" style="width:min(520px,100%)">
     <div class="sign hero">

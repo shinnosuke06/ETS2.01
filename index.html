@@ -48,6 +48,19 @@ body.touch .tb.only-touch{display:inline-block}
 .led{background-color:var(--led-bg);border:2px solid var(--led-frame);border-radius:4px;padding:7px 16px 8px;font-family:var(--f-led);color:var(--led);font-size:18px;letter-spacing:.14em;text-shadow:0 0 7px rgba(255,176,32,.6);background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1.3px);background-size:4px 4px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.4)}
 #led{position:absolute;left:50%;top:74px;transform:translateX(-50%);max-width:92%;overflow:hidden;text-overflow:ellipsis;transition:opacity .25s}
 #led.warn{color:#ff6a4a;text-shadow:0 0 7px rgba(255,90,60,.6)}
+/* the navigation card: top right, below the buttons and the message board */
+#navCard{position:absolute;right:0;top:122px;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);max-width:min(46vw,300px);box-sizing:border-box}
+#navCard svg{flex:none;width:44px;height:44px}
+#navCard .nc-t{font-weight:700;font-size:15px;line-height:1.2}
+#navCard .nc-d{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+#navCard .nc-th,#navCard .nc-m{font-size:11px;color:var(--ink-2)}
+#navCard .nc-m{color:var(--led)}
+#navCard .nc-l{display:flex;gap:3px;margin-top:3px}
+#navCard .nc-l span{min-width:24px;height:20px;border-radius:4px;background:rgba(40,52,64,.95);color:#7f8e9b;font-size:12px;display:flex;align-items:center;justify-content:center}
+#navCard .nc-l span.on{background:#2f9cff;color:#fff}
+#mapOv .mapbox{margin:auto;display:flex;flex-direction:column;gap:8px;width:min(960px,100%);max-height:100%}
+#mapCanvas{width:100%;aspect-ratio:4/3;max-height:calc(100vh - 90px);border-radius:10px;border:1px solid var(--stroke);background:#121b24;object-fit:contain}
+@media (max-width:1000px){#navCard{top:174px}}
 /* narrow screens: a long message would run into the destination sign, so the board drops below it */
 @media (max-width:1000px){#led{top:126px}}
 /* portrait: destination sign, then the buttons across the full width, then the message board */
@@ -55,6 +68,8 @@ body.touch .tb.only-touch{display:inline-block}
   #topbar{top:132px;left:0;right:0;max-width:none;justify-content:flex-start}
   #topbar .tb{height:32px;font-size:11px;padding:0 8px;min-width:40px}
   #led{top:212px;left:0;right:0;margin:0 auto;transform:none;width:fit-content;max-width:100%;box-sizing:border-box;white-space:normal;text-align:center;font-size:14px;letter-spacing:.08em;padding:6px 10px 7px}
+  #navCard{top:290px;max-width:70vw}
+  #mapCanvas{aspect-ratio:3/4}
 }
 
 #speedo{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);font-variant-numeric:tabular-nums}
@@ -141,10 +156,16 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
       <button class="tb" id="bHazard" type="button" aria-pressed="false" title="ハザード (F)">ハザード</button>
       <button class="tb" id="bCouple" type="button" title="連結・切り離し (T)" hidden>自動連結</button>
+      <button class="tb" id="bMap" type="button" title="地図 (M)">地図</button>
       <button class="tb" id="bMenu" type="button" title="メニュー (Esc)">メニュー</button>
     </div>
 
     <div id="led" class="led" hidden><span id="ledText"></span></div>
+
+    <div id="navCard" hidden>
+      <svg viewBox="-22 -22 44 44" aria-hidden="true"><g id="ncArrow"><path d="M0,-17 L12,3 L4,3 L4,16 L-4,16 L-4,3 L-12,3 Z" fill="#2f9cff"/></g><circle id="ncDot" r="12" fill="#2f9cff" hidden/></svg>
+      <div><div class="nc-t" id="ncText"></div><div class="nc-d" id="ncDist"></div><div class="nc-l" id="ncLanes"></div><div class="nc-th" id="ncThen"></div><div class="nc-m" id="ncMsg"></div></div>
+    </div>
 
     <div id="speedo" hidden>
       <div><div class="num" id="spdNum">0</div><div class="u">km/h</div></div>
@@ -267,6 +288,12 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
   </div>
 </div>
 
+<div id="mapOv" class="overlay" hidden>
+  <div class="mapbox">
+    <canvas id="mapCanvas" width="960" height="720" aria-label="全体地図"></canvas>
+    <button class="tb" id="mapClose" type="button">閉じる（M）</button>
+  </div>
+</div>
 <div id="menuOv" class="overlay" hidden>
   <div class="card" style="width:min(520px,100%)">
     <div class="sign hero">
@@ -5633,6 +5660,90 @@ function renderMirrors(force) {
   scene.fog.far = fogFar;
 }
 
+// ==== 08b-navmap.js ====
+// ---------------------------------------------------------------------------
+// The navigation card (top right, in every view) and the full map (opened with
+// the 地図 button or M; the game stops while it is open).
+// ---------------------------------------------------------------------------
+let _ncKey = '';
+// Show or hide the card for navState() st; the DOM is touched only when what it shows changes.
+function navCardUpdate(st) {
+  const el = $('navCard'), m = st && st.maneuver, show = !!(st && (st.card && m || st.reroute));
+  const key = show ? [m && m.kind, m && m.text, st.guideDist, m && m.lanes && m.lanes.map(l => l.use + l.arrows.join()).join('|'), m && m.then && m.then.text, st.reroute].join('/') : '';
+  if (key === _ncKey) return;
+  _ncKey = key; el.hidden = !show;
+  if (!show) return;
+  const arrive = m && m.kind === 'arrive';
+  $('ncDot').toggleAttribute('hidden', !arrive); $('ncArrow').toggleAttribute('hidden', arrive || !m);
+  if (m && !arrive) $('ncArrow').setAttribute('transform', `rotate(${(NAV_ARROW[m.kind] || 0) * 180 / Math.PI})`);
+  $('ncText').textContent = m ? m.text : '';
+  $('ncDist').textContent = m ? st.guideDist : '';
+  $('ncLanes').innerHTML = m && m.lanes ? m.lanes.map(l => `<span class="${l.use ? 'on' : ''}">${l.arrows.map(a => NAV_GLYPH[a]).join('')}</span>`).join('') : '';
+  $('ncThen').textContent = m && m.then ? 'その先 ' + m.then.text : '';
+  $('ncMsg').textContent = st.reroute ? 'ルートを探し直しました' : '';
+}
+
+function mapOpen() {
+  if (GAME.state !== 'drive' || !GAME.job) return;
+  GAME.prevState = GAME.state; GAME.state = 'map';
+  setHorn(false); showHud(false);
+  $('mapOv').hidden = false;
+  const cv = $('mapCanvas'), portrait = innerHeight > innerWidth;
+  cv.width = portrait ? 720 : 960; cv.height = portrait ? 960 : 720;
+  drawMap(cv, navState());
+}
+function mapClose() {
+  if (GAME.state !== 'map') return;
+  $('mapOv').hidden = true; GAME.state = GAME.prevState; showHud(GAME.state === 'drive');
+}
+
+// The whole expressway as one line with its 13 interchanges on top, the town the rig is in (on the expressway, the
+// destination's) below, with the route and the rig.
+function drawMap(cv, st) {
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height, j = GAME.job, top = Math.round(H * 0.24);
+  g.fillStyle = '#121b24'; g.fillRect(0, 0, W, H);
+  // the expressway
+  const m = 40, X = s => m + (s / ROUTE_END) * (W - 2 * m), y0 = Math.round(top * 0.55);
+  g.strokeStyle = '#7f8e9b'; g.lineWidth = 6; g.lineCap = 'round'; g.beginPath(); g.moveTo(X(0), y0); g.lineTo(X(ROUTE_END), y0); g.stroke();
+  g.strokeStyle = '#2f9cff'; g.lineWidth = 6; g.beginPath(); g.moveTo(X(ICS[j.from].s), y0); g.lineTo(X(ICS[j.to].s), y0); g.stroke();
+  g.font = font(W < 800 ? 13 : 15); g.textAlign = 'center';
+  ICS.forEach((ic, k) => {
+    const x = X(ic.s), col = k === j.from ? '#3fbf6f' : k === j.to ? '#2f9cff' : '#cfe0ee';
+    g.fillStyle = col; g.beginPath(); g.arc(x, y0, k === j.from || k === j.to ? 7 : 4, 0, TAU); g.fill();
+    g.textBaseline = k % 2 ? 'top' : 'bottom'; g.fillText(ic.jp, x, k % 2 ? y0 + 10 : y0 - 10);
+  });
+  const sNow = TR.zone === 'town' && TR.town >= 0 ? ICS[TR.town].s : TR.s;
+  g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(X(sNow), y0 - 12); g.lineTo(X(sNow) + 7, y0 - 24); g.lineTo(X(sNow) - 7, y0 - 24); g.closePath(); g.fill();
+  // the town
+  const ti = TR.zone === 'town' && TR.town >= 0 ? TR.town : j.to, L = jobLayout(ti), y1 = top + 10;
+  const sc = Math.min((W - 2 * m) / 620, (H - y1 - 50) / 430), ox = W / 2, oy = H - 34;
+  const P = (u, v) => [ox + u * sc, oy - (v + 10) * sc];
+  g.fillStyle = '#cfe0ee'; g.textAlign = 'left'; g.textBaseline = 'top'; g.font = font(15);
+  g.fillText(`${ICS[ti].jp}の町`, m, y1);
+  g.fillStyle = '#26323b';
+  for (const w of L.warehouses) { const a = P(w.yard.u0, w.yard.v1); g.fillRect(a[0], a[1], (w.yard.u1 - w.yard.u0) * sc, (w.yard.v1 - w.yard.v0) * sc); }
+  { const a = P(-50, 45); g.fillRect(a[0], a[1], 100 * sc, 55 * sc); }   // the plaza
+  g.strokeStyle = '#7f8e9b'; g.lineCap = 'butt';
+  for (const S of L.streets) {
+    const a = S.axis === 'v' ? P(S.c, S.a0) : P(S.a0, S.c), b = S.axis === 'v' ? P(S.c, S.a1) : P(S.a1, S.c);
+    g.lineWidth = Math.max(3, (S.kind === 'main' ? 20 : 14) * sc); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+  }
+  const dot = (u, v, col, r = 7) => { const p = P(u, v); g.fillStyle = col; g.beginPath(); g.arc(p[0], p[1], r, 0, TAU); g.fill(); };
+  if (ti === j.from) dot(j.whA.gate.u, j.whA.gate.v, '#3fbf6f');
+  if (ti === j.to) dot(j.whB.gate.u, j.whB.gate.v, '#2f9cff');
+  if (st.routePts && TR.town === ti) {
+    g.strokeStyle = '#2f9cff'; g.lineWidth = Math.max(4, 8 * sc); g.lineCap = 'round'; g.beginPath();
+    st.routePts.forEach(([u, v], k) => { const p = P(u, v); k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.stroke();
+  }
+  if (TR.zone === 'town' && TR.town === ti) {   // the rig, pointing the way it faces (town angle; v is drawn upward)
+    const p = P(TR.tu, TR.tv), a = wrapA(TR.h - L.site.hu);
+    g.save(); g.translate(p[0], p[1]); g.rotate(-a + Math.PI / 2); g.fillStyle = '#ffffff'; g.strokeStyle = '#2f9cff'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, -12); g.lineTo(8, 9); g.lineTo(0, 5); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
+  }
+  g.fillStyle = '#9fb3c4'; g.textAlign = 'right'; g.textBaseline = 'bottom'; g.font = font(13, 400);
+  g.fillText('地図ボタン・M で閉じる', W - m, H - 8);
+}
+
 // ==== 09a-powertrain.js ====
 // ---------------------------------------------------------------------------
 // Powertrain: 13 L engine, 12-speed automated gearbox (Opticruise-style),
@@ -6924,7 +7035,7 @@ window.addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.repeat) { INP.keys.add(e.code); return; }
   INP.keys.add(e.code);
-  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', KeyT: 'couple', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
+  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', KeyT: 'couple', KeyM: 'map', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
   if (map[e.code]) INP.actions.push(map[e.code]);
 });
 window.addEventListener('keyup', e => { INP.keys.delete(e.code); if (e.code === 'KeyH') INP.actions.push('hornOff'); });
@@ -6986,7 +7097,7 @@ holdButton($('tHorn'), () => INP.actions.push('hornOn'), () => INP.actions.push(
 $('tGear').addEventListener('click', () => INP.actions.push('dir'));
 $('tBlinkL').addEventListener('click', () => INP.actions.push('blinkL'));
 $('tBlinkR').addEventListener('click', () => INP.actions.push('blinkR'));
-for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
+for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMap', 'map'], ['mapClose', 'map'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
 
 function enableTouchUI() {
   if (document.body.classList.contains('touch')) return;
@@ -7128,7 +7239,7 @@ const GAME = {
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
   assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
-  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0,   // red lights: seconds before the same junction can fine again; the front's last town point
+  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0, navDrawT: 0,   // red lights: seconds before the same junction can fine again; the front's last town point
 };
 
 // ---- jobs -------------------------------------------------------------------
@@ -7228,7 +7339,8 @@ function handleActions() {
   while (INP.actions.length) {
     const a = INP.actions.shift();
     const drv = GAME.state === 'drive';
-    if (a === 'menu') { toggleMenu(); continue; }
+    if (a === 'menu') { if (GAME.state === 'map') mapClose(); else toggleMenu(); continue; }
+    if (a === 'map') { if (GAME.state === 'map') mapClose(); else mapOpen(); continue; }
     if (!drv && a !== 'hornOff') continue;
     switch (a) {
       case 'blinkL': GAME.blink = GAME.blink === -1 ? 0 : -1; break;
@@ -7497,6 +7609,7 @@ for (const id of ['trimSeg', 'trimSeg2']) $(id).addEventListener('click', e => {
 // ---- HUD ------------------------------------------------------------------------
 function showHud(on) {
   $('jobSign').hidden = !on; $('topbar').hidden = !on;
+  if (!on) { $('navCard').hidden = true; _ncKey = ''; }
   $('speedo').hidden = !on || GAME.cam === 'cab';
   $('touch').hidden = !on || !INP.usingTouch;
 }
@@ -7827,7 +7940,7 @@ function simTick(dt) {
     if (GAME.job) navUpdate(dt);
     if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); }
   }
-  if (GAME.state !== 'menu') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }
+  if (GAME.state !== 'menu' && GAME.state !== 'map') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }   // stopped behind the menu and the map
   processEvents(dt);
   return driving;
 }
@@ -7858,7 +7971,11 @@ function frame(now) {
     GAME.dashT = GAME.cam === 'cab' ? 1 / 20 : 0.3;
     drawCluster(clusterState());
   }
-  if (GAME.navT <= 0 && GAME.job) { GAME.navT = GAME.cam === 'cab' ? 0.2 : 0.6; drawNav(navState()); }
+  if (GAME.navT <= 0 && GAME.job) {   // the card every 0.2 s; the cab screen every 0.2 s in the cab, 0.6 s from outside
+    GAME.navT = 0.2; const st = navState();
+    if (GAME.state === 'drive') navCardUpdate(st);
+    if (GAME.cam === 'cab' || (GAME.navDrawT -= 0.2) <= 0) { GAME.navDrawT = 0.6; drawNav(st); }
+  }
   if (GAME.hudT <= 0 && GAME.job) { GAME.hudT = 0.2; updateHud(); }
   if (ledTimer > 0) { ledTimer -= dt; if (ledTimer <= 0) { $('led').style.opacity = '0'; setTimeout(() => { if (ledTimer <= 0) $('led').hidden = true; }, 260); } }
   DIAG.frames++; DIAG.ms += performance.now() - t0;
@@ -7931,7 +8048,7 @@ async function boot(data) {
 }
 try {
   window.claude?.hot?.snapshot?.(() => {
-    return GAME.state === 'drive' || GAME.state === 'menu' ? { ...driveState(), state: GAME.state === 'drive' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
+    return GAME.state === 'drive' || GAME.state === 'menu' || GAME.state === 'map' ? { ...driveState(), state: GAME.state === 'drive' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
   });
 } catch (e) { /* not in a viewer */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});

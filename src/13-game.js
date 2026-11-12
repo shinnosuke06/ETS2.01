@@ -96,7 +96,7 @@ const GAME = {
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
   assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
-  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0,   // red lights: seconds before the same junction can fine again; the front's last town point
+  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0, navDrawT: 0,   // red lights: seconds before the same junction can fine again; the front's last town point
 };
 
 // ---- jobs -------------------------------------------------------------------
@@ -196,7 +196,8 @@ function handleActions() {
   while (INP.actions.length) {
     const a = INP.actions.shift();
     const drv = GAME.state === 'drive';
-    if (a === 'menu') { toggleMenu(); continue; }
+    if (a === 'menu') { if (GAME.state === 'map') mapClose(); else toggleMenu(); continue; }
+    if (a === 'map') { if (GAME.state === 'map') mapClose(); else mapOpen(); continue; }
     if (!drv && a !== 'hornOff') continue;
     switch (a) {
       case 'blinkL': GAME.blink = GAME.blink === -1 ? 0 : -1; break;
@@ -465,6 +466,7 @@ for (const id of ['trimSeg', 'trimSeg2']) $(id).addEventListener('click', e => {
 // ---- HUD ------------------------------------------------------------------------
 function showHud(on) {
   $('jobSign').hidden = !on; $('topbar').hidden = !on;
+  if (!on) { $('navCard').hidden = true; _ncKey = ''; }
   $('speedo').hidden = !on || GAME.cam === 'cab';
   $('touch').hidden = !on || !INP.usingTouch;
 }
@@ -795,7 +797,7 @@ function simTick(dt) {
     if (GAME.job) navUpdate(dt);
     if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); }
   }
-  if (GAME.state !== 'menu') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }
+  if (GAME.state !== 'menu' && GAME.state !== 'map') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }   // stopped behind the menu and the map
   processEvents(dt);
   return driving;
 }
@@ -826,7 +828,11 @@ function frame(now) {
     GAME.dashT = GAME.cam === 'cab' ? 1 / 20 : 0.3;
     drawCluster(clusterState());
   }
-  if (GAME.navT <= 0 && GAME.job) { GAME.navT = GAME.cam === 'cab' ? 0.2 : 0.6; drawNav(navState()); }
+  if (GAME.navT <= 0 && GAME.job) {   // the card every 0.2 s; the cab screen every 0.2 s in the cab, 0.6 s from outside
+    GAME.navT = 0.2; const st = navState();
+    if (GAME.state === 'drive') navCardUpdate(st);
+    if (GAME.cam === 'cab' || (GAME.navDrawT -= 0.2) <= 0) { GAME.navDrawT = 0.6; drawNav(st); }
+  }
   if (GAME.hudT <= 0 && GAME.job) { GAME.hudT = 0.2; updateHud(); }
   if (ledTimer > 0) { ledTimer -= dt; if (ledTimer <= 0) { $('led').style.opacity = '0'; setTimeout(() => { if (ledTimer <= 0) $('led').hidden = true; }, 260); } }
   DIAG.frames++; DIAG.ms += performance.now() - t0;
@@ -899,7 +905,7 @@ async function boot(data) {
 }
 try {
   window.claude?.hot?.snapshot?.(() => {
-    return GAME.state === 'drive' || GAME.state === 'menu' ? { ...driveState(), state: GAME.state === 'drive' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
+    return GAME.state === 'drive' || GAME.state === 'menu' || GAME.state === 'map' ? { ...driveState(), state: GAME.state === 'drive' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
   });
 } catch (e) { /* not in a viewer */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});

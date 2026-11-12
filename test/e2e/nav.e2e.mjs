@@ -208,3 +208,58 @@ test('drawNav は町の中で 1 回 3 ms 以内（20 回の平均）', () => wit
   });
   assert.ok(ms <= 3, `${ms.toFixed(2)} ms`);
 }));
+
+test('E2 小さな札：スマホの縦・横で、ボタン・目的地の札・LED と重ならず画面に収まる。「地図」ボタンも収まる', async () => {
+  for (const [width, height] of [[844, 390], [390, 844]]) await withGame({ width, height, touch: true }, async (page, errors) => {
+    await startJob(page); await driveHelpers(page);
+    const r = await page.evaluate(async () => {
+      INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+      const gate = GAME.job.whB.gate;
+      __placeTown(2, -4.875, gate.v - 100, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
+      led('ルートを探し直しました。その先の交差点を左折してください');
+      navCardUpdate(navState()); await __t.frames(2);
+      const box = el => { const q = el.getBoundingClientRect(); return { x: q.left, y: q.top, r: q.right, b: q.bottom, w: q.width, h: q.height }; };
+      const card = document.getElementById('navCard');
+      return { hidden: card.hidden, card: box(card), text: card.textContent, sign: box(document.getElementById('jobSign')), led: box(document.getElementById('led')),
+        buttons: [...document.querySelectorAll('#topbar .tb')].filter(b => !b.hidden).map(b => ({ name: b.textContent, ...box(b) })) };
+    });
+    const hits = (a, b) => a.x < b.r - 1 && b.x < a.r - 1 && a.y < b.b - 1 && b.y < a.b - 1, tag = `${width}x${height}`;
+    assert.equal(r.hidden, false, tag); assert.ok(r.card.w > 60 && r.card.h > 30, `${tag} ${JSON.stringify(r.card)}`); assert.match(r.text, /門は左/);
+    assert.ok(r.card.x >= 0 && r.card.r <= width && r.card.y >= 0 && r.card.b <= height, `${tag}: the card is off screen ${JSON.stringify(r.card)}`);
+    assert.ok(!hits(r.card, r.sign) && !hits(r.card, r.led), `${tag}: the card overlaps the sign or the board ${JSON.stringify(r)}`);
+    for (const b of r.buttons) {
+      assert.ok(!hits(r.card, b), `${tag}: the card overlaps ${b.name}`);
+      assert.ok(b.x >= 0 && b.r <= width, `${tag}: ${b.name} is off screen`);
+    }
+    assert.ok(r.buttons.some(b => b.name === '地図'), `${tag}: no 地図 button`);
+    assert.deepEqual(errors, []);
+  });
+});
+
+test('E3 全体地図：M で開くと時刻と周りの車が止まり、東名の線と町のルート（青）が描かれる。M で閉じると続きから走れる。縦持ちのスマホでも地図が画面に収まる', async () => {
+  for (const [width, height] of [[1280, 720], [390, 844]]) await withGame({ width, height }, async (page, errors) => {
+    await startJob(page); await driveHelpers(page);
+    await page.evaluate(async () => {
+      INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+      __placeTown(2, -4.875, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
+    });
+    await page.keyboard.press('KeyM'); await page.waitForTimeout(300);
+    const r = await page.evaluate(async () => {
+      const c0 = GAME.clock, X = TOWN_TRAFFIC.get(2), car = X && X.cars.find(c => !c.hidden), d0 = car && car.d;
+      await __t.frames(10);
+      const cv = document.getElementById('mapCanvas'), g = cv.getContext('2d'), px = g.getImageData(0, 0, cv.width, cv.height).data;
+      let blue = 0, grey = 0;
+      for (let i = 0; i < px.length; i += 16) { const [rr, gg, bb] = [px[i], px[i + 1], px[i + 2]]; if (rr === 47 && gg === 156 && bb === 255) blue++; if (rr === 127 && gg === 142 && bb === 155) grey++; }
+      const q = cv.getBoundingClientRect();
+      return { state: GAME.state, clockStill: GAME.clock === c0, carStill: !car || car.d === d0, blue, grey, rect: { x: q.left, y: q.top, r: q.right, b: q.bottom } };
+    });
+    await page.keyboard.press('KeyM'); await page.waitForTimeout(300);
+    const after = await page.evaluate(() => { const x0 = TR.x, z0 = TR.z, st = GAME.state; INP.tGas = 1; for (let i = 0; i < 120; i++) simTick(1 / 60); INP.tGas = 0; return { st, moved: Math.hypot(TR.x - x0, TR.z - z0) > 0.5 }; });
+    const tag = `${width}x${height}`;
+    assert.deepEqual([r.state, r.clockStill, r.carStill], ['map', true, true], `${tag} ${JSON.stringify(r)}`);
+    assert.ok(r.blue > 20 && r.grey > 50, `${tag} drawn: ${JSON.stringify(r)}`);
+    assert.ok(r.rect.x >= 0 && r.rect.y >= 0 && r.rect.r <= width + 0.5 && r.rect.b <= height + 0.5, `${tag} fits: ${JSON.stringify(r.rect)}`);
+    assert.deepEqual([after.st, after.moved], ['drive', true], `${tag} ${JSON.stringify(after)}`);
+    assert.deepEqual(errors, []);
+  });
+});
