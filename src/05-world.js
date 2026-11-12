@@ -221,6 +221,7 @@ function buildChunk(k) {
   buildTunnels(ctx);
   buildRamps(ctx);
   buildSigns(ctx);
+  buildRoadside(ctx);
   buildEnd(ctx);
   scene.add(grp);
   return ctx;
@@ -367,6 +368,7 @@ function buildTrees(ctx) {
     if (w > 0.2 && d > 10) continue;
     if (d < 15 && tunnelAt(s, 6)) continue;
     if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns and service areas have their own trees
+    if (Math.abs(x) < 28.5 && fenceAt(s, side)) continue;   // outside the boundary fence
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 6, d + 6, side);
     const slope = Math.abs(y2 - y) / 6;
@@ -413,6 +415,7 @@ function buildHouses(ctx) {
     const x = side * (inner + d);
     const hw = Math.hypot(w, dd) / 2 + 1;   // half the diagonal: clear at any turn
     if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns place their own buildings
+    if (Math.abs(x) - hw < 27.5 && fenceAt(s, side)) continue;   // outside the boundary fence
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 8, d + 8, side);
     if (Math.abs(y2 - y) > 2.5) continue;

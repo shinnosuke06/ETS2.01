@@ -364,6 +364,84 @@ function soundWallAt(s, side) {
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
 
+// ---- overpasses (跨道橋) and the boundary fences -----------------------------------
+// A local road's bridge over the expressway about every 400 m where the region is town-like, every 1200 m elsewhere
+// (30% either way); none by the interchanges' and service areas' lanes or tunnels (150 m), over water, or within 40 m
+// of a sign gantry, an LED board or the following-distance signs. y: the deck's underside, 5.2 m over the highest
+// road point under it.
+const OVERPASSES = [];
+(function placeOverpasses() {
+  const R = rng(20261112), near = (s, a, b, m) => s > a - m && s < b + m;
+  const bad = s => RAMPS.some(r => near(s, r.sDiv, r.sEnd, 150)) || ENTRIES.some(e => near(s, e.s0, e.s1, 150)) || SAS.some(a => near(s, a.sDiv, a.sEnd, 150))
+    || TUNNELS.some(t => near(s, t.s0, t.s1, 150)) || [-40, -30, -20, -10, 0, 10, 20, 30, 40].some(d => waterAt(s + d, -1) + waterAt(s + d, 1) + waterAt(s + d, 0) > 0)
+    || SIGNS.some(g => (g.t === 'exitAdv' || g.t === 'saAdv' || g.t === 'saNext' || g.t === 'led' || g.t === 'gap') && Math.abs(g.s - s) < 40);
+  // the gaps count only the road where a bridge may stand, town-like and other stretches each on their own count
+  const acc = [0, 0], need = [0.7 + 0.6 * R(), 0.7 + 0.6 * R()];
+  for (let s = S0 + 300; s < ROUTE_END - 400; s += 20) {
+    if (bad(s)) continue;
+    const k = regionAt(s, {}).town >= 0.6 ? 0 : 1;
+    if ((acc[k] += 20 / (k === 0 ? 400 : 1200)) < need[k]) continue;
+    const skew = (R() * 2 - 1) * 15 * DEG, farm = R() < 0.25;
+    let top = -Infinity; for (let lat = -14.5; lat <= 14.5; lat += 0.5) top = Math.max(top, elevAt(s + lat * Math.tan(skew)));
+    OVERPASSES.push({ s, skew, w: farm ? 6 : 9 + Math.round(R() * 3), kind: farm ? 'farm' : 'road', y: top + 5.2 });
+    acc[k] = 0; need[k] = 0.7 + 0.6 * R();
+  }
+})();
+// An overpass's piers: in the middle of the median and beyond both guardrails, along its skewed line.
+function overpassPiers(ov) { return [0, -14.5, 14.5].map(lat => ({ s: ov.s + lat * Math.tan(ov.skew), lat })); }
+// Whether the boundary fence (26 m out on that side) runs at s.
+function fenceAt(s, side) {
+  if (tunnelAt(s, 20) || soundWallAt(s, side) || waterAt(s, side) > 0 || waterAt(s, 0) > 0) return false;
+  if (townKeepOut(s, side * 26) || saKeepOut(s, side * 26)) return false;
+  for (const ov of OVERPASSES) if (Math.abs(ov.s - s) < 10) return false;
+  if (side < 0) for (const x of [s - 30, s, s + 30]) if (rampAt(x) || entryAt(x) || saAt(x)) return false;
+  return true;
+}
+
+// ---- road lamps (照明灯): where the expressway is lit at night ---------------------------------------
+// The interchanges (from 100 m before the exit's divergence to the end of the entrance's acceleration lane), the
+// service areas, 300 m outside each tunnel portal, and the town-like stretches (sound walls, or a town-like region),
+// decided per 100 m block.
+const LAMP_ZONES = [];
+(function lampZones() {
+  for (const r of RAMPS) { const e = ENTRIES.find(x => x.ic === r.ic); LAMP_ZONES.push({ s0: r.sDiv - 100, s1: e ? e.s1 : r.sEnd, kind: 'ic' }); }
+  LAMP_ZONES.push({ s0: ENTRIES[0].s0 - 100, s1: ENTRIES[0].s1, kind: 'ic' });   // Tokyo has an entrance only
+  for (const a of SAS) LAMP_ZONES.push({ s0: a.sDiv, s1: a.sEnd, kind: 'sa' });
+  for (const t of TUNNELS) { LAMP_ZONES.push({ s0: t.s0 - 300, s1: t.s0, kind: 'tunnel' }); LAMP_ZONES.push({ s0: t.s1, s1: t.s1 + 300, kind: 'tunnel' }); }
+  let run = null;
+  for (let s = S0; s < ROUTE_END; s += 100) {
+    const m = s + 50, on = soundWallAt(m, -1) || soundWallAt(m, 1) || regionAt(m, {}).town >= 0.6;
+    if (on) { if (run) run.s1 = s + 100; else LAMP_ZONES.push(run = { s0: s, s1: s + 100, kind: 'urban' }); } else run = null;
+  }
+})();
+// The lamps with s in [s0, s1): every 40 m on both sides of the mainline (13.6 m out, the arm reaching 3 m over the
+// road), every 30 m beside the interchanges' and service areas' lanes. A mainline lamp on the left stands beyond any
+// lane there; none in tunnels, under overpasses or at a sign gantry.
+const _lmp = [];
+function lampsIn(s0, s1) {
+  const out = [], zone = s => LAMP_ZONES.find(z => s >= z.s0 && s <= z.s1);
+  const clear = s => !tunnelAt(s, 2) && !OVERPASSES.some(ov => Math.abs(ov.s - s) < 10) && !SIGNS.some(g => (g.t === 'exitAdv' || g.t === 'saAdv' || g.t === 'saNext' || g.t === 'led') && Math.abs(g.s - s) < 6);
+  for (let s = Math.ceil(s0 / 40) * 40; s < s1; s += 40) {
+    const z = zone(s); if (!z || !clear(s)) continue;
+    drivable(s, _lmp); const lo = Math.min(..._lmp.map(iv => iv[0]));
+    const left = Math.min(-13.6, lo - 1.2);
+    out.push({ s, lat: left, side: -1, kind: z.kind, armLat: left + 3 }, { s, lat: 13.6, side: 1, kind: z.kind, armLat: 10.6 });
+  }
+  const lane = (base, u0, u1, edges, kind) => {   // beside a lane, on its outer side
+    for (let u = Math.ceil((s0 - base) / 30) * 30; base + u < s1; u += 30) {
+      if (u < u0 || u > u1) continue;
+      const s = base + u; if (!clear(s)) continue;
+      const e = edges(u, {}); drivable(s, _lmp); const lo = Math.min(..._lmp.map(iv => iv[0]));
+      if (lo < e.xl - 0.5) continue;   // the mainline's own left lamp already stands beyond this lane
+      out.push({ s, lat: e.xl - 1.2, side: -1, kind, armLat: e.cx });
+    }
+  };
+  for (const r of RAMPS) lane(r.sDiv, 120, RAMP_LEN - 60, rampEdges, 'ic');
+  for (const e of ENTRIES) lane(e.s0, 40, 380, entryEdges, 'ic');
+  for (const a of SAS) { lane(a.sDiv, 120, SA_LOT0 - 10, saExitEdges, 'sa'); lane(a.sLot1, 10, 170, saEntryEdges, 'sa'); }
+  return out;
+}
+
 // ---- barriers ----------------------------------------------------------------
 // s of the barrier ahead: the closure at the end of the route (ramps lead on into the towns).
 function roadBarrier(s, lat) {

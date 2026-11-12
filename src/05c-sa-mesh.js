@@ -151,6 +151,25 @@ function* saMeshSteps(k) {
     inst('cars', SHARED.box, paint, boxesC, { colors: true }); }
   yield null;
 
+  // ---- night: lamps on the planted strip by the road, on the islands and by the car park, lights under the canopy ----
+  { const poles = [], arms = [], heads = [], pools = [];
+    const lamp = (u, v, av, h = 12, r = 14) => {
+      const ry = headingAt(sa.sDiv + u), len = Math.abs(av - v);
+      poles.push({ u, v, sx: 1, sy: h, sz: 1, ry });
+      if (len > 0.3) arms.push({ u, v: (v + av) / 2, y: h - 0.1, ry, sx: len, sy: 0.12, sz: 0.12 });
+      heads.push({ u, v: av, y: h - 0.35, ry, sx: 0.4, sy: 0.18, sz: 0.7 });
+      pools.push({ u, v: av, y: 0.08, sx: r * 2, sy: 1, sz: r * 2, ry });
+    };
+    if (!L.fallback) {
+      for (let u = SA_LOT0 + 10; u < SA_LOT1 - 5; u += 30) lamp(u, 15.2, 19.5);
+      for (const p of L.planted) lamp((p.u0 + p.u1) / 2, (p.v0 + p.v1) / 2, (p.v0 + p.v1) / 2 + 4);
+      for (const u of [225, 245, 265]) lamp(u, 79.4, 72, 10, 12);   // on the building's front (a wall in the grid)
+    } else for (let u = 200; u < 440; u += 40) lamp(u, 15.2, 19.5);
+    if (L.canopy) for (const p of L.pumps) { pools.push({ u: p.u, v: p.v, y: 0.08, sx: 20, sy: 1, sz: 20 }); heads.push({ u: p.u, v: p.v, y: L.canopy.h - 0.2, sx: 3, sy: 0.12, sz: 6 }); }
+    inst('lamps', RS_POLE, MAT.steel, poles); inst('lamps', SHARED.box, MAT.steel, arms); inst('lamps', SHARED.box, RS_MAT.lampHead, heads);
+    const pm = inst('lamps', RS.mark, RS_MAT.pool, pools); if (pm) pm.receiveShadow = false; }
+  yield null;
+
   // ---- the signs inside: 大型車, 給油所, 出口 on posts ----
   { const P = new Parts();
     for (const sg of L.signs) {

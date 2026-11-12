@@ -299,3 +299,41 @@ test('構内でも青いルートが出る（出発の構内では門から）�
   assert.equal(r.yard.leg, 'startYard'); assert.ok(r.yard.pts >= 2, JSON.stringify(r));
   assert.ok(r.blue > 200, `blue route in the destination town on the map: ${r.blue}`);
 }));
+
+test('E8 2km・1km・500m の標識の所で、ナビの札と目的地の札が 2.0・1.0・0.5 km', () => withGame({}, async (page, errors) => {
+  await startJob(page);
+  const r = await page.evaluate(() => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    const ramp = RAMPS.find(x => x.ic.i === 2);
+    return [700, 400, 160].map(d => { placeTruck(ramp.sDiv - d, X_TRV, 0, { coupled: true }); for (let i = 0; i < 8; i++) simTick(1 / 60); const st = navState(); updateHud(); return [st.guideDist, document.getElementById('jsKm').textContent]; });
+  });
+  assert.deepEqual(r, [['2.0 km', '2.0'], ['1.0 km', '1.0'], ['500 m', '0.5']]);
+  assert.deepEqual(errors, []);
+}));
+
+test('出口の分かれ目を過ぎると、目的地の札が倉庫の名前と門までの距離になる', () => withGame({}, async (page, errors) => {
+  await startJob(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    const ramp = RAMPS.find(x => x.ic.i === 2);
+    placeTruck(ramp.sDiv + 400, rampEdges(400).cx, 0, { coupled: true }); for (let i = 0; i < 8; i++) simTick(1 / 60); updateHud();
+    return { dest: document.getElementById('jsDest').textContent, ic: document.getElementById('jsIc').hidden, km: +document.getElementById('jsKm').textContent, name: GAME.job.whB.name };
+  });
+  assert.equal(r.dest, r.name); assert.equal(r.ic, true); assert.ok(r.km > 0.2 && r.km < 2, JSON.stringify(r));
+  assert.deepEqual(errors, []);
+}));
+
+test('全体地図に 6 か所の SA の印、SA の中では SA の地図', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    const count = (top, rgb) => { const cv = document.getElementById('mapCanvas'), g = cv.getContext('2d'), y0 = Math.round(cv.height * (top ? 0 : 0.24)), h = Math.round(cv.height * (top ? 0.24 : 0.76)), px = g.getImageData(0, y0, cv.width, h).data; let n = 0; for (let i = 0; i < px.length; i += 4) if (px[i] === rgb[0] && px[i + 1] === rgb[1] && px[i + 2] === rgb[2]) n++; return n; };
+    placeTruck(S0 + 1500, X_TRV, 0, { coupled: true }); for (let i = 0; i < 5; i++) simTick(1 / 60);
+    mapOpen(); await __t.frames(2); const marks = count(true, [11, 107, 66]); mapClose();
+    const a = SAS[0]; placeTruck(a.sDiv + 100, saExitEdges(100).cx, 0, { coupled: true }); await __ready(); __placeSa(0, 250, 23, 1, 0, 0); for (let i = 0; i < 5; i++) simTick(1 / 60);
+    mapOpen(); await __t.frames(2); const pumps = count(false, [255, 176, 32]), stalls = count(false, [207, 224, 238]); mapClose();
+    return { marks, pumps, stalls };
+  });
+  assert.ok(r.marks > 6 * 100, JSON.stringify(r)); assert.ok(r.pumps > 50 && r.stalls > 200, JSON.stringify(r));
+  assert.deepEqual(errors, []);
+}));

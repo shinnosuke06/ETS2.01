@@ -156,7 +156,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
   <div class="hud-inner">
     <div id="jobSign" class="sign" hidden>
       <div class="k">目的地</div>
-      <div class="dest"><span id="jsDest">御殿場</span> IC<small id="jsEn">Gotemba</small></div>
+      <div class="dest"><span id="jsDest">御殿場</span><span id="jsIc"> IC</span><small id="jsEn">Gotemba</small></div>
       <div class="dist"><span id="jsKm" style="font-size:inherit;margin:0;font-weight:700">0.0</span><span>km</span></div>
       <div class="meta"><span>時刻 <b id="jsClock">13:30</b></span><span id="jsDueWrap">期限 <b id="jsDue">14:40</b></span></div>
     </div>
@@ -943,6 +943,84 @@ function soundWallAt(s, side) {
   if (side < 0 && (rampAt(s - 30) || rampAt(s + 30))) return false;
   if (side < 0 && (entryAt(s - 30) || entryAt(s) || entryAt(s + 30))) return false;   // nor along an entrance band
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
+}
+
+// ---- overpasses (跨道橋) and the boundary fences -----------------------------------
+// A local road's bridge over the expressway about every 400 m where the region is town-like, every 1200 m elsewhere
+// (30% either way); none by the interchanges' and service areas' lanes or tunnels (150 m), over water, or within 40 m
+// of a sign gantry, an LED board or the following-distance signs. y: the deck's underside, 5.2 m over the highest
+// road point under it.
+const OVERPASSES = [];
+(function placeOverpasses() {
+  const R = rng(20261112), near = (s, a, b, m) => s > a - m && s < b + m;
+  const bad = s => RAMPS.some(r => near(s, r.sDiv, r.sEnd, 150)) || ENTRIES.some(e => near(s, e.s0, e.s1, 150)) || SAS.some(a => near(s, a.sDiv, a.sEnd, 150))
+    || TUNNELS.some(t => near(s, t.s0, t.s1, 150)) || [-40, -30, -20, -10, 0, 10, 20, 30, 40].some(d => waterAt(s + d, -1) + waterAt(s + d, 1) + waterAt(s + d, 0) > 0)
+    || SIGNS.some(g => (g.t === 'exitAdv' || g.t === 'saAdv' || g.t === 'saNext' || g.t === 'led' || g.t === 'gap') && Math.abs(g.s - s) < 40);
+  // the gaps count only the road where a bridge may stand, town-like and other stretches each on their own count
+  const acc = [0, 0], need = [0.7 + 0.6 * R(), 0.7 + 0.6 * R()];
+  for (let s = S0 + 300; s < ROUTE_END - 400; s += 20) {
+    if (bad(s)) continue;
+    const k = regionAt(s, {}).town >= 0.6 ? 0 : 1;
+    if ((acc[k] += 20 / (k === 0 ? 400 : 1200)) < need[k]) continue;
+    const skew = (R() * 2 - 1) * 15 * DEG, farm = R() < 0.25;
+    let top = -Infinity; for (let lat = -14.5; lat <= 14.5; lat += 0.5) top = Math.max(top, elevAt(s + lat * Math.tan(skew)));
+    OVERPASSES.push({ s, skew, w: farm ? 6 : 9 + Math.round(R() * 3), kind: farm ? 'farm' : 'road', y: top + 5.2 });
+    acc[k] = 0; need[k] = 0.7 + 0.6 * R();
+  }
+})();
+// An overpass's piers: in the middle of the median and beyond both guardrails, along its skewed line.
+function overpassPiers(ov) { return [0, -14.5, 14.5].map(lat => ({ s: ov.s + lat * Math.tan(ov.skew), lat })); }
+// Whether the boundary fence (26 m out on that side) runs at s.
+function fenceAt(s, side) {
+  if (tunnelAt(s, 20) || soundWallAt(s, side) || waterAt(s, side) > 0 || waterAt(s, 0) > 0) return false;
+  if (townKeepOut(s, side * 26) || saKeepOut(s, side * 26)) return false;
+  for (const ov of OVERPASSES) if (Math.abs(ov.s - s) < 10) return false;
+  if (side < 0) for (const x of [s - 30, s, s + 30]) if (rampAt(x) || entryAt(x) || saAt(x)) return false;
+  return true;
+}
+
+// ---- road lamps (照明灯): where the expressway is lit at night ---------------------------------------
+// The interchanges (from 100 m before the exit's divergence to the end of the entrance's acceleration lane), the
+// service areas, 300 m outside each tunnel portal, and the town-like stretches (sound walls, or a town-like region),
+// decided per 100 m block.
+const LAMP_ZONES = [];
+(function lampZones() {
+  for (const r of RAMPS) { const e = ENTRIES.find(x => x.ic === r.ic); LAMP_ZONES.push({ s0: r.sDiv - 100, s1: e ? e.s1 : r.sEnd, kind: 'ic' }); }
+  LAMP_ZONES.push({ s0: ENTRIES[0].s0 - 100, s1: ENTRIES[0].s1, kind: 'ic' });   // Tokyo has an entrance only
+  for (const a of SAS) LAMP_ZONES.push({ s0: a.sDiv, s1: a.sEnd, kind: 'sa' });
+  for (const t of TUNNELS) { LAMP_ZONES.push({ s0: t.s0 - 300, s1: t.s0, kind: 'tunnel' }); LAMP_ZONES.push({ s0: t.s1, s1: t.s1 + 300, kind: 'tunnel' }); }
+  let run = null;
+  for (let s = S0; s < ROUTE_END; s += 100) {
+    const m = s + 50, on = soundWallAt(m, -1) || soundWallAt(m, 1) || regionAt(m, {}).town >= 0.6;
+    if (on) { if (run) run.s1 = s + 100; else LAMP_ZONES.push(run = { s0: s, s1: s + 100, kind: 'urban' }); } else run = null;
+  }
+})();
+// The lamps with s in [s0, s1): every 40 m on both sides of the mainline (13.6 m out, the arm reaching 3 m over the
+// road), every 30 m beside the interchanges' and service areas' lanes. A mainline lamp on the left stands beyond any
+// lane there; none in tunnels, under overpasses or at a sign gantry.
+const _lmp = [];
+function lampsIn(s0, s1) {
+  const out = [], zone = s => LAMP_ZONES.find(z => s >= z.s0 && s <= z.s1);
+  const clear = s => !tunnelAt(s, 2) && !OVERPASSES.some(ov => Math.abs(ov.s - s) < 10) && !SIGNS.some(g => (g.t === 'exitAdv' || g.t === 'saAdv' || g.t === 'saNext' || g.t === 'led') && Math.abs(g.s - s) < 6);
+  for (let s = Math.ceil(s0 / 40) * 40; s < s1; s += 40) {
+    const z = zone(s); if (!z || !clear(s)) continue;
+    drivable(s, _lmp); const lo = Math.min(..._lmp.map(iv => iv[0]));
+    const left = Math.min(-13.6, lo - 1.2);
+    out.push({ s, lat: left, side: -1, kind: z.kind, armLat: left + 3 }, { s, lat: 13.6, side: 1, kind: z.kind, armLat: 10.6 });
+  }
+  const lane = (base, u0, u1, edges, kind) => {   // beside a lane, on its outer side
+    for (let u = Math.ceil((s0 - base) / 30) * 30; base + u < s1; u += 30) {
+      if (u < u0 || u > u1) continue;
+      const s = base + u; if (!clear(s)) continue;
+      const e = edges(u, {}); drivable(s, _lmp); const lo = Math.min(..._lmp.map(iv => iv[0]));
+      if (lo < e.xl - 0.5) continue;   // the mainline's own left lamp already stands beyond this lane
+      out.push({ s, lat: e.xl - 1.2, side: -1, kind, armLat: e.cx });
+    }
+  };
+  for (const r of RAMPS) lane(r.sDiv, 120, RAMP_LEN - 60, rampEdges, 'ic');
+  for (const e of ENTRIES) lane(e.s0, 40, 380, entryEdges, 'ic');
+  for (const a of SAS) { lane(a.sDiv, 120, SA_LOT0 - 10, saExitEdges, 'sa'); lane(a.sLot1, 10, 170, saEntryEdges, 'sa'); }
+  return out;
 }
 
 // ---- barriers ----------------------------------------------------------------
@@ -1889,7 +1967,10 @@ const _NAV_TEXT = {
   plaza: '広場へ', arrive: '到着', etcIn: 'ETC 入口 20km/h 以下', etcOut: 'ETC 出口 20km/h 以下', ramp: '料金所 ETC は 20km/h 以下',
   merge: '本線へ合流　右', exit: '出口　左', dock: '荷台口にバックで（+20%）', bay: '納品の枠へ', wrongRamp: '目的地ではない出口です',
 };
-function navText(kind, name) { return kind === 'exitLane' ? `${name}IC 出口　左車線へ` : _NAV_TEXT[kind] || ''; }
+Object.assign(_NAV_TEXT, { saExit: 'SA 入口　左', toPump: '給油機の横に止める', toStall: '大型車の枠に止める', toOut: '出口へ', stopFuel: '止まって「給油」', stopNap: '止まって「仮眠」' });
+// the texts that carry a name: an interchange's or a service area's
+const _NAV_NAMED = { exitLane: n => `${n}IC 出口　左車線へ`, saFuel: n => `${n}SA で給油を`, saRest: n => `${n}SA で休憩を`, saLane: n => `${n}SA 入口　左車線へ` };
+function navText(kind, name) { return _NAV_NAMED[kind] ? _NAV_NAMED[kind](name) : _NAV_TEXT[kind] || ''; }
 // The turn from direction a to direction b (unit vectors): 'left', 'right', 'straight', or null (back the way it came).
 function _navTurn(a, b) {
   const dot = a[0] * b[0] + a[1] * b[1];
@@ -2338,6 +2419,17 @@ function blinkGap(sleepy, r) {
 function refuel(fuel) { const liters = Math.round((1 - clamp(fuel, 0, 1)) * CARE.fuelL); return { liters, yen: liters * CARE.price }; }
 // roughly how far the fuel goes, in true km, to the nearest 10
 function fuelKm(fuel) { return Math.round(clamp(fuel, 0, 1) * CARE.rangeKm / 10) * 10; }
+// The service area the navigation suggests from s: with under 15% fuel ('fuel') or sleepiness 0.7 and over ('sleep'),
+// the nearest one whose divergence is still 160 m or more ahead; none when the destination's exit (destSDiv, at
+// kp destKp) comes first and the fuel goes 1.2 times as far as that.
+function saSuggest(s, fuel, sleepy, destSDiv, destKp) {
+  const why = fuel < 0.15 ? 'fuel' : sleepy >= 0.7 ? 'sleep' : null;
+  if (!why) return null;
+  const sa = SAS.find(a => a.sDiv - s >= 160);
+  if (!sa) return null;
+  if (destSDiv < sa.sDiv && fuel * CARE.rangeKm >= 1.2 * (destKp - sToKp(s))) return null;
+  return { sa, why };
+}
 
 // ==== 03-gfx.js ====
 // ---------------------------------------------------------------------------
@@ -2597,7 +2689,29 @@ sun.shadow.normalBias = 0.03;
 scene.add(sun); scene.add(sun.target);
 const SUN_DIR = new THREE.Vector3(0.4, 0.6, 0.5).normalize();
 
-// Sign materials that dim at night (they are unlit Basic materials).
+// Night: what shines back under the rig's own headlights (the reflectors, the big signs). nightUpdate sets NIGHT_U
+// every frame: the headlights' place and direction, and how lit they are (0 by day or with the lights off).
+const NIGHT_U = { uCar: { value: new THREE.Vector3(0, -1e5, 0) }, uDir: { value: new THREE.Vector2(0, 1) }, uLit: { value: 0 } };
+// Make an unlit (Basic) material brighter by `gain` where it lies in the headlights: within about 18 degrees of their
+// direction, from 8 to 160 m ahead.
+function nightPatch(m, gain) {
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, NIGHT_U); sh.uniforms.uGain = { value: gain };
+    sh.vertexShader = 'varying vec3 vNightW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      vec4 nightW = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+      nightW = instanceMatrix * nightW;
+      #endif
+      vNightW = (modelMatrix * nightW).xyz;`);
+    sh.fragmentShader = 'uniform vec3 uCar; uniform vec2 uDir; uniform float uLit; uniform float uGain; varying vec3 vNightW;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      { vec2 nd = vNightW.xz - uCar.xz; float dist = length(nd), c = dot(nd / max(dist, 0.001), uDir);
+        float lit = uLit * smoothstep(0.94, 0.97, c) * smoothstep(8.0, 14.0, dist) * (1.0 - smoothstep(120.0, 160.0, dist));
+        diffuseColor.rgb = mix(diffuseColor.rgb, min(vec3(1.0), diffuseColor.rgb * uGain), lit); }`);
+  };
+  m.customProgramCacheKey = () => 'night' + gain;
+  return m;
+}
+// Sign materials that dim at night (they are unlit Basic materials); they brighten again in the headlights.
 const SIGN_MATS = [];
 const _texCache = new Map();
 function cachedTex(key, w, h, draw) {
@@ -2605,7 +2719,7 @@ function cachedTex(key, w, h, draw) {
   const c = makeCanvas(w, h), g = c.getContext('2d');
   draw(g, w, h);
   const t = canvasTex(c, { aniso: 8 });
-  const m = new THREE.MeshBasicMaterial({ map: t });
+  const m = nightPatch(new THREE.MeshBasicMaterial({ map: t }), 3.2);
   m.userData.keep = true;
   SIGN_MATS.push(m);
   _texCache.set(key, m);
@@ -3025,6 +3139,7 @@ function buildChunk(k) {
   buildTunnels(ctx);
   buildRamps(ctx);
   buildSigns(ctx);
+  buildRoadside(ctx);
   buildEnd(ctx);
   scene.add(grp);
   return ctx;
@@ -3171,6 +3286,7 @@ function buildTrees(ctx) {
     if (w > 0.2 && d > 10) continue;
     if (d < 15 && tunnelAt(s, 6)) continue;
     if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns and service areas have their own trees
+    if (Math.abs(x) < 28.5 && fenceAt(s, side)) continue;   // outside the boundary fence
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 6, d + 6, side);
     const slope = Math.abs(y2 - y) / 6;
@@ -3217,6 +3333,7 @@ function buildHouses(ctx) {
     const x = side * (inner + d);
     const hw = Math.hypot(w, dd) / 2 + 1;   // half the diagonal: clear at any turn
     if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns place their own buildings
+    if (Math.abs(x) - hw < 27.5 && fenceAt(s, side)) continue;   // outside the boundary fence
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 8, d + 8, side);
     if (Math.abs(y2 - y) > 2.5) continue;
@@ -4032,6 +4149,32 @@ function* townMeshSteps(i) {
     const sb = P.build(grp); for (const m of sb) M.parts.signals = (M.parts.signals || 0) + triCount(m.geometry); }
   yield null;
 
+  // ---- night: street lamps along the main streets (every 35 m, both sides), floodlights in the warehouse yards ----
+  { const poles = [], arms = [], heads = [], pools = [];
+    const lamp = (u, v, au, av, h, r) => {
+      const y = Y(u, v), ya = Y(au, av), len = Math.hypot(au - u, av - v), ry = Math.atan2(au - u, -(av - v)) + Math.PI / 2;
+      poles.push({ u, v, y, sx: 1, sy: h, sz: 1 });
+      if (len > 0.3) arms.push({ u: (u + au) / 2, v: (v + av) / 2, y: y + h - 0.1, ry, sx: len, sy: 0.12, sz: 0.12 });
+      heads.push({ u: au, v: av, y: y + h - 0.35, ry, sx: 0.7, sy: 0.18, sz: 0.4 });
+      pools.push({ u: au, v: av, y: ya + 0.07, sx: r * 2, sy: 1, sz: r * 2 });
+    };
+    for (const st of L.streets) {
+      if (st.kind !== 'main') continue;
+      for (let a = st.a0 + 12; a < st.a1 - 6; a += 35) {
+        const at = along(st, a, 0);
+        if (L.nodes.some(n => Math.hypot(n.u - at[0], n.v - at[1]) < 16)) continue;   // not in a junction
+        for (const side of [-1, 1]) { const f = along(st, a, side * (hc(st) + st.walkW - 0.5)), h = along(st, a, side * (hc(st) - 1.0)); lamp(f[0], f[1], h[0], h[1], 8, 12); }
+      }
+    }
+    for (const w of L.warehouses) {
+      const y = w.yard, cu = (y.u0 + y.u1) / 2, cv = (y.v0 + y.v1) / 2, big = (y.u1 - y.u0) * (y.v1 - y.v0) > 6000;
+      const corners = [[y.u0 + 3, y.v1 - 3], [y.u1 - 3, y.v1 - 3], [y.u0 + 3, y.v0 + 3], [y.u1 - 3, y.v0 + 3]].slice(0, big ? 4 : 2);
+      for (const [u, v] of corners) { const d = Math.hypot(cu - u, cv - v) || 1; lamp(u, v, u + (cu - u) / d * 2.5, v + (cv - v) / d * 2.5, 12, 18); }
+    }
+    inst('lamps', RS_POLE, MAT.steel, poles); inst('lamps', SHARED.box, MAT.steel, arms); inst('lamps', SHARED.box, RS_MAT.lampHead, heads);
+    const pm = inst('lamps', RS.mark, RS_MAT.pool, pools); if (pm) pm.receiveShadow = false; }
+  yield null;
+
   // ---- the toll plaza: one canopy over both gates, booths on the islands, a bar for each gate ----
   { const P = new Parts(), y = Y(0, 30);
     P.box(MAT.white, 24, 0.7, 14, 0, y + 5.9, -31);
@@ -4252,6 +4395,25 @@ function* saMeshSteps(k) {
     inst('cars', SHARED.box, paint, boxesC, { colors: true }); }
   yield null;
 
+  // ---- night: lamps on the planted strip by the road, on the islands and by the car park, lights under the canopy ----
+  { const poles = [], arms = [], heads = [], pools = [];
+    const lamp = (u, v, av, h = 12, r = 14) => {
+      const ry = headingAt(sa.sDiv + u), len = Math.abs(av - v);
+      poles.push({ u, v, sx: 1, sy: h, sz: 1, ry });
+      if (len > 0.3) arms.push({ u, v: (v + av) / 2, y: h - 0.1, ry, sx: len, sy: 0.12, sz: 0.12 });
+      heads.push({ u, v: av, y: h - 0.35, ry, sx: 0.4, sy: 0.18, sz: 0.7 });
+      pools.push({ u, v: av, y: 0.08, sx: r * 2, sy: 1, sz: r * 2, ry });
+    };
+    if (!L.fallback) {
+      for (let u = SA_LOT0 + 10; u < SA_LOT1 - 5; u += 30) lamp(u, 15.2, 19.5);
+      for (const p of L.planted) lamp((p.u0 + p.u1) / 2, (p.v0 + p.v1) / 2, (p.v0 + p.v1) / 2 + 4);
+      for (const u of [225, 245, 265]) lamp(u, 79.4, 72, 10, 12);   // on the building's front (a wall in the grid)
+    } else for (let u = 200; u < 440; u += 40) lamp(u, 15.2, 19.5);
+    if (L.canopy) for (const p of L.pumps) { pools.push({ u: p.u, v: p.v, y: 0.08, sx: 20, sy: 1, sz: 20 }); heads.push({ u: p.u, v: p.v, y: L.canopy.h - 0.2, sx: 3, sy: 0.12, sz: 6 }); }
+    inst('lamps', RS_POLE, MAT.steel, poles); inst('lamps', SHARED.box, MAT.steel, arms); inst('lamps', SHARED.box, RS_MAT.lampHead, heads);
+    const pm = inst('lamps', RS.mark, RS_MAT.pool, pools); if (pm) pm.receiveShadow = false; }
+  yield null;
+
   // ---- the signs inside: 大型車, 給油所, 出口 on posts ----
   { const P = new Parts();
     for (const sg of L.signs) {
@@ -4294,6 +4456,184 @@ function saStats(k) {
   if (!M) return r;
   M.grp.traverse(o => { if (!o.isMesh) return; r.meshes++; r.tris += triCount(o.geometry) * (o.isInstancedMesh ? o.count : 1); });
   return r;
+}
+
+// ==== 05d-roadside.js ====
+// ---------------------------------------------------------------------------
+// Roadside things built with each road chunk: the overpasses (跨道橋), the road
+// markings (arrows before the exits, 減速 on the exit lanes), the boundary fence
+// and the shrubs between the lanes. The night lights are added in Task 6.
+// ---------------------------------------------------------------------------
+const RS = {
+  deck: new THREE.BoxGeometry(1, 1, 1),
+  pier: new THREE.CylinderGeometry(0.55, 0.65, 1, 10).translate(0, 0.5, 0),
+  fencePost: new THREE.CylinderGeometry(0.035, 0.035, 1.6, 5).translate(0, 0.8, 0),
+  mark: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+};
+for (const k in RS) RS[k].userData.keep = true;
+const RS_MAT = {
+  deck: new THREE.MeshLambertMaterial({ color: 0xb9b6ac }),
+  deckTop: new THREE.MeshLambertMaterial({ color: 0x55585c }),
+  rail: new THREE.MeshLambertMaterial({ color: 0x8f9a9f }),
+  fence: null, arrow: null, gen: null,
+};
+// the fence's wire mesh and the road paint, drawn once
+(function rsTextures() {
+  const mesh = makeCanvas(64, 64), g = mesh.getContext('2d');
+  g.clearRect(0, 0, 64, 64); g.strokeStyle = '#3f7a55'; g.lineWidth = 2;
+  for (let k = -64; k < 128; k += 8) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 64, 64); g.stroke(); g.beginPath(); g.moveTo(k + 64, 0); g.lineTo(k, 64); g.stroke(); }
+  g.fillStyle = '#3f7a55'; g.fillRect(0, 0, 64, 3); g.fillRect(0, 61, 64, 3);
+  const ft = new THREE.CanvasTexture(mesh); ft.wrapS = ft.wrapT = THREE.RepeatWrapping;
+  RS_MAT.fence = new THREE.MeshLambertMaterial({ map: ft, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide });
+  const paint = (draw, w, h) => { const c = makeCanvas(w, h), x = c.getContext('2d'); x.clearRect(0, 0, w, h); x.fillStyle = '#f2f2ee'; draw(x, w, h); const t = new THREE.CanvasTexture(c); return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.4, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }); };
+  // straight-and-left arrow, seen from behind (the top of the picture is ahead)
+  RS_MAT.arrow = paint((x, w, h) => {
+    x.fillRect(w * 0.56, h * 0.2, w * 0.14, h * 0.8);
+    x.beginPath(); x.moveTo(w * 0.63, 0); x.lineTo(w * 0.86, h * 0.22); x.lineTo(w * 0.4, h * 0.22); x.closePath(); x.fill();
+    x.save(); x.translate(w * 0.6, h * 0.62); x.rotate(-0.8); x.fillRect(-w * 0.07, -h * 0.34, w * 0.14, h * 0.34);
+    x.beginPath(); x.moveTo(0, -h * 0.48); x.lineTo(w * 0.2, -h * 0.3); x.lineTo(-w * 0.2, -h * 0.3); x.closePath(); x.fill(); x.restore();
+  }, 64, 256);
+  // 減速, stretched along the road as road text is, read from the near end: 減 near (the bottom), 速 beyond it
+  RS_MAT.gen = paint((x, w, h) => { x.textAlign = 'center'; x.textBaseline = 'middle'; x.save(); x.scale(1, 2); x.font = font(56); x.fillText('速', w / 2, 32); x.fillText('減', w / 2, 96); x.restore(); }, 64, 256);
+})();
+
+// ---- overpasses --------------------------------------------------------------------------------------------------
+function buildOverpasses(ctx) {
+  const { O, s0, s1, grp } = ctx;
+  for (const ov of OVERPASSES) {
+    if (ov.s < s0 || ov.s >= s1) continue;
+    const g = new THREE.Group(); g.userData.overpass = true;
+    placeAt(g, O, ov.s, 0, 0, ov.skew);
+    const yd = ov.y - elevAt(ov.s), half = 36, t = 1.2, P = new Parts();
+    P.add(RS.deck.clone(), RS_MAT.deck, 0, yd + t / 2, 0, 0, 0, 0, half * 2, t, ov.w);   // the deck (x across the road)
+    P.add(RS.deck.clone(), RS_MAT.deckTop, 0, yd + t + 0.03, 0, 0, 0, 0, half * 2, 0.06, ov.w - 1.2);
+    for (const z of [-1, 1]) P.add(RS.deck.clone(), RS_MAT.rail, 0, yd + t + 0.55, z * (ov.w / 2 - 0.15), 0, 0, 0, half * 2, 1.0, 0.25);   // parapets
+    for (const p of overpassPiers(ov)) {   // piers from the ground up to the deck
+      const ground = elevAt(p.s), h = ov.y - ground;   // along the skewed deck: lat / cos(skew) from its middle
+      P.add(RS.pier.clone(), RS_MAT.deck, p.lat / Math.cos(ov.skew), ground - elevAt(ov.s), 0, 0, 0, 0, 1, h, ov.kind === 'farm' ? 0.8 : 1.4);
+    }
+    for (const side of [-1, 1]) {   // the ends: an abutment down to the ground where the deck is above it
+      const x = side * (half - 1.5), lat = x * Math.cos(ov.skew), s = ov.s + lat * Math.tan(ov.skew), d = Math.max(0, Math.abs(lat) - innerAt(s, side));
+      const ty = terrainY(s, lat, d, side) - elevAt(ov.s), h = yd - ty;
+      if (h > 0.3) P.add(RS.deck.clone(), RS_MAT.deck, x, ty + h / 2, 0, 0, 0, 0, 3, h, ov.w + 0.6);
+    }
+    P.build(g, { cast: true, receive: true });
+    grp.add(g);
+  }
+}
+
+// ---- road markings ---------------------------------------------------------------------------------------------------
+function buildMarks(ctx) {
+  const { O, s0, s1 } = ctx, arrows = [], gens = [];
+  // the picture's top ahead and its right to the road's right (the plane's +z faces back, so turned round)
+  const at = (list, s, lat, sx, sz) => { if (s < s0 || s >= s1) return; const p = localPt(O, s, lat, 0.035); list.push({ x: p.x, y: p.y, z: p.z, ry: p.h + Math.PI, sx, sy: 1, sz }); };
+  for (const r of RAMPS) { for (const d of [300, 150]) at(arrows, r.sDiv - d, X_TRV, 1.4, 5.6); for (const u of [30, 50]) at(gens, r.sDiv + u, rampEdges(u).cx - 0.6, 2.2, 4.8); }
+  for (const a of SAS) for (const u of [30, 50]) at(gens, a.sDiv + u, saExitEdges(u).cx - 0.6, 2.2, 4.8);
+  instanced(ctx, RS.mark, RS_MAT.arrow, arrows);
+  instanced(ctx, RS.mark, RS_MAT.gen, gens);
+}
+
+// ---- the boundary fence ----------------------------------------------------------------------------------------------
+function buildFences(ctx) {
+  const { O, i0, i1 } = ctx, posts = [];
+  for (const side of [-1, 1]) {
+    const x = side * 26, ys = [];
+    for (let i = i0; i <= i1; i++) { const s = i * DS; ys[i] = fenceAt(s, side) ? terrainY(s, x, Math.max(0, 26 - innerAt(s, side)), side) : null; }
+    const pos = [], uv = [], idx = [];
+    for (let i = i0; i < i1; i++) {
+      if (ys[i] == null || ys[i + 1] == null) continue;
+      const a = localPt(O, i * DS, x, 0), b = localPt(O, (i + 1) * DS, x, 0), ya = ys[i] - O.y, yb = ys[i + 1] - O.y, n = pos.length / 3;
+      pos.push(a.x, ya, a.z, b.x, yb, b.z, b.x, yb + 1.5, b.z, a.x, ya + 1.5, a.z);
+      uv.push(0, 0, DS / 1.5, 0, DS / 1.5, 1, 0, 1);
+      idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+      posts.push({ x: a.x, y: ya, z: a.z });   // a post at every road sample (4 m)
+    }
+    if (!idx.length) continue;
+    const gm = new THREE.BufferGeometry();
+    gm.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); gm.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); gm.setIndex(idx); gm.computeVertexNormals();
+    addMesh(ctx, gm, RS_MAT.fence);
+  }
+  instanced(ctx, RS.fencePost, MAT.steel, posts);
+}
+
+// ---- shrubs between the lanes at the interchanges and the service areas ----------------------------------------------
+function buildShrubs(ctx) {
+  const { O, s0, s1, rand } = ctx, list = [], E = {}, n = Q.trees;
+  const strip = (base, u0, u1, edges) => {
+    for (let u = u0; u < u1; u += 6 / n) {
+      const s = base + u; if (s < s0 || s >= s1) continue;
+      const e = edges(u, E), w = X_PAVE - e.xr; if (w < 3) continue;   // the grass between the lane and the mainline
+      const p = localPt(O, s, (e.xr + X_PAVE) / 2 + (rand() - 0.5) * (w - 2), 0);
+      const h = 1 + rand(); list.push({ x: p.x, y: p.y + h * 0.4, z: p.z, sx: 1.2 + rand() * 0.6, sy: h * 0.6, sz: 1.2 + rand() * 0.6, c: [0x3d6b33, 0x4b7a3a, 0x355e2e][Math.floor(rand() * 3)] });
+    }
+  };
+  for (const r of RAMPS) strip(r.sDiv, r.uSep + 12, RAMP_LEN - 20, rampEdges);
+  for (const e of ENTRIES) strip(e.s0, 20, e.uJoin - 12, entryEdges);
+  for (const a of SAS) { strip(a.sDiv, a.uSep + 12, SA_LOT0 - 5, saExitEdges); strip(a.sLot1, 5, a.uJoin - 12, saEntryEdges); }
+  instanced(ctx, SHARED.ico, MAT.tree, list, { colors: true });
+}
+// ---- night: the road lamps and their light on the road, the reflectors on the guardrails ---------------------------
+const RS_POLE = new THREE.CylinderGeometry(0.11, 0.16, 1, 7).translate(0, 0.5, 0), RS_REFL = new THREE.PlaneGeometry(0.12, 0.09);
+RS_POLE.userData.keep = RS_REFL.userData.keep = true;
+const _lc0 = new THREE.Color(0x7d8388), _lc1 = new THREE.Color(0xfff2d8);
+RS_MAT.lampHead = new THREE.MeshBasicMaterial({ color: 0x7d8388 });
+RS_MAT.reflector = nightPatch(new THREE.MeshBasicMaterial({ color: 0xffffff }), 9);
+// a soft round pool of light, added onto the road (no light source)
+RS_MAT.pool = (() => {
+  const c = makeCanvas(128, 128), g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.45, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), color: 0xffe6bd, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12 });
+})();
+// lamps as instance lists in a group's frame; `P(u, v, y)` gives the frame's point for a place, yaw the heading there.
+// Each lamp: { at: [x, y, z] (foot), arm: [x, y, z] (where the head hangs), h: pole height, r: pool radius }
+function lampLists(lamps, out = { poles: [], arms: [], heads: [], pools: [] }) {
+  for (const l of lamps) {
+    const [x, y, z] = l.at, [ax, , az] = l.arm, len = Math.hypot(ax - x, az - z), ry = Math.atan2(ax - x, az - z) + Math.PI / 2;
+    out.poles.push({ x, y, z, sy: l.h });
+    if (len > 0.3) out.arms.push({ x: (x + ax) / 2, y: y + l.h - 0.1, z: (z + az) / 2, ry, sx: len, sy: 0.12, sz: 0.12 });
+    out.heads.push({ x: ax, y: y + l.h - 0.35, z: az, ry, sx: 0.7, sy: 0.18, sz: 0.4 });
+    if (l.r > 0) out.pools.push({ x: ax, y: l.groundY + 0.06, z: az, sx: l.r * 2, sy: 1, sz: l.r * 2 });
+  }
+  return out;
+}
+function addLampMeshes(add, lists) {
+  add(RS_POLE, MAT.steel, lists.poles); add(SHARED.box, MAT.steel, lists.arms); add(SHARED.box, RS_MAT.lampHead, lists.heads); add(RS.mark, RS_MAT.pool, lists.pools);
+}
+function buildLamps(ctx) {
+  const { O, s0, s1 } = ctx, low = qualityName === 'low', lamps = [];
+  for (const l of lampsIn(s0, s1)) {
+    const p = localPt(O, l.s, l.lat, 0), a = localPt(O, l.s, l.armLat, 0), main = l.kind === 'urban' || l.kind === 'tunnel';
+    lamps.push({ at: [p.x, p.y, p.z], arm: [a.x, a.y, a.z], h: 12, r: low && main ? 0 : 14, groundY: a.y });
+  }
+  addLampMeshes((g, m, list) => { const im = instanced(ctx, g, m, list); if (im && m === RS_MAT.pool) im.userData.pools = true; }, lampLists(lamps));
+}
+// reflectors every 10 m: white on the left guardrail, amber on the median, facing the traffic coming up behind
+function buildReflectors(ctx) {
+  const { O, i0, i1 } = ctx, list = [];
+  for (const [f, t] of railRuns(ctx, -1)) for (let i = f; i <= t; i++) { const s = i * DS; if (s % 10 >= DS) continue; const p = localPt(O, s, -12.3, 0.72); list.push({ x: p.x, y: p.y, z: p.z, ry: p.h + Math.PI, c: 0xffffff }); }
+  for (const [f, t] of runs(i0, i1, i => !inTun(i))) for (let i = f; i <= t; i++) { const s = i * DS; if (s % 10 >= DS) continue; const p = localPt(O, s, -0.36, 0.76); list.push({ x: p.x, y: p.y, z: p.z, ry: p.h + Math.PI, c: 0xffb21c }); }
+  const im = instanced(ctx, RS_REFL, RS_MAT.reflector, list, { colors: true });
+  if (im) im.userData.reflectors = true;
+}
+function buildRoadside(ctx) { buildOverpasses(ctx); buildMarks(ctx); buildFences(ctx); buildShrubs(ctx); buildLamps(ctx); buildReflectors(ctx); }
+
+// Every frame: the lamps and their pools by the time of day, the headlights for the reflectors and signs, the cars'
+// lights. Nothing breaks the drive: an error hides the cars' lights for that frame and is reported once.
+let _nightWarned = false;
+function nightUpdate() {
+  try {
+    const night = TOD.night, dark = Math.max(night, GAME.tunnelBlend * 0.8);
+    NIGHT_U.uLit.value = GAME.lampsOn ? clamp(dark * 1.5, 0, 1) : 0;
+    const f = 5.6; NIGHT_U.uCar.value.set(TR.x + Math.sin(TR.h) * f, TR.y + 1, TR.z + Math.cos(TR.h) * f); NIGHT_U.uDir.value.set(Math.sin(TR.h), Math.cos(TR.h));
+    RS_MAT.lampHead.color.copy(_lc0).lerp(_lc1, smooth(0.05, 0.6, night));
+    RS_MAT.pool.opacity = night * 0.55; RS_MAT.pool.visible = night > 0.02;
+    RS_MAT.reflector.color.setScalar(lerp(0.85, 0.1, night));
+    carLightsUpdate(dark);
+  } catch (e) {
+    if (CAR_GLOW.pts) CAR_GLOW.pts.visible = CAR_GLOW.beams.visible = false;
+    if (!_nightWarned) { _nightWarned = true; console.warn('night lights:', e && e.message); }
+  }
 }
 
 // ==== 06a-modelkit.js ====
@@ -6174,7 +6514,7 @@ function drawCluster(st) {
 const _np = {};
 // The guidance arrow's turn for each kind (radians, 0 = straight up), and the lane arrows as characters.
 const NAV_ARROW = { left: -Math.PI / 2, right: Math.PI / 2, gateLeft: -Math.PI / 2, gateRight: Math.PI / 2, outLeft: -Math.PI / 2, outRight: Math.PI / 2,
-  merge: Math.PI / 4, exit: -Math.PI / 4, exitLane: -Math.PI / 6, dock: Math.PI };
+  merge: Math.PI / 4, exit: -Math.PI / 4, exitLane: -Math.PI / 6, dock: Math.PI, saLane: -Math.PI / 6, saExit: -Math.PI / 4 };
 const NAV_GLYPH = { left: '←', straight: '↑', right: '→' };
 function drawNav(st) {
   const g = DASH.ng, W = 512, H = 320;
@@ -6182,7 +6522,7 @@ function drawNav(st) {
   g.strokeStyle = 'rgba(120,150,180,.07)'; g.lineWidth = 1;
   for (let x = 0; x < W; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
   for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-  const scale = st.inTown ? 0.35 : 0.085, cx = W / 2, cy = 250;   // closer in a town
+  const scale = st.inTown || st.sa >= 0 ? 0.35 : 0.085, cx = W / 2, cy = 250;   // closer in a town or a service area
   const h = st.heading, sh = Math.sin(h), ch = Math.cos(h);
   const toScr = (x, z) => { const dx = x - st.x, dz = z - st.z; const f = dx * sh + dz * ch, r = dx * -ch + dz * sh; return [cx + r * scale, cy - f * scale]; };
   // road
@@ -6215,6 +6555,32 @@ function drawNav(st) {
     g.fillStyle = isDest ? '#2f9cff' : '#0b6b42'; const tw = g.measureText(r.ic.jp + ' IC').width + 14;
     roundRect(g, p[0] - tw - 6, p[1] - 12, tw, 24, 5); g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(r.ic.jp + ' IC', p[0] - tw + 1, p[1] + 1);
+  }
+  // service areas near: the car park and its lanes; inside one, the stalls (taken ones grey), the bays, and where to go (blue)
+  for (const [k, A] of SA_LOADED) {
+    const L = A.layout, a = L.sa;
+    if (a.sEnd < st.s - 800 || a.sDiv > st.s + 2800) continue;
+    const P = (u, v) => { posAt(a.sDiv + u, -v, _np); return toScr(_np.x, _np.z); };
+    const poly = pts => { g.beginPath(); pts.forEach(([u, v], i) => { const p = P(u, v); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.closePath(); };
+    g.fillStyle = '#3c4955';
+    for (const [u0, u1, v0, v1] of L.paved) { poly([[u0, v0], [u1, v0], [u1, v1], [u0, v1]]); g.fill(); }
+    poly([[420, 18], [460, 18], [460, 27], [420, L.fallback ? 80 : 56]]); g.fill();
+    g.strokeStyle = '#7f8e9b'; g.lineWidth = Math.max(3, 5 * scale);
+    for (const [u0, u1, f, base] of [[100, 185, saExitEdges, 0], [455, 600, saEntryEdges, SA_LOT1]]) {
+      g.beginPath(); for (let u = u0; u <= u1; u += 5) { const p = P(u, -f(Math.max(0, u - base)).cx); u === u0 ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); } g.stroke();
+    }
+    if (st.sa === k) {
+      const slot = (o, fill, stroke) => { const nu = -o.hv * o.w / 2, nv = o.hu * o.w / 2, h = o.len / 2; poly([[-h, -1], [h, -1], [h, 1], [-h, 1]].map(([t, q]) => [o.u + o.hu * t + nu * q, o.v + o.hv * t + nv * q])); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = 2; g.stroke(); } };
+      const t = st.saTarget;
+      for (const o of L.stalls) slot(o, o.taken ? '#5c6670' : t && t.kind === 'toStall' && t.id === o.id ? '#2f9cff' : null, '#cfe0ee');
+      for (const o of L.pumps) slot(o, t && t.kind === 'toPump' && t.id === o.id ? '#2f9cff' : null, '#ffb020');
+      if (L.building) { const b = L.building; poly([[b.u0, b.v0], [b.u1, b.v0], [b.u1, b.v1], [b.u0, b.v1]]); g.fillStyle = '#6f7b82'; g.fill(); }
+      if (t && t.kind === 'toOut') { const p = P(t.u, t.v); g.fillStyle = '#2f9cff'; g.beginPath(); g.arc(p[0], p[1], 8, 0, TAU); g.fill(); }
+    } else {
+      const p = P(330, 60), name = a.jp + ' SA', tw = g.measureText(name).width + 14;
+      g.fillStyle = '#0b6b42'; roundRect(g, p[0] - tw - 6, p[1] - 12, tw, 24, 5); g.fill();
+      g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(name, p[0] - tw + 1, p[1] + 1);
+    }
   }
   // the nearest town: its streets' centre lines, and the destination warehouse's gate
   const TL = st.town >= 0 && TOWNS_LOADED.get(st.town);
@@ -6338,13 +6704,13 @@ let _ncKey = '';
 // Show or hide the card for navState() st; the DOM is touched only when what it shows changes.
 function navCardUpdate(st) {
   const el = $('navCard'), m = st && st.maneuver, show = !!(st && (st.card && m || st.reroute));
-  const key = show ? [m && m.kind, m && m.text, st.guideDist, m && m.lanes && m.lanes.map(l => l.use + l.arrows.join()).join('|'), m && m.then && m.then.text, st.reroute].join('/') : '';
+  const key = show ? [m && m.kind, m && m.text, st.guideDist, m && m.lanes && m.lanes.map(l => l.use + l.arrows.join()).join('|'), m && m.then && m.then.text, st.reroute, m && m.angle != null ? Math.round(m.angle * 12) : ''].join('/') : '';
   if (key === _ncKey) return;
   _ncKey = key; el.hidden = !show;
   if (!show) return;
-  const arrive = m && m.kind === 'arrive';
+  const arrive = m && (m.kind === 'arrive' || m.kind === 'stopFuel' || m.kind === 'stopNap');   // a dot: you are there
   $('ncDot').toggleAttribute('hidden', !arrive); $('ncArrow').toggleAttribute('hidden', arrive || !m);
-  if (m && !arrive) $('ncArrow').setAttribute('transform', `rotate(${(NAV_ARROW[m.kind] || 0) * 180 / Math.PI})`);
+  if (m && !arrive) $('ncArrow').setAttribute('transform', `rotate(${(m.angle != null ? m.angle : NAV_ARROW[m.kind] || 0) * 180 / Math.PI})`);
   $('ncText').textContent = m ? m.text : '';
   $('ncDist').textContent = m ? st.guideDist : '';
   $('ncLanes').innerHTML = m && m.lanes ? m.lanes.map(l => `<span class="${l.use ? 'on' : ''}">${l.arrows.map(a => NAV_GLYPH[a]).join('')}</span>`).join('') : '';
@@ -6381,8 +6747,18 @@ function drawMap(cv, st) {
     g.fillStyle = col; g.beginPath(); g.arc(x, y0, k === j.from || k === j.to ? 7 : 4, 0, TAU); g.fill();
     g.textBaseline = k % 2 ? 'top' : 'bottom'; g.fillText(ic.jp, x, k % 2 ? y0 + 10 : y0 - 10);
   });
+  // the six service areas: a small green mark with the fuel sign, the name under the line
+  g.font = font(W < 800 ? 11 : 12); g.textBaseline = 'top';
+  for (const a of SAS) {
+    const x = X(a.sDiv + 330);
+    g.fillStyle = '#0b6b42'; roundRect(g, x - 7, y0 - 7, 14, 14, 3); g.fill();
+    g.fillStyle = '#fff'; g.fillRect(x - 3, y0 - 4, 4, 8); g.fillRect(x + 1, y0 - 3, 2, 1.5);
+    g.fillStyle = '#7fd6a2'; g.fillText(a.jp, x, y0 + 30);
+  }
+  g.font = font(W < 800 ? 13 : 15);
   const sNow = TR.zone === 'town' && TR.town >= 0 ? ICS[TR.town].s : TR.s;
   g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(X(sNow), y0 - 12); g.lineTo(X(sNow) + 7, y0 - 24); g.lineTo(X(sNow) - 7, y0 - 24); g.closePath(); g.fill();
+  if (TR.zone === 'sa' && SA_LOADED.has(TR.sa)) { drawSaMap(g, W, H, top + 10, m, st); return; }
   // the town
   const ti = TR.zone === 'town' && TR.town >= 0 ? TR.town : j.to, L = jobLayout(ti), y1 = top + 10;
   const sc = Math.min((W - 2 * m) / 620, (H - y1 - 50) / 430), ox = W / 2, oy = H - 34;
@@ -6411,6 +6787,36 @@ function drawMap(cv, st) {
     g.save(); g.translate(p[0], p[1]); g.rotate(-a + Math.PI / 2); g.fillStyle = '#ffffff'; g.strokeStyle = '#2f9cff'; g.lineWidth = 2;
     g.beginPath(); g.moveTo(0, -12); g.lineTo(8, 9); g.lineTo(0, 5); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
   }
+  g.fillStyle = '#9fb3c4'; g.textAlign = 'right'; g.textBaseline = 'bottom'; g.font = font(13, 400);
+  g.fillText('地図ボタン・M で閉じる', W - m, H - 8);
+}
+
+// The service area the rig is in, below the expressway: u to the right, v (away from the road) upward.
+function drawSaMap(g, W, H, y1, m, st) {
+  const k = TR.sa, L = SA_LOADED.get(k).layout, a = L.sa;
+  const sc = Math.min((W - 2 * m) / 370, (H - y1 - 70) / 100), ox = W / 2 - 320 * sc, oy = H - 40;
+  const P = (u, v) => [ox + u * sc, oy - (v - 10) * sc];
+  g.fillStyle = '#cfe0ee'; g.textAlign = 'left'; g.textBaseline = 'top'; g.font = font(15); g.fillText(`${a.jp} SA`, m, y1);
+  const box = (u0, u1, v0, v1, col) => { const p = P(u0, v1); g.fillStyle = col; g.fillRect(p[0], p[1], (u1 - u0) * sc, (v1 - v0) * sc); };
+  for (const [u0, u1, v0, v1] of L.paved) box(u0, u1, v0, v1, '#3c4955');
+  box(420, 460, 18, 27, '#3c4955');
+  g.strokeStyle = '#3c4955'; g.lineWidth = Math.max(3, 5 * sc); g.beginPath();   // the lanes in and out
+  for (let u = 140; u <= 180; u += 5) { const p = P(u, -saExitEdges(u).cx); u === 140 ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); }
+  g.stroke(); g.beginPath();
+  for (let u = 460; u <= 500; u += 5) { const p = P(u, -saEntryEdges(u - 460).cx); u === 460 ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); }
+  g.stroke();
+  if (L.building) box(L.building.u0, L.building.u1, L.building.v0, L.building.v1, '#6f7b82');
+  const slot = (s, fill, stroke) => {
+    const nu = -s.hv * s.w / 2, nv = s.hu * s.w / 2, h = s.len / 2, c = [[-h, -1], [h, -1], [h, 1], [-h, 1]].map(([t, q]) => P(s.u + s.hu * t + nu * q, s.v + s.hv * t + nv * q));
+    g.beginPath(); c.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.closePath();
+    if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = 2; g.stroke(); }
+  };
+  const t = st.saTarget && st.saTarget.sa === k ? st.saTarget : null;
+  for (const s of L.stalls) slot(s, s.taken ? '#5c6670' : null, t && t.kind === 'toStall' && t.id === s.id ? '#2f9cff' : '#cfe0ee');
+  for (const p of L.pumps) slot(p, null, t && t.kind === 'toPump' && t.id === p.id ? '#2f9cff' : '#ffb020');
+  const r = P(TR.s - a.sDiv, -TR.lat), ang = TR.h - headingAt(TR.s);
+  g.save(); g.translate(r[0], r[1]); g.rotate(-ang + Math.PI / 2); g.fillStyle = '#ffffff'; g.strokeStyle = '#2f9cff'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(0, -12); g.lineTo(8, 9); g.lineTo(0, 5); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore();
   g.fillStyle = '#9fb3c4'; g.textAlign = 'right'; g.textBaseline = 'bottom'; g.font = font(13, 400);
   g.fillText('地図ボタン・M で閉じる', W - m, H - 8);
 }
@@ -7462,8 +7868,11 @@ function laneChangeSafe(c, to, PB) {
   return true;
 }
 
+// The rig on an entrance's (or a service area's) acceleration lane, not yet in the travel lane: cars make room.
+function playerMerging() { return TR.zone === 'road' && !!(entryAt(TR.s) || saEntryAt(TR.s)) && TR.lat < -9.6 && TR.lat > -16; }
 function updateTraffic(dt, active) {
-  const PB = playerBoxes();
+  const PB = playerBoxes(), merging = playerMerging();
+  const rear = merging ? Math.min(...PB.map(b => b.s0)) : 0;
   const n = Q.traffic;
   for (let k = 0; k < n && k < CARS.length; k++) {
     const c = CARS[k];
@@ -7475,6 +7884,11 @@ function updateTraffic(dt, active) {
     const L = leaderOf(c, c.lane, PB);
     let acc = idm(c.v, c.v0, L.gap, c.v - L.v);
     if (c.lc) { const L2 = leaderOf(c, c.lc.to, PB); acc = Math.min(acc, idm(c.v, c.v0, L2.gap, c.v - L2.v)); }
+    const near = merging && c.dir === 1 && c.s >= TR.s - 120 && c.s <= TR.s + 20;   // beside or behind the merging rig
+    if (near && c.lane === 0 && !c.lc) {
+      if (laneChangeSafe(c, 1, PB)) c.lc = { from: 0, to: 1, p: 0 };   // over to the overtaking lane
+      else if (c.s < TR.s + 5) acc = Math.min(acc, idm(c.v, c.v0, Math.max(0.3, rear - 25 - (c.s + c.len / 2)), c.v - TR.v));   // or drop back 25 m behind it
+    }
     c.v = Math.max(0, c.v + clamp(acc, -8, 2) * dt);
     c.s += c.v * c.dir * dt;
     // keep-left lane logic
@@ -7483,7 +7897,7 @@ function updateTraffic(dt, active) {
       c.t = 0.6 + TRAFFIC.rand() * 0.6;
       if (c.lane === 0 && L.who && L.gap < 75 && L.v < c.v0 - 2.2 && !c.heavy) {
         if (laneChangeSafe(c, 1, PB)) c.lc = { from: 0, to: 1, p: 0 };
-      } else if (c.lane === 1) {
+      } else if (c.lane === 1 && !near) {   // (not back beside a rig that is merging)
         const ahead0 = leaderOf(c, 0, PB);
         if ((!ahead0.who || ahead0.gap > 110 || ahead0.v > c.v0 - 1) && laneChangeSafe(c, 0, PB)) c.lc = { from: 1, to: 0, p: 0 };
       }
@@ -7519,6 +7933,53 @@ function updateCarVisuals(dayMul) {
     c.grp.rotation.x = Math.atan(g) * c.dir;
   }
   CAR_LIT.color.setScalar(dayMul);
+}
+
+// ---- the cars' lights at night: a glow at each lamp (one Points for every car, highway and town), and the light
+// their headlights throw on the road ahead of them (a long soft patch) --------------------------------------------------
+const CAR_GLOW = { pts: null, beams: null, n: 0 };
+const _cgv = new THREE.Vector3();
+function carLightsInit() {
+  const max = 96 * 4, geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(max * 3), 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(max * 3), 3));
+  geo.setDrawRange(0, 0);
+  const c = makeCanvas(64, 64), g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  CAR_GLOW.pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 1.5, map: new THREE.CanvasTexture(c), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
+  CAR_GLOW.pts.frustumCulled = false; CAR_GLOW.pts.visible = false; scene.add(CAR_GLOW.pts);
+  const b = makeCanvas(32, 128), h = b.getContext('2d'), lg = h.createLinearGradient(0, 128, 0, 0);
+  lg.addColorStop(0, 'rgba(255,255,255,.9)'); lg.addColorStop(1, 'rgba(255,255,255,0)');
+  h.fillStyle = lg; h.fillRect(0, 0, 32, 128);
+  const beamMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(b), color: 0xfff0d0, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12 });
+  CAR_GLOW.beams = new THREE.InstancedMesh(RS.mark, beamMat, 48);
+  CAR_GLOW.beams.frustumCulled = false; CAR_GLOW.beams.count = 0; CAR_GLOW.beams.visible = false; scene.add(CAR_GLOW.beams);
+}
+const _cgm = new THREE.Matrix4(), _cgq = new THREE.Quaternion(), _cge = new THREE.Euler(), _cgs = new THREE.Vector3(), _cgp = new THREE.Vector3();
+// dark: 0 by day .. 1 at night (or in a tunnel)
+function carLightsUpdate(dark) {
+  if (!CAR_GLOW.pts) carLightsInit();
+  const P = CAR_GLOW.pts, B = CAR_GLOW.beams;
+  if (dark < 0.05) { P.visible = B.visible = false; return; }
+  const pos = P.geometry.attributes.position.array, col = P.geometry.attributes.color.array, max = pos.length / 3;
+  let n = 0, nb = 0;
+  const put = (grp, x, y, z, r, g, b) => { if (n >= max) return; grp.localToWorld(_cgv.set(x, y, z)); pos[n * 3] = _cgv.x; pos[n * 3 + 1] = _cgv.y; pos[n * 3 + 2] = _cgv.z; col[n * 3] = r * dark; col[n * 3 + 1] = g * dark; col[n * 3 + 2] = b * dark; n++; };
+  const car = (grp, len, wid, oncoming) => {
+    grp.updateMatrixWorld();
+    const hw = wid * 0.36, hk = oncoming ? 1 : 0.55;
+    put(grp, -hw, 0.8, -len / 2 - 0.05, hk, hk * 0.95, hk * 0.82); put(grp, hw, 0.8, -len / 2 - 0.05, hk, hk * 0.95, hk * 0.82);   // the front is local -z
+    put(grp, -hw, 0.9, len / 2 + 0.05, 1, 0.1, 0.06); put(grp, hw, 0.9, len / 2 + 0.05, 1, 0.1, 0.06);
+    if (nb < B.instanceMatrix.count) {   // the light on the road, 9 m ahead of the front
+      grp.localToWorld(_cgp.set(0, 0.05, -len / 2 - 9)); _cge.set(0, grp.rotation.y, 0); _cgq.setFromEuler(_cge);
+      B.setMatrixAt(nb++, _cgm.compose(_cgp, _cgq, _cgs.set(3.2, 1, 14)));
+    }
+  };
+  for (const c of CARS) if (!c.hidden && Math.abs(c.s - TR.s) < 700) car(c.grp, c.len, c.wid, c.dir === -1);
+  for (const X of TOWN_TRAFFIC.values()) X.cars.forEach((c, k) => { const g = X.groups[k], p = PROTOS[c.type]; if (g && g.visible && p) car(g, p.len, p.wid, false); });
+  P.geometry.attributes.position.needsUpdate = P.geometry.attributes.color.needsUpdate = true;
+  P.geometry.setDrawRange(0, n); P.visible = n > 0;
+  B.count = nb; B.instanceMatrix.needsUpdate = true; B.visible = nb > 0; B.material.opacity = 0.35 * dark;
 }
 
 // ==== 10b-town-traffic.js ====
@@ -8321,15 +8782,22 @@ function showHud(on) {
   $('touch').hidden = !on || !INP.usingTouch;
 }
 // km left to the destination: along the expressway to its exit, or in the destination town straight to the warehouse gate
+// Past the destination's divergence (on its exit ramp or in its town): the card then counts to the warehouse's gate.
+function pastDestExit() { const j = GAME.job; return (TR.zone === 'town' && TR.town === j.to) || (TR.onRamp && rampAt(TR.s) === destRamp()); }
 function destRemainKm() {
   const j = GAME.job, q = {};
-  if (TR.zone === 'town' && TR.town === j.to) { townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, q); return Math.hypot(TR.x - q.x, TR.z - q.z) / 1000; }
-  return Math.max(0, destRamp().sEnd - TR.s) * SCALE / 1000;
+  if (pastDestExit()) {   // along the route where there is one, else straight to the gate
+    const pts = TR.zone === 'town' ? navRoutePts() : null;
+    if (pts && pts.length > 1) { let d = 0; for (let k = 1; k < pts.length; k++) d += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]); return d / 1000; }
+    townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, q); return Math.hypot(TR.x - q.x, TR.z - q.z) / 1000;
+  }
+  return signKm(Math.max(0, destRamp().sDiv - TR.s));   // to the exit's divergence, as the signs count it
 }
 function gearText() { if (TR.dir === -1) return 'R'; if (TR.dir === 0) return 'N'; return 'A' + (TR.shiftT > 0 ? TR.nextGear : TR.gear); }
 function updateHud() {
   const j = GAME.job; if (!j) return;
-  $('jsDest').textContent = j.b.jp; $('jsEn').textContent = j.b.en;
+  const past = pastDestExit();
+  $('jsDest').textContent = past ? j.whB.name : j.b.jp; $('jsEn').textContent = past ? '' : j.b.en; $('jsIc').hidden = past;
   const rem = destRemainKm();
   $('jsKm').textContent = rem.toFixed(1);
   $('jsClock').textContent = fmtClock(GAME.clock);
@@ -8362,7 +8830,7 @@ function clusterState() {
   };
 }
 // ---- navigation: which part of the way the rig is on, its route through the town, the next thing to do ----
-const NAV = { leg: 'expressway', T: null, key: '', msgT: 0, m: null, warned: false };
+const NAV = { leg: 'expressway', T: null, key: '', msgT: 0, m: null, warned: false, sug: null, saTarget: null };
 const _nvq = {};
 // The part of the way at the rig's front: a yard (start or destination), the plaza, a town's streets, the entrance band,
 // the exit ramp, or the expressway.
@@ -8379,13 +8847,45 @@ function navLeg() {
     }
     return Math.abs(u) <= 50 && v < 45 ? 'plaza' : 'town';
   }
+  if (TR.zone === 'sa' || (TR.zone === 'road' && saExitAt(TR.s) && TR.lat < -12.5)) return 'sa';
   if (TR.onRamp) return 'exitRamp';
-  const e = entryAt(TR.s);
+  const e = entryAt(TR.s) || saEntryAt(TR.s);
   return e && TR.lat < -12.5 ? 'band' : 'expressway';
+}
+// The rig (tractor centre) in the service area it is in or entering: { a, L, u, v, hu, hv }, or null.
+function saPos() {
+  const a = TR.zone === 'sa' && TR.sa >= 0 ? SAS[TR.sa] : saExitAt(TR.s), A = a && SA_LOADED.get(a.i);
+  if (!A) return null;
+  const f = (RIGP.front - RIGP.back) / 2, q = project(TR.x + Math.sin(TR.h) * f, TR.z + Math.cos(TR.h) * f, TR.idx, {}), h = TR.h - headingAt(q.s);
+  return { a, L: A.layout, u: q.s - a.sDiv, v: -q.lat, hu: Math.cos(h), hv: Math.sin(h) };
+}
+// Where to go in the service area, in the one-way order: a free truck stall for a nap, then a fuel bay, then the exit.
+function saTarget(p) {
+  const L = p.L, nap = GAME.sleepy >= 0.5, fuel = TR.fuel < 0.5;
+  if (nap && saStallAt(L, p.u, p.v, p.hu, p.hv)) return { kind: 'stopNap', u: p.u, v: p.v };
+  if (fuel && saPumpAt(L, p.u, p.v, p.hu, p.hv)) return { kind: 'stopFuel', u: p.u, v: p.v };
+  if (nap) { const st = L.stalls.filter(x => !x.taken && x.u - 20 > p.u).sort((x, y) => x.u - y.u)[0]; if (st) return { kind: 'toStall', u: st.u, v: st.v, id: st.id }; }
+  if (fuel) { const pp = L.pumps.filter(x => x.u + 11 > p.u).sort((x, y) => Math.abs(x.v - p.v) - Math.abs(y.v - p.v))[0]; if (pp) return { kind: 'toPump', u: pp.u, v: pp.v, id: pp.id }; }
+  return { kind: 'toOut', u: 460, v: 22 };
+}
+function saManeuver() {
+  const p = saPos(); if (!p) return null;
+  const t = saTarget(p); NAV.saTarget = { ...t, sa: p.a.i };
+  const m = { kind: t.kind, text: navText(t.kind), dist: null, then: null, lanes: null };
+  if (/^to/.test(t.kind)) {
+    const w = posAt(p.a.sDiv + t.u, -t.v, {}), dx = w.x - TR.x, dz = w.z - TR.z, sh = Math.sin(TR.h), ch = Math.cos(TR.h);
+    m.dist = Math.hypot(dx, dz); m.angle = Math.atan2(dx * -ch + dz * sh, dx * sh + dz * ch);   // right of straight ahead is positive
+  }
+  return m;
 }
 // Called every simulation step while driving: keeps the town route up to date (a new one when the rig leaves it).
 function navUpdate(dt) {
   try {
+    if (TR.zone !== 'sa') {   // a suggestion stands until its service area's lane is passed (the 160 m rule is for choosing one)
+      const g = NAV.sug, keep = g && TR.s <= g.sa.sDiv + g.sa.uSep && (TR.fuel < 0.15 || GAME.sleepy >= 0.7);
+      if (!keep) NAV.sug = saSuggest(TR.s, TR.fuel, GAME.sleepy, destRamp().sDiv, ICS[GAME.job.to].kp);
+    }
+    if (NAV.leg !== 'sa') NAV.saTarget = null;
     NAV.msgT = Math.max(0, NAV.msgT - dt);
     NAV.leg = navLeg();
     if (NAV.leg !== 'town' && NAV.leg !== 'startYard') return;
@@ -8428,10 +8928,19 @@ function navManeuver() {
   }
   if (leg === 'plaza') return mk(TR.tu >= 0 ? 'etcIn' : 'etcOut', null);   // the entrance path is on the u > 0 side
   if (leg === 'band') return mk('merge', null);
-  const r = destRamp();
+  if (leg === 'sa') return saManeuver();
+  const r = destRamp(), lanes = [{ arrows: ['left', 'straight'], use: true }, { arrows: ['straight'], use: false }];
   if (leg === 'exitRamp') { const rr = rampAt(TR.s); return mk(rr.ic.i === j.to ? 'ramp' : 'wrongRamp', Math.max(0, rr.sEnd - TR.s) * SCALE); }
-  if (TR.s >= r.sDiv - 160 && TR.s <= r.sDiv + r.uSep) return mk('exit', Math.max(0, r.sDiv - TR.s) * SCALE);
-  if (TR.s >= r.sDiv - 700 && TR.s < r.sDiv - 160) return mk('exitLane', (r.sDiv - TR.s) * SCALE, null, [{ arrows: ['left', 'straight'], use: true }, { arrows: ['straight'], use: false }]);
+  const sug = NAV.sug;
+  if (sug && sug.sa.sDiv < r.sDiv) {   // a service area to stop at, before the destination's exit
+    const a = sug.sa, d = a.sDiv - TR.s, nm = (kind, dist, ln = null) => ({ kind, text: navText(kind, a.jp), dist, then: null, lanes: ln });
+    if (d <= 160 && TR.s <= a.sDiv + a.uSep) return nm('saExit', signKm(Math.max(0, d)) * 1000);
+    if (d <= 700) return nm('saLane', signKm(d) * 1000, lanes);
+    return nm(sug.why === 'fuel' ? 'saFuel' : 'saRest', signKm(d) * 1000);
+  }
+  // distances as the 2km / 1km / 500m signs count them
+  if (TR.s >= r.sDiv - 160 && TR.s <= r.sDiv + r.uSep) return mk('exit', signKm(Math.max(0, r.sDiv - TR.s)) * 1000);
+  if (TR.s >= r.sDiv - 700 && TR.s < r.sDiv - 160) return mk('exitLane', signKm(r.sDiv - TR.s) * 1000, null, lanes);
   return null;
 }
 // The rest of the town route as town points, from the rig (or, in the start yard, from the gate) to the end.
@@ -8450,7 +8959,7 @@ function navState() {
     const nr = RAMPS.find(r => r.sDiv + r.uSep > TR.s);
     if (nr && nr.ic.i === j.to) { guide = `${nr.ic.jp} IC 出口は左`; }
     else if (nr) guide = `次 ${nr.ic.jp} IC　そのまま直進`;
-    if (nr) { const d = Math.max(0, nr.sDiv - TR.s) * SCALE / 1000; gd = d < 1 ? Math.round(d * 1000 / 10) * 10 + ' m' : d.toFixed(1) + ' km'; }
+    if (nr) { const d = signKm(Math.max(0, nr.sDiv - TR.s)); gd = d < 1 ? Math.round(d * 1000 / 10) * 10 + ' m' : d.toFixed(1) + ' km'; }
   }
   const rem = destRemainKm();
   const eta = GAME.clock + rem / 80 * 3600;
@@ -8464,7 +8973,7 @@ function navState() {
     const site = TOWN_SITES[TR.town], g = jobLayout(TR.town).plaza.gates.entry, q = townXZ(site, g.u, g.v, {});
     target = { x: q.x, z: q.z }; guide = `${site.ic.jp} IC 入口まで ${Math.round(Math.hypot(TR.x - q.x, TR.z - q.z) / 10) * 10} m`; gd = '';
   }
-  let footer = `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`;
+  let footer = pastDestExit() ? `${j.whB.name}まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}` : `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`;
   // the guidance: the next thing to do, where there is one; the C1 guide above stays as the fallback (no town route)
   let maneuver = null, card = false;
   try { maneuver = navManeuver(); } catch (e) { maneuver = null; }
@@ -8473,7 +8982,7 @@ function navState() {
     gd = maneuver.dist == null ? '' : maneuver.dist >= 1000 ? (maneuver.dist / 1000).toFixed(1) + ' km' : Math.round(maneuver.dist / 10) * 10 + ' m';
     if (maneuver.kind === 'straight' && NAV.leg === 'town') guide = navText('straight');
     const leg = NAV.leg, turn = /^(left|right|gateLeft|gateRight|outLeft|outRight|plaza)$/.test(maneuver.kind);
-    card = leg === 'plaza' || leg === 'startYard' || leg === 'destYard' || leg === 'band' || leg === 'exitRamp' || maneuver.kind === 'exit' || maneuver.kind === 'exitLane' || (leg === 'town' && turn && maneuver.dist <= 300);
+    card = leg === 'plaza' || leg === 'startYard' || leg === 'destYard' || leg === 'band' || leg === 'exitRamp' || leg === 'sa' || maneuver.kind === 'exit' || maneuver.kind === 'exitLane' || /^sa(Fuel|Rest|Lane|Exit)$/.test(maneuver.kind) || (leg === 'town' && turn && maneuver.dist <= 300);
   }
   if (TR.zone === 'town' && TR.town === j.to) footer = `${destWh.name}まで ${Math.round(Math.hypot(TR.x - gw.x, TR.z - gw.z) / 10) * 10} m`;
   const trailer = TR.link === 'free' && TR.trailerKey ? { x: TR.tr.kx, z: TR.tr.kz } : null;
@@ -8486,6 +8995,7 @@ function navState() {
   }
   return {
     trailer, town, destWh, target, inTown: TR.zone === 'town', maneuver, card, reroute: NAV.msgT > 0, routePts: navRoutePts(), destMarks, leg: NAV.leg,
+    sug: NAV.sug, saTarget: NAV.saTarget, sa: NAV.leg === 'sa' && saPos() ? saPos().a.i : -1,
     x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sEnd, destIc: j.to,
     guide, guideDist: gd, footer, limit: GAME.limit || 90,
   };
@@ -8666,6 +9176,7 @@ function frame(now) {
   saCanopyUpdate(activeCam);   // after the camera has moved
   setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));
   updateLighting(dt);
+  nightUpdate();
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
   audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn && TR.fuel > 0, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
 

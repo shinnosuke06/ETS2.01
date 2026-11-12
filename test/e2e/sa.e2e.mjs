@@ -307,3 +307,118 @@ test('給油の枠で後ろからの視点にしても、給油所の屋根で�
   assert.ok(r.white < 0.5 && r.roofShown === false && r.roofCab === true, JSON.stringify(r));
   assert.deepEqual(errors, []);
 }));
+
+// ---- the navigation to and through a service area, and the traffic at a merge ------------------------------------
+// In the page: job 2 (厚木 → 御殿場, past 中井 and 足柄), coupled, the rig on the travel lane `off` m from service
+// area k's divergence, at kmh.
+const job2At = (page, k, off, kmh, fuel, sleepy) => page.evaluate(async ([k, off, kmh, fuel, sleepy]) => {
+  const s = SAS[k].sDiv + off;
+  GAME.jobIdx = 1; setupJob(1); __clearRoad(s - 400, s + 3000);
+  placeTruck(s, X_TRV, kmh / 3.6, { coupled: true }); await __ready();
+  TR.fuel = fuel; GAME.sleepy = sleepy; for (let n = 0; n < 20; n++) simTick(1 / 60);
+}, [k, off, kmh, fuel, sleepy]);
+
+test('E1 案内どおりに走る運転手が、中井 SA に入り、大型車の枠で「仮眠」、給油の枠で「給油」をして、出口から本線に戻る（罰金・損傷なし）', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  await job2At(page, 0, -2000, 80, 0.14, 0.75);   // 14% (under the 15% that starts the suggestion): about 31 true km, enough for the 2 km of game road and the car park
+  const r = await page.evaluate(async () => {
+    const a = SAS[0], E = {}, seen = [], W = pts => pts.map(([u, v]) => { const p = posAt(a.sDiv + u, -v, {}); return [p.x, p.z]; });
+    const note = () => { const m = navState().maneuver, k = m && m.kind; if (k && seen[seen.length - 1] !== k) seen.push(k); return m; };
+    const press = async () => { document.getElementById('bStop').click(); for (let n = 0; n < 4; n++) simTick(1 / 60); const t0 = performance.now(); while (GAME.state !== 'drive' && performance.now() - t0 < 20000) await __t.frames(1); };
+    // the travel lane at 80 km/h until the guidance says to leave, then the deceleration lane
+    const steer = lat => clamp(0.35 * (lat - TR.lat) + 9 * wrapA(TR.h - headingAt(TR.s)) * (0.4 + Math.abs(TR.v) / 25), -1, 1);
+    for (let n = 0; n < 60 * 120 && TR.s < a.sDiv; n++) {
+      const v = TR.v * 3.6; INP.tGas = clamp((80 - v) * 0.25, 0, 1); INP.tBrake = 0; INP.tWheelHeld = true; const st = steer(X_TRV); INP.tWheel = Math.sign(st) * Math.pow(Math.abs(st), 1 / 1.35) * 2.6;
+      simTick(1 / 60); if (n % 15 === 0) { const m = note(); if (m && m.kind === 'saExit') break; }
+    }
+    await __ready();   // in the game the service area is built a little each frame; this drive runs without frames
+    // near the edge line until the deceleration lane has opened (as a driver does), then along its middle
+    const lane = [], u0 = TR.s - a.sDiv + 10; for (let u = u0; u < 140; u += 5) lane.push([u, u < 60 ? lerp(-TR.lat, 9.8, smooth(u0, u0 + 80, u)) : -saExitEdges(u, E).cx]);
+    __drive(W(lane), 30, 60, false);
+    const L = SA_LOADED.get(0).layout; let from = 'in';
+    for (let step = 0; step < 4; step++) {
+      const m = note(), t = NAV.saTarget;
+      if (!t) break;
+      const on = (path, o) => [...path, [o.u + o.hu * 4, o.v + o.hv * 4]];   // a little past the slot's centre, to come to rest straight in it
+      if (t.kind === 'toStall') { __drive(W(on(saPath(L, from, { stall: t.id }), L.stalls[t.id])), 12, 120); from = { stall: t.id }; }
+      else if (t.kind === 'toPump') { __drive(W(on(saPath(L, from, { pump: t.id }), L.pumps[t.id])), 12, 120); from = { pump: t.id }; }
+      else if (t.kind === 'toOut') break;
+      for (let n = 0; n < 10; n++) simTick(1 / 60);
+      const k = note().kind;
+      if (k === 'stopNap' || k === 'stopFuel') await press();
+    }
+    note();
+    const out = []; for (let u = 505; u <= 620; u += 5) out.push([u, -saEntryEdges(u - 460, E).cx]);
+    for (let u = 625; u <= 760; u += 5) out.push([u, u < 680 ? lerp(11.25, 7.65, (u - 620) / 60) : 7.65]);   // v = -lat: over to the travel lane
+    __drive(W(saPath(L, from, 'out')), 15, 120, false); __clearRoad(TR.s - 300, TR.s + 600); __drive(W(out), 50, 120);
+    for (let n = 0; n < 30; n++) { simTick(1 / 60); if (n % 10 === 0) note(); }
+    return { seen, fines: GAME.job.fines, damage: TR.damage, fuelN: GAME.job.fuelN, fuel: TR.fuel, sleepy: GAME.sleepy, zone: TR.zone, lat: TR.lat, u: TR.s - a.sDiv };
+  });
+  const order = ['saFuel', 'saLane', 'saExit', 'toStall', 'stopNap', 'toPump', 'stopFuel', 'toOut'];
+  let k = 0; for (const s of r.seen) if (s === order[k]) k++;
+  assert.equal(k, order.length, JSON.stringify(r));
+  assert.ok(r.zone === 'road' && r.u > 700 && Math.abs(r.lat + 7.65) < 1.5, JSON.stringify(r));
+  assert.ok(r.fines === 0 && r.damage < 0.5 && r.fuelN === 1 && r.fuel > 0.9 && r.sleepy < 0.1, JSON.stringify(r));   // some fuel and sleepiness again on the way out
+  assert.deepEqual(errors, []);
+}));
+
+test('E4 ナビ：燃料 10% で「中井SA で給油を」、2km の案内で「中井SA 入口　左車線へ」、中で「給油機の横に止める」、給油したらふだんの案内', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  await job2At(page, 0, -3000, 0, 0.1, 0);
+  const r = await page.evaluate(async () => {
+    const a = SAS[0], at = (s, lat = X_TRV) => { placeTruck(s, lat, 0, { coupled: true }); for (let n = 0; n < 8; n++) simTick(1 / 60); const st = navState(); return { text: st.maneuver && st.maneuver.text, card: st.card, d: st.guideDist, lanes: st.maneuver && st.maneuver.lanes && st.maneuver.lanes.map(l => l.use) }; };
+    const far = at(a.sDiv - 3000), two = at(a.sDiv - 700);
+    __placeSa(0, 200, 23, 1, 0, 0); await __ready(); for (let n = 0; n < 8; n++) simTick(1 / 60);
+    const inside = navState().maneuver.text;
+    TR.fuel = 1; const after = at(a.sEnd + 300);
+    return { far, two, inside, after, sug: NAV.sug };
+  });
+  assert.deepEqual(r.far, { text: '中井SA で給油を', card: true, d: '25.0 km', lanes: null });
+  assert.deepEqual(r.two, { text: '中井SA 入口　左車線へ', card: true, d: '2.0 km', lanes: [true, false] });
+  assert.equal(r.inside, '給油機の横に止める');
+  assert.equal(r.sug, null); assert.notEqual(r.after.text, '中井SA で給油を');
+  assert.deepEqual(errors, []);
+}));
+
+test('分かれ目の 160 m 手前を過ぎても、その SA の「SA 入口　左」が続く', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  await job2At(page, 0, -300, 0, 0.1, 0);
+  const r = await page.evaluate(() => { const a = SAS[0], out = []; for (const d of [150, 60, 10]) { placeTruck(a.sDiv - d, X_TRV, 0, { coupled: true }); for (let n = 0; n < 5; n++) simTick(1 / 60); out.push(navState().maneuver.text); } return out; });
+  assert.deepEqual(r, ['SA 入口　左', 'SA 入口　左', 'SA 入口　左']);
+  assert.deepEqual(errors, []);
+}));
+
+test('通り過ぎると次の SA（足柄）の案内になる', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  await job2At(page, 0, 200, 0, 0.1, 0);
+  const r = await page.evaluate(() => navState().maneuver && navState().maneuver.text);
+  assert.equal(r, '足柄SA で給油を');
+  assert.deepEqual(errors, []);
+}));
+
+test('E7 合流：加速車線にいるとき、後ろから来る走行車線の車が車線を移るか速度を落とし、ぶつからない', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    const e = ENTRIES[2], out = {};
+    for (const blocked of [false, true]) {
+      __clearRoad(e.s0 - 600, e.s1 + 600); placeTruck(e.s0 + 300, entryEdges(300).cx, 18, { coupled: true }); await __ready();
+      __clearRoad(e.s0 - 600, e.s1 + 600);
+      const free = CARS.filter(c => c.hidden), car = free[0], other = free[1];
+      setCarType(car, 'sedan'); car.dir = 1; car.lane = 0; car.lc = null; car.s = TR.s - 70; car.x = laneX(1, 0); car.v = car.v0 = 27; car.hidden = false; car.grp.visible = true;
+      if (blocked) { setCarType(other, 'truck'); other.dir = 1; other.lane = 1; other.lc = null; other.s = TR.s - 75; other.x = laneX(1, 1); other.v = other.v0 = 27; other.hidden = false; other.grp.visible = true; }
+      EVENTS.length = 0; let minGap = Infinity, contacts = 0;
+      for (let n = 0; n < 60 * 4; n++) {
+        INP.tGas = TR.v * 3.6 < 70 ? 0.6 : 0; INP.tWheelHeld = false; simTick(1 / 60);
+        if (car.lane === 0 && !car.lc) minGap = Math.min(minGap, (TR.tr.s - 12) - (car.s + car.len / 2));
+        contacts += EVENTS.filter(x => x.t === 'car').length; EVENTS.length = 0;
+      }
+      out[blocked ? 'blocked' : 'free'] = { lane: car.lane, lc: !!car.lc, minGap, contacts, v: car.v };
+    }
+    return out;
+  });
+  assert.ok(r.free.lane === 1 || r.free.lc, JSON.stringify(r));
+  assert.ok(r.blocked.lane === 0 && r.blocked.minGap > 5, JSON.stringify(r));
+  assert.equal(r.free.contacts + r.blocked.contacts, 0, JSON.stringify(r));
+  assert.deepEqual(errors, []);
+}));

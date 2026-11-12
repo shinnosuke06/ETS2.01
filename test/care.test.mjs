@@ -48,3 +48,26 @@ test('燃料と眠気の計算は 1 回 0.05 ms 以内', () => {
   assert.ok((performance.now() - t0) / 20000 < 0.05 && x > 0);
 });
 
+
+// ---- which service area the navigation suggests ------------------------------------------------------------------
+test('S7 寄り道の案内：燃料 0.1 なら次の SA（fuel）、眠気 0.75 なら（sleep）、どちらでもなければ null', () => {
+  const [nakai, ashigara] = SIM.SAS, dest = SIM.RAMPS.find(r => r.ic.i === 4);   // 御殿場, past both
+  const s = nakai.sDiv - 3000;
+  assert.deepEqual(SIM.saSuggest(s, 0.1, 0.2, dest.sDiv, dest.ic.kp), { sa: nakai, why: 'fuel' });
+  assert.deepEqual(SIM.saSuggest(s, 0.5, 0.75, dest.sDiv, dest.ic.kp), { sa: nakai, why: 'sleep' });
+  assert.deepEqual(SIM.saSuggest(s, 0.1, 0.9, dest.sDiv, dest.ic.kp), { sa: nakai, why: 'fuel' });
+  assert.equal(SIM.saSuggest(s, 0.5, 0.2, dest.sDiv, dest.ic.kp), null);
+  assert.equal(SIM.saSuggest(nakai.sEnd + 10, 0.1, 0.2, dest.sDiv, dest.ic.kp).sa, ashigara);
+});
+test('S7 目的の出口が手前で燃料が足りるときは案内しない、足りなければ案内する', () => {
+  const nakai = SIM.SAS[0], atsugi = SIM.RAMPS.find(r => r.ic.i === 2), s = atsugi.sDiv - 2000;   // 厚木 (kp 35) comes before 中井
+  assert.equal(SIM.saSuggest(s, 0.14, 0.2, atsugi.sDiv, atsugi.ic.kp), null);         // 0.14 × 220 = 30.8 km ≥ 1.2 × 25 km (kp 10 → 35)
+  assert.equal(SIM.saSuggest(s, 0.14, 0.8, atsugi.sDiv, atsugi.ic.kp), null);         // sleepy, but the job ends first
+  assert.deepEqual(SIM.saSuggest(s, 0.05, 0.2, atsugi.sDiv, atsugi.ic.kp), { sa: nakai, why: 'fuel' });   // 11 km < 30 km
+});
+test('S7 分かれ目まで 160 m を切った SA は案内せず、次の SA にする（通り過ぎたら次）', () => {
+  const [nakai, ashigara] = SIM.SAS, dest = SIM.RAMPS.find(r => r.ic.i === 4);
+  assert.equal(SIM.saSuggest(nakai.sDiv - 161, 0.1, 0, dest.sDiv, dest.ic.kp).sa, nakai);
+  assert.equal(SIM.saSuggest(nakai.sDiv - 159, 0.1, 0, dest.sDiv, dest.ic.kp).sa, ashigara);
+  assert.equal(SIM.saSuggest(SIM.SAS[5].sDiv + 10, 0.1, 0, SIM.RAMPS.at(-1).sDiv + 1e5, 400), null);   // none left ahead
+});

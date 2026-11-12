@@ -12,7 +12,10 @@ const _NAV_TEXT = {
   plaza: '広場へ', arrive: '到着', etcIn: 'ETC 入口 20km/h 以下', etcOut: 'ETC 出口 20km/h 以下', ramp: '料金所 ETC は 20km/h 以下',
   merge: '本線へ合流　右', exit: '出口　左', dock: '荷台口にバックで（+20%）', bay: '納品の枠へ', wrongRamp: '目的地ではない出口です',
 };
-function navText(kind, name) { return kind === 'exitLane' ? `${name}IC 出口　左車線へ` : _NAV_TEXT[kind] || ''; }
+Object.assign(_NAV_TEXT, { saExit: 'SA 入口　左', toPump: '給油機の横に止める', toStall: '大型車の枠に止める', toOut: '出口へ', stopFuel: '止まって「給油」', stopNap: '止まって「仮眠」' });
+// the texts that carry a name: an interchange's or a service area's
+const _NAV_NAMED = { exitLane: n => `${n}IC 出口　左車線へ`, saFuel: n => `${n}SA で給油を`, saRest: n => `${n}SA で休憩を`, saLane: n => `${n}SA 入口　左車線へ` };
+function navText(kind, name) { return _NAV_NAMED[kind] ? _NAV_NAMED[kind](name) : _NAV_TEXT[kind] || ''; }
 // The turn from direction a to direction b (unit vectors): 'left', 'right', 'straight', or null (back the way it came).
 function _navTurn(a, b) {
   const dot = a[0] * b[0] + a[1] * b[1];

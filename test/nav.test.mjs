@@ -190,3 +190,8 @@ test('ルートの線の点：広場から、門から、走っている位置�
 });
 
 test('目的地でない出口ランプの文', () => { assert.equal(SIM.navText('wrongRamp'), '目的地ではない出口です'); });
+test('SA の案内の文', () => {
+  const T = { saFuel: '中井SA で給油を', saRest: '中井SA で休憩を', saLane: '中井SA 入口　左車線へ', saExit: 'SA 入口　左', toPump: '給油機の横に止める',
+    toStall: '大型車の枠に止める', toOut: '出口へ', stopFuel: '止まって「給油」', stopNap: '止まって「仮眠」' };
+  for (const [k, v] of Object.entries(T)) assert.equal(SIM.navText(k, '中井'), v, k);
+});

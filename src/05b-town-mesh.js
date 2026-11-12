@@ -296,6 +296,32 @@ function* townMeshSteps(i) {
     const sb = P.build(grp); for (const m of sb) M.parts.signals = (M.parts.signals || 0) + triCount(m.geometry); }
   yield null;
 
+  // ---- night: street lamps along the main streets (every 35 m, both sides), floodlights in the warehouse yards ----
+  { const poles = [], arms = [], heads = [], pools = [];
+    const lamp = (u, v, au, av, h, r) => {
+      const y = Y(u, v), ya = Y(au, av), len = Math.hypot(au - u, av - v), ry = Math.atan2(au - u, -(av - v)) + Math.PI / 2;
+      poles.push({ u, v, y, sx: 1, sy: h, sz: 1 });
+      if (len > 0.3) arms.push({ u: (u + au) / 2, v: (v + av) / 2, y: y + h - 0.1, ry, sx: len, sy: 0.12, sz: 0.12 });
+      heads.push({ u: au, v: av, y: y + h - 0.35, ry, sx: 0.7, sy: 0.18, sz: 0.4 });
+      pools.push({ u: au, v: av, y: ya + 0.07, sx: r * 2, sy: 1, sz: r * 2 });
+    };
+    for (const st of L.streets) {
+      if (st.kind !== 'main') continue;
+      for (let a = st.a0 + 12; a < st.a1 - 6; a += 35) {
+        const at = along(st, a, 0);
+        if (L.nodes.some(n => Math.hypot(n.u - at[0], n.v - at[1]) < 16)) continue;   // not in a junction
+        for (const side of [-1, 1]) { const f = along(st, a, side * (hc(st) + st.walkW - 0.5)), h = along(st, a, side * (hc(st) - 1.0)); lamp(f[0], f[1], h[0], h[1], 8, 12); }
+      }
+    }
+    for (const w of L.warehouses) {
+      const y = w.yard, cu = (y.u0 + y.u1) / 2, cv = (y.v0 + y.v1) / 2, big = (y.u1 - y.u0) * (y.v1 - y.v0) > 6000;
+      const corners = [[y.u0 + 3, y.v1 - 3], [y.u1 - 3, y.v1 - 3], [y.u0 + 3, y.v0 + 3], [y.u1 - 3, y.v0 + 3]].slice(0, big ? 4 : 2);
+      for (const [u, v] of corners) { const d = Math.hypot(cu - u, cv - v) || 1; lamp(u, v, u + (cu - u) / d * 2.5, v + (cv - v) / d * 2.5, 12, 18); }
+    }
+    inst('lamps', RS_POLE, MAT.steel, poles); inst('lamps', SHARED.box, MAT.steel, arms); inst('lamps', SHARED.box, RS_MAT.lampHead, heads);
+    const pm = inst('lamps', RS.mark, RS_MAT.pool, pools); if (pm) pm.receiveShadow = false; }
+  yield null;
+
   // ---- the toll plaza: one canopy over both gates, booths on the islands, a bar for each gate ----
   { const P = new Parts(), y = Y(0, 30);
     P.box(MAT.white, 24, 0.7, 14, 0, y + 5.9, -31);

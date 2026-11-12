@@ -504,15 +504,22 @@ function showHud(on) {
   $('touch').hidden = !on || !INP.usingTouch;
 }
 // km left to the destination: along the expressway to its exit, or in the destination town straight to the warehouse gate
+// Past the destination's divergence (on its exit ramp or in its town): the card then counts to the warehouse's gate.
+function pastDestExit() { const j = GAME.job; return (TR.zone === 'town' && TR.town === j.to) || (TR.onRamp && rampAt(TR.s) === destRamp()); }
 function destRemainKm() {
   const j = GAME.job, q = {};
-  if (TR.zone === 'town' && TR.town === j.to) { townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, q); return Math.hypot(TR.x - q.x, TR.z - q.z) / 1000; }
-  return Math.max(0, destRamp().sEnd - TR.s) * SCALE / 1000;
+  if (pastDestExit()) {   // along the route where there is one, else straight to the gate
+    const pts = TR.zone === 'town' ? navRoutePts() : null;
+    if (pts && pts.length > 1) { let d = 0; for (let k = 1; k < pts.length; k++) d += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]); return d / 1000; }
+    townXZ(TOWN_SITES[j.to], j.whB.gate.u, j.whB.gate.v, q); return Math.hypot(TR.x - q.x, TR.z - q.z) / 1000;
+  }
+  return signKm(Math.max(0, destRamp().sDiv - TR.s));   // to the exit's divergence, as the signs count it
 }
 function gearText() { if (TR.dir === -1) return 'R'; if (TR.dir === 0) return 'N'; return 'A' + (TR.shiftT > 0 ? TR.nextGear : TR.gear); }
 function updateHud() {
   const j = GAME.job; if (!j) return;
-  $('jsDest').textContent = j.b.jp; $('jsEn').textContent = j.b.en;
+  const past = pastDestExit();
+  $('jsDest').textContent = past ? j.whB.name : j.b.jp; $('jsEn').textContent = past ? '' : j.b.en; $('jsIc').hidden = past;
   const rem = destRemainKm();
   $('jsKm').textContent = rem.toFixed(1);
   $('jsClock').textContent = fmtClock(GAME.clock);
@@ -545,7 +552,7 @@ function clusterState() {
   };
 }
 // ---- navigation: which part of the way the rig is on, its route through the town, the next thing to do ----
-const NAV = { leg: 'expressway', T: null, key: '', msgT: 0, m: null, warned: false };
+const NAV = { leg: 'expressway', T: null, key: '', msgT: 0, m: null, warned: false, sug: null, saTarget: null };
 const _nvq = {};
 // The part of the way at the rig's front: a yard (start or destination), the plaza, a town's streets, the entrance band,
 // the exit ramp, or the expressway.
@@ -562,13 +569,45 @@ function navLeg() {
     }
     return Math.abs(u) <= 50 && v < 45 ? 'plaza' : 'town';
   }
+  if (TR.zone === 'sa' || (TR.zone === 'road' && saExitAt(TR.s) && TR.lat < -12.5)) return 'sa';
   if (TR.onRamp) return 'exitRamp';
-  const e = entryAt(TR.s);
+  const e = entryAt(TR.s) || saEntryAt(TR.s);
   return e && TR.lat < -12.5 ? 'band' : 'expressway';
+}
+// The rig (tractor centre) in the service area it is in or entering: { a, L, u, v, hu, hv }, or null.
+function saPos() {
+  const a = TR.zone === 'sa' && TR.sa >= 0 ? SAS[TR.sa] : saExitAt(TR.s), A = a && SA_LOADED.get(a.i);
+  if (!A) return null;
+  const f = (RIGP.front - RIGP.back) / 2, q = project(TR.x + Math.sin(TR.h) * f, TR.z + Math.cos(TR.h) * f, TR.idx, {}), h = TR.h - headingAt(q.s);
+  return { a, L: A.layout, u: q.s - a.sDiv, v: -q.lat, hu: Math.cos(h), hv: Math.sin(h) };
+}
+// Where to go in the service area, in the one-way order: a free truck stall for a nap, then a fuel bay, then the exit.
+function saTarget(p) {
+  const L = p.L, nap = GAME.sleepy >= 0.5, fuel = TR.fuel < 0.5;
+  if (nap && saStallAt(L, p.u, p.v, p.hu, p.hv)) return { kind: 'stopNap', u: p.u, v: p.v };
+  if (fuel && saPumpAt(L, p.u, p.v, p.hu, p.hv)) return { kind: 'stopFuel', u: p.u, v: p.v };
+  if (nap) { const st = L.stalls.filter(x => !x.taken && x.u - 20 > p.u).sort((x, y) => x.u - y.u)[0]; if (st) return { kind: 'toStall', u: st.u, v: st.v, id: st.id }; }
+  if (fuel) { const pp = L.pumps.filter(x => x.u + 11 > p.u).sort((x, y) => Math.abs(x.v - p.v) - Math.abs(y.v - p.v))[0]; if (pp) return { kind: 'toPump', u: pp.u, v: pp.v, id: pp.id }; }
+  return { kind: 'toOut', u: 460, v: 22 };
+}
+function saManeuver() {
+  const p = saPos(); if (!p) return null;
+  const t = saTarget(p); NAV.saTarget = { ...t, sa: p.a.i };
+  const m = { kind: t.kind, text: navText(t.kind), dist: null, then: null, lanes: null };
+  if (/^to/.test(t.kind)) {
+    const w = posAt(p.a.sDiv + t.u, -t.v, {}), dx = w.x - TR.x, dz = w.z - TR.z, sh = Math.sin(TR.h), ch = Math.cos(TR.h);
+    m.dist = Math.hypot(dx, dz); m.angle = Math.atan2(dx * -ch + dz * sh, dx * sh + dz * ch);   // right of straight ahead is positive
+  }
+  return m;
 }
 // Called every simulation step while driving: keeps the town route up to date (a new one when the rig leaves it).
 function navUpdate(dt) {
   try {
+    if (TR.zone !== 'sa') {   // a suggestion stands until its service area's lane is passed (the 160 m rule is for choosing one)
+      const g = NAV.sug, keep = g && TR.s <= g.sa.sDiv + g.sa.uSep && (TR.fuel < 0.15 || GAME.sleepy >= 0.7);
+      if (!keep) NAV.sug = saSuggest(TR.s, TR.fuel, GAME.sleepy, destRamp().sDiv, ICS[GAME.job.to].kp);
+    }
+    if (NAV.leg !== 'sa') NAV.saTarget = null;
     NAV.msgT = Math.max(0, NAV.msgT - dt);
     NAV.leg = navLeg();
     if (NAV.leg !== 'town' && NAV.leg !== 'startYard') return;
@@ -611,10 +650,19 @@ function navManeuver() {
   }
   if (leg === 'plaza') return mk(TR.tu >= 0 ? 'etcIn' : 'etcOut', null);   // the entrance path is on the u > 0 side
   if (leg === 'band') return mk('merge', null);
-  const r = destRamp();
+  if (leg === 'sa') return saManeuver();
+  const r = destRamp(), lanes = [{ arrows: ['left', 'straight'], use: true }, { arrows: ['straight'], use: false }];
   if (leg === 'exitRamp') { const rr = rampAt(TR.s); return mk(rr.ic.i === j.to ? 'ramp' : 'wrongRamp', Math.max(0, rr.sEnd - TR.s) * SCALE); }
-  if (TR.s >= r.sDiv - 160 && TR.s <= r.sDiv + r.uSep) return mk('exit', Math.max(0, r.sDiv - TR.s) * SCALE);
-  if (TR.s >= r.sDiv - 700 && TR.s < r.sDiv - 160) return mk('exitLane', (r.sDiv - TR.s) * SCALE, null, [{ arrows: ['left', 'straight'], use: true }, { arrows: ['straight'], use: false }]);
+  const sug = NAV.sug;
+  if (sug && sug.sa.sDiv < r.sDiv) {   // a service area to stop at, before the destination's exit
+    const a = sug.sa, d = a.sDiv - TR.s, nm = (kind, dist, ln = null) => ({ kind, text: navText(kind, a.jp), dist, then: null, lanes: ln });
+    if (d <= 160 && TR.s <= a.sDiv + a.uSep) return nm('saExit', signKm(Math.max(0, d)) * 1000);
+    if (d <= 700) return nm('saLane', signKm(d) * 1000, lanes);
+    return nm(sug.why === 'fuel' ? 'saFuel' : 'saRest', signKm(d) * 1000);
+  }
+  // distances as the 2km / 1km / 500m signs count them
+  if (TR.s >= r.sDiv - 160 && TR.s <= r.sDiv + r.uSep) return mk('exit', signKm(Math.max(0, r.sDiv - TR.s)) * 1000);
+  if (TR.s >= r.sDiv - 700 && TR.s < r.sDiv - 160) return mk('exitLane', signKm(r.sDiv - TR.s) * 1000, null, lanes);
   return null;
 }
 // The rest of the town route as town points, from the rig (or, in the start yard, from the gate) to the end.
@@ -633,7 +681,7 @@ function navState() {
     const nr = RAMPS.find(r => r.sDiv + r.uSep > TR.s);
     if (nr && nr.ic.i === j.to) { guide = `${nr.ic.jp} IC 出口は左`; }
     else if (nr) guide = `次 ${nr.ic.jp} IC　そのまま直進`;
-    if (nr) { const d = Math.max(0, nr.sDiv - TR.s) * SCALE / 1000; gd = d < 1 ? Math.round(d * 1000 / 10) * 10 + ' m' : d.toFixed(1) + ' km'; }
+    if (nr) { const d = signKm(Math.max(0, nr.sDiv - TR.s)); gd = d < 1 ? Math.round(d * 1000 / 10) * 10 + ' m' : d.toFixed(1) + ' km'; }
   }
   const rem = destRemainKm();
   const eta = GAME.clock + rem / 80 * 3600;
@@ -647,7 +695,7 @@ function navState() {
     const site = TOWN_SITES[TR.town], g = jobLayout(TR.town).plaza.gates.entry, q = townXZ(site, g.u, g.v, {});
     target = { x: q.x, z: q.z }; guide = `${site.ic.jp} IC 入口まで ${Math.round(Math.hypot(TR.x - q.x, TR.z - q.z) / 10) * 10} m`; gd = '';
   }
-  let footer = `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`;
+  let footer = pastDestExit() ? `${j.whB.name}まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}` : `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`;
   // the guidance: the next thing to do, where there is one; the C1 guide above stays as the fallback (no town route)
   let maneuver = null, card = false;
   try { maneuver = navManeuver(); } catch (e) { maneuver = null; }
@@ -656,7 +704,7 @@ function navState() {
     gd = maneuver.dist == null ? '' : maneuver.dist >= 1000 ? (maneuver.dist / 1000).toFixed(1) + ' km' : Math.round(maneuver.dist / 10) * 10 + ' m';
     if (maneuver.kind === 'straight' && NAV.leg === 'town') guide = navText('straight');
     const leg = NAV.leg, turn = /^(left|right|gateLeft|gateRight|outLeft|outRight|plaza)$/.test(maneuver.kind);
-    card = leg === 'plaza' || leg === 'startYard' || leg === 'destYard' || leg === 'band' || leg === 'exitRamp' || maneuver.kind === 'exit' || maneuver.kind === 'exitLane' || (leg === 'town' && turn && maneuver.dist <= 300);
+    card = leg === 'plaza' || leg === 'startYard' || leg === 'destYard' || leg === 'band' || leg === 'exitRamp' || leg === 'sa' || maneuver.kind === 'exit' || maneuver.kind === 'exitLane' || /^sa(Fuel|Rest|Lane|Exit)$/.test(maneuver.kind) || (leg === 'town' && turn && maneuver.dist <= 300);
   }
   if (TR.zone === 'town' && TR.town === j.to) footer = `${destWh.name}まで ${Math.round(Math.hypot(TR.x - gw.x, TR.z - gw.z) / 10) * 10} m`;
   const trailer = TR.link === 'free' && TR.trailerKey ? { x: TR.tr.kx, z: TR.tr.kz } : null;
@@ -669,6 +717,7 @@ function navState() {
   }
   return {
     trailer, town, destWh, target, inTown: TR.zone === 'town', maneuver, card, reroute: NAV.msgT > 0, routePts: navRoutePts(), destMarks, leg: NAV.leg,
+    sug: NAV.sug, saTarget: NAV.saTarget, sa: NAV.leg === 'sa' && saPos() ? saPos().a.i : -1,
     x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sEnd, destIc: j.to,
     guide, guideDist: gd, footer, limit: GAME.limit || 90,
   };
@@ -849,6 +898,7 @@ function frame(now) {
   saCanopyUpdate(activeCam);   // after the camera has moved
   setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));
   updateLighting(dt);
+  nightUpdate();
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
   audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn && TR.fuel > 0, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
 

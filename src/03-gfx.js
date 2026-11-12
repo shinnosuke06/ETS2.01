@@ -255,7 +255,29 @@ sun.shadow.normalBias = 0.03;
 scene.add(sun); scene.add(sun.target);
 const SUN_DIR = new THREE.Vector3(0.4, 0.6, 0.5).normalize();
 
-// Sign materials that dim at night (they are unlit Basic materials).
+// Night: what shines back under the rig's own headlights (the reflectors, the big signs). nightUpdate sets NIGHT_U
+// every frame: the headlights' place and direction, and how lit they are (0 by day or with the lights off).
+const NIGHT_U = { uCar: { value: new THREE.Vector3(0, -1e5, 0) }, uDir: { value: new THREE.Vector2(0, 1) }, uLit: { value: 0 } };
+// Make an unlit (Basic) material brighter by `gain` where it lies in the headlights: within about 18 degrees of their
+// direction, from 8 to 160 m ahead.
+function nightPatch(m, gain) {
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, NIGHT_U); sh.uniforms.uGain = { value: gain };
+    sh.vertexShader = 'varying vec3 vNightW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      vec4 nightW = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+      nightW = instanceMatrix * nightW;
+      #endif
+      vNightW = (modelMatrix * nightW).xyz;`);
+    sh.fragmentShader = 'uniform vec3 uCar; uniform vec2 uDir; uniform float uLit; uniform float uGain; varying vec3 vNightW;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      { vec2 nd = vNightW.xz - uCar.xz; float dist = length(nd), c = dot(nd / max(dist, 0.001), uDir);
+        float lit = uLit * smoothstep(0.94, 0.97, c) * smoothstep(8.0, 14.0, dist) * (1.0 - smoothstep(120.0, 160.0, dist));
+        diffuseColor.rgb = mix(diffuseColor.rgb, min(vec3(1.0), diffuseColor.rgb * uGain), lit); }`);
+  };
+  m.customProgramCacheKey = () => 'night' + gain;
+  return m;
+}
+// Sign materials that dim at night (they are unlit Basic materials); they brighten again in the headlights.
 const SIGN_MATS = [];
 const _texCache = new Map();
 function cachedTex(key, w, h, draw) {
@@ -263,7 +285,7 @@ function cachedTex(key, w, h, draw) {
   const c = makeCanvas(w, h), g = c.getContext('2d');
   draw(g, w, h);
   const t = canvasTex(c, { aniso: 8 });
-  const m = new THREE.MeshBasicMaterial({ map: t });
+  const m = nightPatch(new THREE.MeshBasicMaterial({ map: t }), 3.2);
   m.userData.keep = true;
   SIGN_MATS.push(m);
   _texCache.set(key, m);

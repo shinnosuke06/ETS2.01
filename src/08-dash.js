@@ -115,7 +115,7 @@ function drawCluster(st) {
 const _np = {};
 // The guidance arrow's turn for each kind (radians, 0 = straight up), and the lane arrows as characters.
 const NAV_ARROW = { left: -Math.PI / 2, right: Math.PI / 2, gateLeft: -Math.PI / 2, gateRight: Math.PI / 2, outLeft: -Math.PI / 2, outRight: Math.PI / 2,
-  merge: Math.PI / 4, exit: -Math.PI / 4, exitLane: -Math.PI / 6, dock: Math.PI };
+  merge: Math.PI / 4, exit: -Math.PI / 4, exitLane: -Math.PI / 6, dock: Math.PI, saLane: -Math.PI / 6, saExit: -Math.PI / 4 };
 const NAV_GLYPH = { left: '←', straight: '↑', right: '→' };
 function drawNav(st) {
   const g = DASH.ng, W = 512, H = 320;
@@ -123,7 +123,7 @@ function drawNav(st) {
   g.strokeStyle = 'rgba(120,150,180,.07)'; g.lineWidth = 1;
   for (let x = 0; x < W; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
   for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-  const scale = st.inTown ? 0.35 : 0.085, cx = W / 2, cy = 250;   // closer in a town
+  const scale = st.inTown || st.sa >= 0 ? 0.35 : 0.085, cx = W / 2, cy = 250;   // closer in a town or a service area
   const h = st.heading, sh = Math.sin(h), ch = Math.cos(h);
   const toScr = (x, z) => { const dx = x - st.x, dz = z - st.z; const f = dx * sh + dz * ch, r = dx * -ch + dz * sh; return [cx + r * scale, cy - f * scale]; };
   // road
@@ -156,6 +156,32 @@ function drawNav(st) {
     g.fillStyle = isDest ? '#2f9cff' : '#0b6b42'; const tw = g.measureText(r.ic.jp + ' IC').width + 14;
     roundRect(g, p[0] - tw - 6, p[1] - 12, tw, 24, 5); g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(r.ic.jp + ' IC', p[0] - tw + 1, p[1] + 1);
+  }
+  // service areas near: the car park and its lanes; inside one, the stalls (taken ones grey), the bays, and where to go (blue)
+  for (const [k, A] of SA_LOADED) {
+    const L = A.layout, a = L.sa;
+    if (a.sEnd < st.s - 800 || a.sDiv > st.s + 2800) continue;
+    const P = (u, v) => { posAt(a.sDiv + u, -v, _np); return toScr(_np.x, _np.z); };
+    const poly = pts => { g.beginPath(); pts.forEach(([u, v], i) => { const p = P(u, v); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.closePath(); };
+    g.fillStyle = '#3c4955';
+    for (const [u0, u1, v0, v1] of L.paved) { poly([[u0, v0], [u1, v0], [u1, v1], [u0, v1]]); g.fill(); }
+    poly([[420, 18], [460, 18], [460, 27], [420, L.fallback ? 80 : 56]]); g.fill();
+    g.strokeStyle = '#7f8e9b'; g.lineWidth = Math.max(3, 5 * scale);
+    for (const [u0, u1, f, base] of [[100, 185, saExitEdges, 0], [455, 600, saEntryEdges, SA_LOT1]]) {
+      g.beginPath(); for (let u = u0; u <= u1; u += 5) { const p = P(u, -f(Math.max(0, u - base)).cx); u === u0 ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); } g.stroke();
+    }
+    if (st.sa === k) {
+      const slot = (o, fill, stroke) => { const nu = -o.hv * o.w / 2, nv = o.hu * o.w / 2, h = o.len / 2; poly([[-h, -1], [h, -1], [h, 1], [-h, 1]].map(([t, q]) => [o.u + o.hu * t + nu * q, o.v + o.hv * t + nv * q])); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = 2; g.stroke(); } };
+      const t = st.saTarget;
+      for (const o of L.stalls) slot(o, o.taken ? '#5c6670' : t && t.kind === 'toStall' && t.id === o.id ? '#2f9cff' : null, '#cfe0ee');
+      for (const o of L.pumps) slot(o, t && t.kind === 'toPump' && t.id === o.id ? '#2f9cff' : null, '#ffb020');
+      if (L.building) { const b = L.building; poly([[b.u0, b.v0], [b.u1, b.v0], [b.u1, b.v1], [b.u0, b.v1]]); g.fillStyle = '#6f7b82'; g.fill(); }
+      if (t && t.kind === 'toOut') { const p = P(t.u, t.v); g.fillStyle = '#2f9cff'; g.beginPath(); g.arc(p[0], p[1], 8, 0, TAU); g.fill(); }
+    } else {
+      const p = P(330, 60), name = a.jp + ' SA', tw = g.measureText(name).width + 14;
+      g.fillStyle = '#0b6b42'; roundRect(g, p[0] - tw - 6, p[1] - 12, tw, 24, 5); g.fill();
+      g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(name, p[0] - tw + 1, p[1] + 1);
+    }
   }
   // the nearest town: its streets' centre lines, and the destination warehouse's gate
   const TL = st.town >= 0 && TOWNS_LOADED.get(st.town);

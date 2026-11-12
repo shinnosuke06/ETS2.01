@@ -210,8 +210,11 @@ function laneChangeSafe(c, to, PB) {
   return true;
 }
 
+// The rig on an entrance's (or a service area's) acceleration lane, not yet in the travel lane: cars make room.
+function playerMerging() { return TR.zone === 'road' && !!(entryAt(TR.s) || saEntryAt(TR.s)) && TR.lat < -9.6 && TR.lat > -16; }
 function updateTraffic(dt, active) {
-  const PB = playerBoxes();
+  const PB = playerBoxes(), merging = playerMerging();
+  const rear = merging ? Math.min(...PB.map(b => b.s0)) : 0;
   const n = Q.traffic;
   for (let k = 0; k < n && k < CARS.length; k++) {
     const c = CARS[k];
@@ -223,6 +226,11 @@ function updateTraffic(dt, active) {
     const L = leaderOf(c, c.lane, PB);
     let acc = idm(c.v, c.v0, L.gap, c.v - L.v);
     if (c.lc) { const L2 = leaderOf(c, c.lc.to, PB); acc = Math.min(acc, idm(c.v, c.v0, L2.gap, c.v - L2.v)); }
+    const near = merging && c.dir === 1 && c.s >= TR.s - 120 && c.s <= TR.s + 20;   // beside or behind the merging rig
+    if (near && c.lane === 0 && !c.lc) {
+      if (laneChangeSafe(c, 1, PB)) c.lc = { from: 0, to: 1, p: 0 };   // over to the overtaking lane
+      else if (c.s < TR.s + 5) acc = Math.min(acc, idm(c.v, c.v0, Math.max(0.3, rear - 25 - (c.s + c.len / 2)), c.v - TR.v));   // or drop back 25 m behind it
+    }
     c.v = Math.max(0, c.v + clamp(acc, -8, 2) * dt);
     c.s += c.v * c.dir * dt;
     // keep-left lane logic
@@ -231,7 +239,7 @@ function updateTraffic(dt, active) {
       c.t = 0.6 + TRAFFIC.rand() * 0.6;
       if (c.lane === 0 && L.who && L.gap < 75 && L.v < c.v0 - 2.2 && !c.heavy) {
         if (laneChangeSafe(c, 1, PB)) c.lc = { from: 0, to: 1, p: 0 };
-      } else if (c.lane === 1) {
+      } else if (c.lane === 1 && !near) {   // (not back beside a rig that is merging)
         const ahead0 = leaderOf(c, 0, PB);
         if ((!ahead0.who || ahead0.gap > 110 || ahead0.v > c.v0 - 1) && laneChangeSafe(c, 0, PB)) c.lc = { from: 1, to: 0, p: 0 };
       }
@@ -267,4 +275,51 @@ function updateCarVisuals(dayMul) {
     c.grp.rotation.x = Math.atan(g) * c.dir;
   }
   CAR_LIT.color.setScalar(dayMul);
+}
+
+// ---- the cars' lights at night: a glow at each lamp (one Points for every car, highway and town), and the light
+// their headlights throw on the road ahead of them (a long soft patch) --------------------------------------------------
+const CAR_GLOW = { pts: null, beams: null, n: 0 };
+const _cgv = new THREE.Vector3();
+function carLightsInit() {
+  const max = 96 * 4, geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(max * 3), 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(max * 3), 3));
+  geo.setDrawRange(0, 0);
+  const c = makeCanvas(64, 64), g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  CAR_GLOW.pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 1.5, map: new THREE.CanvasTexture(c), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
+  CAR_GLOW.pts.frustumCulled = false; CAR_GLOW.pts.visible = false; scene.add(CAR_GLOW.pts);
+  const b = makeCanvas(32, 128), h = b.getContext('2d'), lg = h.createLinearGradient(0, 128, 0, 0);
+  lg.addColorStop(0, 'rgba(255,255,255,.9)'); lg.addColorStop(1, 'rgba(255,255,255,0)');
+  h.fillStyle = lg; h.fillRect(0, 0, 32, 128);
+  const beamMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(b), color: 0xfff0d0, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12 });
+  CAR_GLOW.beams = new THREE.InstancedMesh(RS.mark, beamMat, 48);
+  CAR_GLOW.beams.frustumCulled = false; CAR_GLOW.beams.count = 0; CAR_GLOW.beams.visible = false; scene.add(CAR_GLOW.beams);
+}
+const _cgm = new THREE.Matrix4(), _cgq = new THREE.Quaternion(), _cge = new THREE.Euler(), _cgs = new THREE.Vector3(), _cgp = new THREE.Vector3();
+// dark: 0 by day .. 1 at night (or in a tunnel)
+function carLightsUpdate(dark) {
+  if (!CAR_GLOW.pts) carLightsInit();
+  const P = CAR_GLOW.pts, B = CAR_GLOW.beams;
+  if (dark < 0.05) { P.visible = B.visible = false; return; }
+  const pos = P.geometry.attributes.position.array, col = P.geometry.attributes.color.array, max = pos.length / 3;
+  let n = 0, nb = 0;
+  const put = (grp, x, y, z, r, g, b) => { if (n >= max) return; grp.localToWorld(_cgv.set(x, y, z)); pos[n * 3] = _cgv.x; pos[n * 3 + 1] = _cgv.y; pos[n * 3 + 2] = _cgv.z; col[n * 3] = r * dark; col[n * 3 + 1] = g * dark; col[n * 3 + 2] = b * dark; n++; };
+  const car = (grp, len, wid, oncoming) => {
+    grp.updateMatrixWorld();
+    const hw = wid * 0.36, hk = oncoming ? 1 : 0.55;
+    put(grp, -hw, 0.8, -len / 2 - 0.05, hk, hk * 0.95, hk * 0.82); put(grp, hw, 0.8, -len / 2 - 0.05, hk, hk * 0.95, hk * 0.82);   // the front is local -z
+    put(grp, -hw, 0.9, len / 2 + 0.05, 1, 0.1, 0.06); put(grp, hw, 0.9, len / 2 + 0.05, 1, 0.1, 0.06);
+    if (nb < B.instanceMatrix.count) {   // the light on the road, 9 m ahead of the front
+      grp.localToWorld(_cgp.set(0, 0.05, -len / 2 - 9)); _cge.set(0, grp.rotation.y, 0); _cgq.setFromEuler(_cge);
+      B.setMatrixAt(nb++, _cgm.compose(_cgp, _cgq, _cgs.set(3.2, 1, 14)));
+    }
+  };
+  for (const c of CARS) if (!c.hidden && Math.abs(c.s - TR.s) < 700) car(c.grp, c.len, c.wid, c.dir === -1);
+  for (const X of TOWN_TRAFFIC.values()) X.cars.forEach((c, k) => { const g = X.groups[k], p = PROTOS[c.type]; if (g && g.visible && p) car(g, p.len, p.wid, false); });
+  P.geometry.attributes.position.needsUpdate = P.geometry.attributes.color.needsUpdate = true;
+  P.geometry.setDrawRange(0, n); P.visible = n > 0;
+  B.count = nb; B.instanceMatrix.needsUpdate = true; B.visible = nb > 0; B.material.opacity = 0.35 * dark;
 }

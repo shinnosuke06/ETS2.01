@@ -22,3 +22,14 @@ function blinkGap(sleepy, r) {
 function refuel(fuel) { const liters = Math.round((1 - clamp(fuel, 0, 1)) * CARE.fuelL); return { liters, yen: liters * CARE.price }; }
 // roughly how far the fuel goes, in true km, to the nearest 10
 function fuelKm(fuel) { return Math.round(clamp(fuel, 0, 1) * CARE.rangeKm / 10) * 10; }
+// The service area the navigation suggests from s: with under 15% fuel ('fuel') or sleepiness 0.7 and over ('sleep'),
+// the nearest one whose divergence is still 160 m or more ahead; none when the destination's exit (destSDiv, at
+// kp destKp) comes first and the fuel goes 1.2 times as far as that.
+function saSuggest(s, fuel, sleepy, destSDiv, destKp) {
+  const why = fuel < 0.15 ? 'fuel' : sleepy >= 0.7 ? 'sleep' : null;
+  if (!why) return null;
+  const sa = SAS.find(a => a.sDiv - s >= 160);
+  if (!sa) return null;
+  if (destSDiv < sa.sDiv && fuel * CARE.rangeKm >= 1.2 * (destKp - sToKp(s))) return null;
+  return { sa, why };
+}
