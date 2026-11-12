@@ -39,7 +39,7 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
       if (u > RAMP_LEN - 40) break;
     }
     INP.tGas = INP.tBrake = 0; INP.tWheelHeld = false;
-    await __ready();
+    await __ready(); __noTownCars(2);   // the driver here does not look at traffic
     const L2 = TOWNS_LOADED.get(2).layout;
     __drive(__town(2, [...L2.plaza.exitPath.slice(2), [-4.875, 70]]), 15, 90);
     return { ...log, ticks: n, zone: TR.zone, town: TR.town, gate: L2.plaza.gates.exit.state, toll: GAME.job.toll, damage: TR.damage, fines: GAME.job.fines, cruise: [cruiseT, cruiseMin, cruiseMax] };

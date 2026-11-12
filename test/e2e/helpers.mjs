@@ -90,6 +90,8 @@ const DRIVE_SRC = `window.__drive = (path, kmh, seconds = 120, stopAtEnd = true)
 };
 // no expressway cars between s0 and s1 (they come back far ahead), for a merge that does not depend on where traffic is
 window.__clearRoad = (s0, s1) => { for (const c of CARS) if (!c.hidden && c.s > s0 && c.s < s1) { c.hidden = true; c.grp.visible = false; c.s = -1e6; } };
+// no cars in town i, for a scripted drive into the town that does not look at traffic
+window.__noTownCars = i => { const X = TOWN_TRAFFIC.get(i); if (X) { X.cars.length = 0; for (const g of X.groups) g.visible = false; } };
 window.__town = (i, pts) => { const site = TOWN_SITES[i], q = {}; return pts.map(([u, v]) => { townXZ(site, u, v, q); return [q.x, q.z]; }); };
 window.__placeTown = (i, u, v, du, dv, kmh, coupled = true) => { const site = TOWN_SITES[i], q = {}; townXZ(site, u, v, q); placeTruckAt(q.x, q.z, site.hu + Math.atan2(dv, du), kmh / 3.6, { coupled }); };
 // waits for the road and the towns near the rig with the game paused as on its loading screen, so the rig does not

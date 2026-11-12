@@ -45,7 +45,7 @@ test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 
     // into Atsugi: on its exit ramp, through the exit gate (the fare), into the town and up Main A
     const r2 = RAMPS.find(x => x.ic.i === 2), ex = [];
     for (let s = r2.sDiv + 420; s <= r2.sEnd; s += 5) { const p = posAt(s, rampEdges(s - r2.sDiv).cx, {}); ex.push([p.x, p.z]); }
-    placeTruck(r2.sDiv + 420, rampEdges(420).cx, 8, { coupled: true }); await __ready();
+    placeTruck(r2.sDiv + 420, rampEdges(420).cx, 8, { coupled: true }); await __ready(); __noTownCars(2);   // the driver here does not look at traffic
     const L2 = TOWNS_LOADED.get(2).layout;
     __drive([...ex, ...__town(2, [...L2.plaza.exitPath.filter(p => p[0] > -24.5), [-4.875, 70]])], 15, 120);
     log.exitGate = L2.plaza.gates.exit.state; log.toll = GAME.job.toll;
