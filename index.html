@@ -4593,7 +4593,7 @@ function lampLists(lamps, out = { poles: [], arms: [], heads: [], pools: [] }) {
     out.poles.push({ x, y, z, sy: l.h });
     if (len > 0.3) out.arms.push({ x: (x + ax) / 2, y: y + l.h - 0.1, z: (z + az) / 2, ry, sx: len, sy: 0.12, sz: 0.12 });
     out.heads.push({ x: ax, y: y + l.h - 0.35, z: az, ry, sx: 0.7, sy: 0.18, sz: 0.4 });
-    if (l.r > 0) out.pools.push({ x: ax, y: l.groundY + 0.06, z: az, sx: l.r * 2, sy: 1, sz: l.r * 2 });
+    if (l.r > 0) out.pools.push({ x: l.pool ? l.pool[0] : ax, y: l.groundY + 0.06, z: l.pool ? l.pool[1] : az, ry: l.poolRy || 0, sx: l.r * 2, sy: 1, sz: (l.along || l.r) * 2 });   // an ellipse along the road where given
   }
   return out;
 }
@@ -4604,7 +4604,9 @@ function buildLamps(ctx) {
   const { O, s0, s1 } = ctx, low = qualityName === 'low', lamps = [];
   for (const l of lampsIn(s0, s1)) {
     const p = localPt(O, l.s, l.lat, 0), a = localPt(O, l.s, l.armLat, 0), main = l.kind === 'urban' || l.kind === 'tunnel';
-    lamps.push({ at: [p.x, p.y, p.z], arm: [a.x, a.y, a.z], h: 12, r: low && main ? 0 : 14, groundY: a.y });
+    // the pool: 8 m across and 13 m along the road, over the lanes rather than the slopes beside them
+    const c = localPt(O, l.s, l.armLat + (l.lat < 0 ? 1.5 : -1.5), 0);
+    lamps.push({ at: [p.x, p.y, p.z], arm: [a.x, a.y, a.z], h: 12, r: low && main ? 0 : 8, along: 13, poolRy: p.h, groundY: a.y, pool: [c.x, c.z] });
   }
   addLampMeshes((g, m, list) => { const im = instanced(ctx, g, m, list); if (im && m === RS_MAT.pool) im.userData.pools = true; }, lampLists(lamps));
 }
@@ -4627,7 +4629,7 @@ function nightUpdate() {
     NIGHT_U.uLit.value = GAME.lampsOn ? clamp(dark * 1.5, 0, 1) : 0;
     const f = 5.6; NIGHT_U.uCar.value.set(TR.x + Math.sin(TR.h) * f, TR.y + 1, TR.z + Math.cos(TR.h) * f); NIGHT_U.uDir.value.set(Math.sin(TR.h), Math.cos(TR.h));
     RS_MAT.lampHead.color.copy(_lc0).lerp(_lc1, smooth(0.05, 0.6, night));
-    RS_MAT.pool.opacity = night * 0.55; RS_MAT.pool.visible = night > 0.02;
+    RS_MAT.pool.opacity = night * 0.42; RS_MAT.pool.visible = night > 0.02;
     RS_MAT.reflector.color.setScalar(lerp(0.85, 0.1, night));
     carLightsUpdate(dark);
   } catch (e) {
