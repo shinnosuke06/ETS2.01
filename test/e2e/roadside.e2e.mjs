@@ -35,7 +35,7 @@ test('柵と植え込みが道路沿いにあり、高速沿いの家は柵の�
       const c = chunks.get(Math.floor(s / CHUNK));
       c.grp.traverse(o => {
         if (o.isMesh && o.material === RS_MAT.fence) fenced++;
-        if (o.isInstancedMesh && o.material === MAT.tree && o.geometry === SHARED.ico) shrubs += o.count;
+        if (o.isInstancedMesh && o.material === RS_MAT.shrub) shrubs += o.count;
         if (o.isInstancedMesh && o.material === MAT.house) for (let k = 0; k < o.count; k++) {   // house centres
           o.getMatrixAt(k, m); p.setFromMatrixPosition(m).add(c.grp.position); project(p.x, p.z, Math.floor(s / DS), q);
           if (Math.abs(q.lat) < 27.5 && fenceAt(q.s, Math.sign(q.lat))) inside++;
@@ -44,6 +44,6 @@ test('柵と植え込みが道路沿いにあり、高速沿いの家は柵の�
     }
     return { fenced, shrubs, inside };
   });
-  assert.ok(r.fenced > 5, JSON.stringify(r)); assert.equal(r.inside, 0, JSON.stringify(r));
+  assert.ok(r.fenced > 5 && r.shrubs > 0, JSON.stringify(r)); assert.equal(r.inside, 0, JSON.stringify(r));
   assert.deepEqual(errors, []);
 }));

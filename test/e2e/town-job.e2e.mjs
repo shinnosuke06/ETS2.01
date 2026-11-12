@@ -37,7 +37,8 @@ test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 
     // out of Tokyo: Main A's kerb lane toward the plaza, through the entrance gate, along the entrance ramp into the travel lane
     __placeTown(0, 4.875, 80, 0, -1, 10); await __ready();
     const L0 = TOWNS_LOADED.get(0).layout, en = ENTRIES[0], ramp = [];
-    for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const p = posAt(s, s < en.s1 ? entryEdges(s - en.s0).cx : X_TRV, {}); ramp.push([p.x, p.z]); }
+    // along the band, easing over into the travel lane before the band closes (from u = 330 to 420)
+    for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const u = s - en.s0, p = posAt(s, u < 330 ? entryEdges(u).cx : lerp(entryEdges(330).cx, X_TRV, smooth(330, 420, u)), {}); ramp.push([p.x, p.z]); }
     __drive([...__town(0, [[4.875, 80], ...L0.plaza.entryPath]), ...ramp.slice(0, 1)], 15, 90, false);
     log.entryGate = L0.plaza.gates.entry.state; log.tollAfterEntry = GAME.job.toll;
     __clearRoad(en.s0 - 600, en.s1 + 600); __drive(ramp, 60, 120, false);   // merging into a clear gap

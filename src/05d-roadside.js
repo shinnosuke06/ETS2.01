@@ -14,7 +14,7 @@ const RS_MAT = {
   deck: new THREE.MeshLambertMaterial({ color: 0xb9b6ac }),
   deckTop: new THREE.MeshLambertMaterial({ color: 0x55585c }),
   rail: new THREE.MeshLambertMaterial({ color: 0x8f9a9f }),
-  fence: null, arrow: null, gen: null,
+  fence: null, arrow: null, gen: null, shrub: MAT.tree.clone(),   // shrub: the shrubs between the lanes, apart from the country's trees
 };
 // the fence's wire mesh and the road paint, drawn once
 (function rsTextures() {
@@ -109,7 +109,7 @@ function buildShrubs(ctx) {
   for (const r of RAMPS) strip(r.sDiv, r.uSep + 12, RAMP_LEN - 20, rampEdges);
   for (const e of ENTRIES) strip(e.s0, 20, e.uJoin - 12, entryEdges);
   for (const a of SAS) { strip(a.sDiv, a.uSep + 12, SA_LOT0 - 5, saExitEdges); strip(a.sLot1, 5, a.uJoin - 12, saEntryEdges); }
-  instanced(ctx, SHARED.ico, MAT.tree, list, { colors: true });
+  instanced(ctx, SHARED.ico, RS_MAT.shrub, list, { colors: true });
 }
 // ---- night: the road lamps and their light on the road, the reflectors on the guardrails ---------------------------
 const RS_POLE = new THREE.CylinderGeometry(0.11, 0.16, 1, 7).translate(0, 0.5, 0), RS_REFL = new THREE.PlaneGeometry(0.12, 0.09);
