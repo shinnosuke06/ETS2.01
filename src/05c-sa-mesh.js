@@ -110,8 +110,9 @@ function* saMeshSteps(k) {
       darks.push({ u: cu, v: b.v0 - 0.05, y: 0.9, sx: 0.12, sy: 2.2, sz: b.u1 - b.u0 - 6 });   // the glass front toward the car park
     }
     const cp = L.canopy;
-    if (cp) {
-      whites.push({ u: (cp.u0 + cp.u1) / 2, v: (cp.v0 + cp.v1) / 2, y: cp.h, sx: cp.v1 - cp.v0, sy: 0.9, sz: cp.u1 - cp.u0 });
+    if (cp) {   // the roof on its own, so it can be hidden when an outside camera is above it
+      const roof = inst('canopy', SHARED.box, MAT.white, [{ u: (cp.u0 + cp.u1) / 2, v: (cp.v0 + cp.v1) / 2, y: cp.h, sx: cp.v1 - cp.v0, sy: 0.9, sz: cp.u1 - cp.u0 }], { cast: true });
+      M.roof = roof; M.roofBox = cp;
       for (const [u, v] of cp.pillars) whites.push({ u, v, sx: 0.6, sy: cp.h, sz: 0.6 });
       for (const isl of L.islands) for (const u of [372, 382]) { const v = (isl.v0 + isl.v1) / 2; whites.push({ u, v, y: 0.2, sx: 0.8, sy: 1.7, sz: 1.1 }); darks.push({ u, v, y: 1.1, sx: 0.85, sy: 0.5, sz: 0.7 }); }
     }
@@ -166,6 +167,18 @@ function* saMeshSteps(k) {
   SA_MESH.set(k, M);
   scene.add(grp);
 }
+// Hide the fuel canopy's roof while the camera is over it and above its underside (the view from behind the rig).
+const _scp = { i: 0, s: 0, lat: 0 };
+function saCanopyUpdate(cam) {
+  for (const [k, M] of SA_MESH) {
+    if (!M.roof) continue;
+    const a = SAS[k], c = M.roofBox, p = cam.getWorldPosition(_scv);
+    project(p.x, p.z, Math.max(0, Math.floor((a.sDiv + (c.u0 + c.u1) / 2) / DS)), _scp);
+    const u = _scp.s - a.sDiv, v = -_scp.lat, over = u > c.u0 - 25 && u < c.u1 + 10 && v > c.v0 - 12 && v < c.v1 + 12 && p.y > elevAt(_scp.s) + c.h - 0.5;
+    M.roof.visible = !over;
+  }
+}
+const _scv = new THREE.Vector3();
 function saMeshDispose(k) {
   const M = SA_MESH.get(k);
   if (!M) return;

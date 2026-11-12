@@ -76,6 +76,16 @@ body.touch .tb.only-touch{display:inline-block}
 
 #speedo{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);font-variant-numeric:tabular-nums}
 #speedo .num{font-size:30px;font-weight:700;line-height:1}
+#careIcons{display:flex;gap:6px}
+#careIcons .ic{width:26px;height:26px;border-radius:6px;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center}
+#careIcons .ic svg{width:18px;height:18px}
+#careIcons .ic.red{background:#d0381a}
+#careIcons .ic[hidden]{display:none}
+#topbar .tb.stop{background:#1f7a4a;border-color:#38b06d;color:#fff}
+#blinkOv{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:30}
+#fadeOv{position:fixed;inset:0;background:#000;opacity:0;transition:opacity .6s;display:flex;align-items:center;justify-content:center;z-index:31;color:#e8eef2;font-size:22px;font-weight:700;letter-spacing:.12em}
+#fadeOv.on{opacity:1}
+#fadeOv[hidden]{display:none}
 #speedo .u{font-size:11px;color:var(--ink-2)}
 #speedo .gear{font-family:var(--f-led);font-size:20px;color:var(--led)}
 #speedo .lim{width:30px;height:30px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 4px #d0201a;color:#1f3f9a;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
@@ -158,6 +168,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
       <button class="tb" id="bHazard" type="button" aria-pressed="false" title="ハザード (F)">ハザード</button>
       <button class="tb" id="bCouple" type="button" title="連結・切り離し (T)" hidden>自動連結</button>
+      <button class="tb stop" id="bStop" type="button" title="給油・仮眠・救援 (G)" hidden>給油</button>
       <button class="tb" id="bMap" type="button" title="地図 (M)">地図</button>
       <button class="tb" id="bMenu" type="button" title="メニュー (Esc)">メニュー</button>
     </div>
@@ -173,6 +184,10 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <div><div class="num" id="spdNum">0</div><div class="u">km/h</div></div>
       <div class="gear" id="spdGear">A3</div>
       <div class="lim" id="spdLim">90</div>
+      <div id="careIcons">
+        <span class="ic" id="icFuel" hidden title="燃料が少ない"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h9v18H5z M7 5v5h5V5z M15 8h2l2 2v8a1.5 1.5 0 0 1-3 0v-4h-1" fill="#fff" fill-rule="evenodd"/></svg></span>
+        <span class="ic" id="icSleep" hidden title="眠気"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13c3 4 15 4 18 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/><path d="M14 3h6l-6 6h6" stroke="#fff" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg></span>
+      </div>
     </div>
 
     <div id="touch" hidden>
@@ -355,6 +370,8 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
   </div>
 </div>
 
+<div id="blinkOv" aria-hidden="true"></div>
+<div id="fadeOv" hidden><span id="fadeText"></span></div>
 <div id="loading" class="led"><span id="loadText">地図を作成中…</span></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -2296,6 +2313,32 @@ function saGroundBlend(s, lat) {
   return _sgb;
 }
 
+// ==== 02g-care.js ====
+// ---------------------------------------------------------------------------
+// Fuel and sleepiness (data and rules only, no DOM): how fast the tank empties and
+// the driver tires, what a refuel costs, when the eyes close for a moment, and
+// which service area the navigation suggests.
+// ---------------------------------------------------------------------------
+// burn: how much faster the tank empties than the engine's own work alone would empty it, so a full tank lasts
+// about rangeKm (true km) with 15 t at 90 km/h on the flat
+const CARE = { fuelL: 120, price: 140, rangeKm: 220, rescueYen: 30000, rescueL: 20, burn: 10.2 };
+// fraction of a tank used per second (game time) at drive power `drive` (N) and speed v (m/s)
+function fuelRate(drive, v) { return (Math.max(0, drive * v) / (0.42 * 36e6) + 0.0004) * SCALE / 600 * CARE.burn; }
+// sleepiness gained per second of the game clock: 1 in 6 hours, half as fast again from 22:00 to 5:00
+function sleepyRate(clockSec) {
+  const h = (clockSec / 3600) % 24;
+  return (h >= 22 || h < 5 ? 1.5 : 1) / (6 * 3600);
+}
+// real seconds to the next blink: none up to 0.85; on average 40 s just above it, 8 s at 1 (r: 0..1, evenly spread)
+function blinkGap(sleepy, r) {
+  if (!(sleepy > 0.85)) return Infinity;
+  return lerp(40, 8, clamp((sleepy - 0.85) / 0.15, 0, 1)) * (0.5 + r);
+}
+// a full tank from `fuel`: litres (whole) and yen
+function refuel(fuel) { const liters = Math.round((1 - clamp(fuel, 0, 1)) * CARE.fuelL); return { liters, yen: liters * CARE.price }; }
+// roughly how far the fuel goes, in true km, to the nearest 10
+function fuelKm(fuel) { return Math.round(clamp(fuel, 0, 1) * CARE.rangeKm / 10) * 10; }
+
 // ==== 03-gfx.js ====
 // ---------------------------------------------------------------------------
 // Renderer, quality presets, procedural textures and shared materials.
@@ -4168,8 +4211,9 @@ function* saMeshSteps(k) {
       darks.push({ u: cu, v: b.v0 - 0.05, y: 0.9, sx: 0.12, sy: 2.2, sz: b.u1 - b.u0 - 6 });   // the glass front toward the car park
     }
     const cp = L.canopy;
-    if (cp) {
-      whites.push({ u: (cp.u0 + cp.u1) / 2, v: (cp.v0 + cp.v1) / 2, y: cp.h, sx: cp.v1 - cp.v0, sy: 0.9, sz: cp.u1 - cp.u0 });
+    if (cp) {   // the roof on its own, so it can be hidden when an outside camera is above it
+      const roof = inst('canopy', SHARED.box, MAT.white, [{ u: (cp.u0 + cp.u1) / 2, v: (cp.v0 + cp.v1) / 2, y: cp.h, sx: cp.v1 - cp.v0, sy: 0.9, sz: cp.u1 - cp.u0 }], { cast: true });
+      M.roof = roof; M.roofBox = cp;
       for (const [u, v] of cp.pillars) whites.push({ u, v, sx: 0.6, sy: cp.h, sz: 0.6 });
       for (const isl of L.islands) for (const u of [372, 382]) { const v = (isl.v0 + isl.v1) / 2; whites.push({ u, v, y: 0.2, sx: 0.8, sy: 1.7, sz: 1.1 }); darks.push({ u, v, y: 1.1, sx: 0.85, sy: 0.5, sz: 0.7 }); }
     }
@@ -4224,6 +4268,18 @@ function* saMeshSteps(k) {
   SA_MESH.set(k, M);
   scene.add(grp);
 }
+// Hide the fuel canopy's roof while the camera is over it and above its underside (the view from behind the rig).
+const _scp = { i: 0, s: 0, lat: 0 };
+function saCanopyUpdate(cam) {
+  for (const [k, M] of SA_MESH) {
+    if (!M.roof) continue;
+    const a = SAS[k], c = M.roofBox, p = cam.getWorldPosition(_scv);
+    project(p.x, p.z, Math.max(0, Math.floor((a.sDiv + (c.u0 + c.u1) / 2) / DS)), _scp);
+    const u = _scp.s - a.sDiv, v = -_scp.lat, over = u > c.u0 - 25 && u < c.u1 + 10 && v > c.v0 - 12 && v < c.v1 + 12 && p.y > elevAt(_scp.s) + c.h - 0.5;
+    M.roof.visible = !over;
+  }
+}
+const _scv = new THREE.Vector3();
 function saMeshDispose(k) {
   const M = SA_MESH.get(k);
   if (!M) return;
@@ -6106,7 +6162,11 @@ function drawCluster(st) {
   // fuel bar
   g.fillStyle = '#1d262e'; g.fillRect(430, 314, 164, 10);
   g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 314, 164 * st.fuel, 10);
-  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText('燃料', 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
+  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText(`燃料　残り 約 ${st.fuelKm} km`, 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
+  // sleepiness bar
+  g.fillStyle = '#1d262e'; g.fillRect(430, 346, 164, 8);
+  g.fillStyle = st.sleepy > 0.85 ? '#ff5a1f' : st.sleepy > 0.7 ? '#ffb020' : '#7fa7c9'; g.fillRect(430, 346, 164 * st.sleepy, 8);
+  g.fillStyle = '#9fb3c4'; g.textAlign = 'left'; g.fillText('眠気', 430, 368);
   if (st.damage > 1) { g.fillStyle = st.damage > 25 ? '#ff5a1f' : '#ffb020'; g.textAlign = 'center'; g.font = font(18); g.fillText('損傷 ' + Math.round(st.damage) + '%', 512, 96); }
   DASH.tex.needsUpdate = true;
 }
@@ -7141,7 +7201,7 @@ const finite = v => (Number.isFinite(v) ? v : 0);
 // inp: { throttle 0..1, brake 0..1, steer -1..1 (right positive) }
 function stepTruck(dt, inp) {
   const T = TR, vPrev = T.v;
-  const pt = powertrainStep(dt, finite(inp.throttle), finite(inp.brake));
+  const pt = powertrainStep(dt, T.fuel > 0 ? finite(inp.throttle) : 0, finite(inp.brake));   // an empty tank: no drive
   const lim = rigSteerLimit(T.v);
   const target = clamp(clamp(finite(inp.steer), -1, 1) * steerLock(T.v), -lim, lim);
   _cmd.steer = damp(RIG.steer, target, 7, dt);
@@ -7172,7 +7232,7 @@ function stepTruck(dt, inp) {
   T.latAcc = damp(T.latAcc, T.v * T.yawRate, 8, dt);
   T.spin += T.v / RW * dt;
   T.odo += Math.abs(T.v) * dt * SCALE / 1000;
-  T.fuel = Math.max(0, T.fuel - (Math.max(0, pt.drive * T.v) / (0.42 * 36e6) + 0.0004) * dt * SCALE / 600);
+  T.fuel = Math.max(0, T.fuel - fuelRate(pt.drive, T.v) * dt);
   const c = T.cab;
   const bump = (vnoise(T.s * 0.35, 0, 3) - 0.5) * Math.min(1, Math.abs(T.v) / 15);
   c.pv += ((clamp(T.accel * 0.006, -0.045, 0.035) + T.surge * 0.25 - c.p) * 70 - c.pv * 9) * dt; c.p += c.pv * dt;   // liquid cargo rocks the cab
@@ -7649,7 +7709,7 @@ window.addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.repeat) { INP.keys.add(e.code); return; }
   INP.keys.add(e.code);
-  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', KeyT: 'couple', KeyM: 'map', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
+  const map = { KeyQ: 'blinkL', KeyE: 'blinkR', KeyF: 'hazard', KeyC: 'cruise', KeyV: 'camera', KeyL: 'lights', KeyP: 'wiper', KeyR: 'dir', KeyT: 'couple', KeyM: 'map', KeyG: 'stop', Escape: 'menu', Equal: 'cruiseUp', NumpadAdd: 'cruiseUp', Minus: 'cruiseDown', NumpadSubtract: 'cruiseDown', Digit1: 'cam1', Digit2: 'cam2', Digit3: 'cam3', KeyH: 'hornOn' };
   if (map[e.code]) INP.actions.push(map[e.code]);
 });
 window.addEventListener('keyup', e => { INP.keys.delete(e.code); if (e.code === 'KeyH') INP.actions.push('hornOff'); });
@@ -7711,7 +7771,7 @@ holdButton($('tHorn'), () => INP.actions.push('hornOn'), () => INP.actions.push(
 $('tGear').addEventListener('click', () => INP.actions.push('dir'));
 $('tBlinkL').addEventListener('click', () => INP.actions.push('blinkL'));
 $('tBlinkR').addEventListener('click', () => INP.actions.push('blinkR'));
-for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMap', 'map'], ['mapClose', 'map'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
+for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMap', 'map'], ['bStop', 'stop'], ['mapClose', 'map'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
 
 function enableTouchUI() {
   if (document.body.classList.contains('touch')) return;
@@ -7853,13 +7913,13 @@ const GAME = {
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
   assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
-  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0, navDrawT: 0,   // red lights: seconds before the same junction can fine again; the front's last town point
+  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0, navDrawT: 0, sleepy: 0, stopKind: null, careMsg: {},   // red lights: seconds before the same junction can fine again; the front's last town point
 };
 
 // ---- jobs -------------------------------------------------------------------
 function setupJob(idx) {
   const j = jobInfo(JOBS[idx]);
-  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
+  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, fuelCost: 0, fuelN: 0, rescue: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
   setRigTrailer(j.trailer, j.mass * 1000);
   RIG.assistOn = GAME.assist;
   TRL = TRAILER_MODELS[j.trailer];
@@ -7980,6 +8040,7 @@ function setCam(c) {
 function handleActions() {
   while (INP.actions.length) {
     const a = INP.actions.shift();
+    if (GAME.state === 'stop') continue;   // nothing while the screen is dark for a stop
     const drv = GAME.state === 'drive';
     if (a === 'menu') { if (GAME.state === 'map') mapClose(); else toggleMenu(); continue; }
     if (a === 'map') { if (GAME.state === 'map') mapClose(); else mapOpen(); continue; }
@@ -7988,6 +8049,7 @@ function handleActions() {
       case 'blinkL': GAME.blink = GAME.blink === -1 ? 0 : -1; break;
       case 'blinkR': GAME.blink = GAME.blink === 1 ? 0 : 1; break;
       case 'hazard': GAME.hazard = !GAME.hazard; GAME.autoHazard = false; break;
+      case 'stop': stopRun(GAME.stopKind); break;
       case 'couple':
         if (TR.link === 'coupled') requestUncouple();
         else if (TR.link === 'free' && !requestCouple()) led('トレーラーの 40 m 以内で止まってから押してください', true, 3.5);
@@ -8154,9 +8216,9 @@ function completeJob(how = {}) {
   const timeAdj = late > 0 ? -Math.round(Math.min(0.4, late / 5 * 0.02) * j.pay / 100) * 100 : Math.round(j.pay * 0.08 / 100) * 100;
   const dmgCost = Math.round(TR.damage * j.pay * 0.008 / 100) * 100;
   const dockBonus = how.dock ? Math.round(j.pay * 0.2 / 100) * 100 : 0;   // backed onto a dock
-  const total = j.pay + dockBonus + timeAdj - dmgCost - j.fines - j.toll - j.missPen;
+  const total = j.pay + dockBonus + timeAdj - dmgCost - j.fines - j.toll - j.missPen - j.fuelCost - j.rescue;
   GAME.money += total;
-  lsSet('nlh.money', GAME.money); lsSet('nlh.drive', null);
+  lsSet('nlh.money', GAME.money); lsSet('nlh.drive', null); careSave();
   const rows = [
     ['基本報酬', j.pay],
     ...(how.dock ? [['荷台口ボーナス（+20%）', dockBonus]] : []),
@@ -8166,6 +8228,8 @@ function completeJob(how = {}) {
     ['違反・事故', -j.fines],
   ];
   if (j.missPen) rows.push(['出口の通過', -j.missPen]);
+  if (j.fuelN) rows.push([`燃料代（給油 ${j.fuelN} 回）`, -j.fuelCost]);
+  if (j.rescue) rows.push(['救援', -j.rescue]);
   $('resRows').innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><span class="${v < 0 ? 'neg' : ''}">${v === 0 ? '—' : yen(v)}</span></div>`).join('') +
     `<div class="tot"><span>今回の利益</span><span>${yen(total)}</span></div>`;
   $('resRoute').textContent = `${j.a.jp} → ${j.b.jp}　${j.cargo} ${j.mass}t`;
@@ -8189,6 +8253,7 @@ $('nextBtn').addEventListener('click', async () => {
   if (GAME.jobIdx === 0 || h > 19.5 || h < 6) {
     const day = Math.floor(GAME.clock / 86400) + 1;
     GAME.clock = day * 86400 + (GAME.jobIdx === 0 ? 8.5 : 7.5) * 3600;
+    GAME.sleepy = 0; careSave();   // slept at home overnight
   }
   setupJob(GAME.jobIdx);
   GAME.state = 'loading';
@@ -8276,6 +8341,7 @@ function updateHud() {
   const pr = (id, v) => $(id).setAttribute('aria-pressed', String(!!v));
   pr('bCruise', TR.cruise); pr('bLights', GAME.lights); pr('bWiper', GAME.wiper); pr('bHazard', GAME.hazard);
   pr('tBlinkL', GAME.blink === -1); pr('tBlinkR', GAME.blink === 1);
+  careIcons();
   $('tGear').textContent = TR.dir === -1 ? 'R' : 'D';
   $('rotateHint').hidden = !(INP.usingTouch && innerHeight > innerWidth);
   const bc = $('bCouple'), auto = TR.link === 'free' && canAutoCouple();
@@ -8287,9 +8353,9 @@ function clusterState() {
   // an assist lamp: steady when the assists are switched off, flashing while that system is acting
   const lamp = on => (!GAME.assist ? 'on' : on ? 'flash' : 'off');
   return {
-    kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
+    kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn && TR.fuel > 0 ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
     lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
-    clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage,
+    clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage, fuelKm: fuelKm(TR.fuel), sleepy: GAME.sleepy,
     gcwText: gcwText(), link: TR.link,
     lamps: { abs: lamp(TR.assist.abs), esc: lamp(TR.assist.esc || TR.assist.rsc), tcs: lamp(TR.assist.tcs) },
     flashOn: performance.now() % 360 < 180,
@@ -8575,10 +8641,12 @@ function simTick(dt) {
     physicsAdvance(dt, { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: INP.steer });
     GAME.clock += dt * TIME_SCALE;
     gameLogic(dt);
+    careTick(dt);
     if (GAME.job) navUpdate(dt);
-    if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); }
+    if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); careSave(); }
   }
-  if (GAME.state !== 'menu' && GAME.state !== 'map') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }   // stopped behind the menu and the map
+  stopUpdate(); blinkUpdate(dt);
+  if (GAME.state !== 'menu' && GAME.state !== 'map' && GAME.state !== 'stop') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }   // stopped behind the menu and the map
   processEvents(dt);
   return driving;
 }
@@ -8595,10 +8663,11 @@ function frame(now) {
   for (const i of TOWN_MESH.keys()) townSignalsUpdate(i, GAME.clock / TIME_SCALE);
   updateVisuals(dt);
   updateCamera(dt);
+  saCanopyUpdate(activeCam);   // after the camera has moved
   setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
-  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
+  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn && TR.fuel > 0, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
 
   if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, activeCam);
@@ -8623,7 +8692,8 @@ function frame(now) {
 function driveState() {
   const j = GAME.job;
   return { job: GAME.jobIdx, x: TR.x, z: TR.z, h: TR.h, v: TR.v, link: TR.link, trailer: { x: TR.tr.kx, z: TR.tr.kz, h: TR.tr.h },
-    clock: GAME.clock, money: GAME.money, damage: TR.damage, jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock } };
+    clock: GAME.clock, money: GAME.money, damage: TR.damage, fuel: TR.fuel, sleepy: GAME.sleepy,
+    jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock, fuelCost: j.fuelCost, fuelN: j.fuelN, rescue: j.rescue } };
 }
 function saveDrive() { if (GAME.state === 'drive' && GAME.job) lsSet('nlh.drive', driveState()); }
 function driveSaveOk(d) {
@@ -8635,6 +8705,10 @@ function driveSaveOk(d) {
 function loadDrive(d) {
   const j = GAME.job, free = d.link === 'free' || d.link === 'locking';
   Object.assign(j, d.jp); j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh); TR.damage = d.damage;
+  for (const k of ['fuelCost', 'fuelN', 'rescue']) if (!(Number.isFinite(j[k]) && j[k] >= 0)) j[k] = 0;   // older saves have none
+  const unit = x => Number.isFinite(x) && x >= 0 && x <= 1;
+  if (unit(d.fuel)) TR.fuel = d.fuel;
+  if (unit(d.sleepy)) GAME.sleepy = d.sleepy;
   placeTruckAt(d.x, d.z, d.h, 0, { coupled: false });
   parkTrailerAt(d.trailer.x, d.trailer.z, d.trailer.h);
   if (!free) { rigCouple(); TR.link = 'coupled'; syncTR(); }   // coupled at the angle it was saved at
@@ -8676,6 +8750,7 @@ async function boot(data) {
   if (saved && d !== saved) lsSet('nlh.drive', null);
   if (d) { GAME.money = d.money; GAME.clock = d.clock; }
   applyTimeOfDay((GAME.clock / 3600) % 24, 0);
+  careLoad();
   setupJob(GAME.jobIdx);
   if (d) loadDrive(d);
   await preloadAround();
@@ -8686,9 +8761,109 @@ async function boot(data) {
 }
 try {
   window.claude?.hot?.snapshot?.(() => {
-    return GAME.state === 'drive' || GAME.state === 'menu' || GAME.state === 'map' ? { ...driveState(), state: GAME.state === 'drive' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
+    return GAME.state === 'drive' || GAME.state === 'menu' || GAME.state === 'map' || GAME.state === 'stop' ? { ...driveState(), state: GAME.state === 'drive' || GAME.state === 'stop' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
   });
 } catch (e) { /* not in a viewer */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
+
+// ==== 13b-stops.js ====
+// ---------------------------------------------------------------------------
+// Fuel and sleepiness in the game: the notices, the blinks, the place button
+// (給油 / 仮眠 / 救援を呼ぶ) with its fade, and keeping both across page loads.
+// ---------------------------------------------------------------------------
+const STOP = { busy: false, blinkT: Infinity, blinkDur: 0, blinkAt: -1, blinkOp: 0, rand: rng(8128) };
+const _stp = { i: 0, s: 0, lat: 0 };
+// The tractor's centre in its service area's coordinates, with its heading in those axes, or null outside one.
+function saRigAt() {
+  if (TR.zone !== 'sa' || TR.sa < 0) return null;
+  const A = SA_LOADED.get(TR.sa); if (!A) return null;
+  const f = (RIGP.front - RIGP.back) / 2, cx = TR.x + Math.sin(TR.h) * f, cz = TR.z + Math.cos(TR.h) * f;
+  project(cx, cz, TR.idx, _stp);
+  const a = TR.h - headingAt(_stp.s);
+  return { L: A.layout, u: _stp.s - A.layout.sa.sDiv, v: -_stp.lat, hu: Math.cos(a), hv: Math.sin(a) };
+}
+// What the place button offers now (standing still while driving), or null.
+function stopKindNow() {
+  if (GAME.state !== 'drive' || Math.abs(TR.v) * 3.6 >= 1) return null;
+  if (TR.fuel <= 0) return 'rescue';
+  const r = saRigAt();
+  if (!r) return null;
+  if (TR.fuel < 0.98 && saPumpAt(r.L, r.u, r.v, r.hu, r.hv)) return 'fuel';
+  if (saStallAt(r.L, r.u, r.v, r.hu, r.hv)) return 'nap';
+  return null;
+}
+const STOP_LABEL = { fuel: '給油', nap: '仮眠', rescue: '救援を呼ぶ' }, STOP_WAIT = { fuel: '給油中…', nap: '仮眠中…', rescue: '救援を待っています…' };
+function stopUpdate() {
+  const k = STOP.busy ? GAME.stopKind : stopKindNow(), b = $('bStop');
+  if (k === GAME.stopKind && b.hidden === !k) return;
+  GAME.stopKind = k; b.hidden = !k; if (k) b.textContent = STOP_LABEL[k];
+}
+const _wait = ms => new Promise(r => setTimeout(r, ms));
+// The fade, the time it takes and what it costs; the game is held ('stop') until the screen is back.
+async function stopRun(kind) {
+  if (STOP.busy || GAME.state !== 'drive' || !kind || kind !== stopKindNow()) return;
+  STOP.busy = true; GAME.state = 'stop';
+  scaleSpeed(0); TR.cruise = false; setHorn(false); INP.tGas = INP.tBrake = 0;
+  const ov = $('fadeOv'); $('fadeText').textContent = STOP_WAIT[kind];
+  ov.hidden = false; await _wait(20); ov.classList.add('on'); await _wait(650);
+  const j = GAME.job;
+  if (kind === 'fuel') {
+    const r = refuel(TR.fuel); TR.fuel = 1; GAME.clock += 600;
+    j.fuelCost += r.yen; j.fuelN += 1;
+    led(`給油 ${r.liters} L　${r.yen.toLocaleString('ja-JP')} 円`, false, 4);
+  } else if (kind === 'nap') {
+    GAME.clock += 1800; GAME.sleepy = 0;
+    led('30 分の仮眠をとりました', false, 4);
+  } else {
+    GAME.clock += 3600; TR.fuel = CARE.rescueL / CARE.fuelL; j.rescue += CARE.rescueYen;
+    led('救援が来ました　燃料 20 L', false, 4);
+  }
+  GAME.todT = 0; careSave();
+  await _wait(700);
+  ov.classList.remove('on'); await _wait(650); ov.hidden = true;
+  GAME.state = 'drive'; STOP.busy = false; GAME.stopKind = null; stopUpdate();
+}
+// Sleepiness grows with the clock while driving; the notices come once each time a level is crossed.
+function careTick(dt) {
+  GAME.sleepy = Math.min(1, GAME.sleepy + sleepyRate(GAME.clock) * dt * TIME_SCALE);
+  const m = GAME.careMsg;
+  const once = (key, on, text, warn) => { if (on && !m[key]) { m[key] = true; led(text, warn, 5); } else if (!on) m[key] = false; };
+  once('f0', TR.fuel <= 0, '燃料がなくなりました', true);
+  once('f5', TR.fuel < 0.05 && TR.fuel > 0, '燃料がまもなくなくなります', true);
+  once('f15', TR.fuel < 0.15 && TR.fuel >= 0.05, '燃料が少なくなりました　次の SA で給油を', false);
+  once('s70', GAME.sleepy > 0.7, '眠気がたまっています　次の SA で休憩を', false);
+  // stranded on the expressway: hazard lights once it has slowed (the automatic ones go off again above 14 m/s)
+  if (TR.fuel <= 0 && TR.zone === 'road' && !TR.onRamp && Math.abs(TR.lat) < 12.5 && Math.abs(TR.v) < 8 && !m.hz) { m.hz = true; GAME.hazard = GAME.autoHazard = true; }
+  if (TR.fuel > 0) m.hz = false;
+}
+// The blinks above 0.85: the screen darkens for 0.4..0.7 s (85% at most), then the next one comes after blinkGap.
+function blinkUpdate(dt) {
+  let op = 0;
+  if (GAME.state === 'drive' && GAME.sleepy > 0.85) {
+    if (STOP.blinkAt >= 0) {
+      STOP.blinkAt += dt;
+      if (STOP.blinkAt >= STOP.blinkDur) { STOP.blinkAt = -1; STOP.blinkT = blinkGap(GAME.sleepy, STOP.rand()); }
+      else op = 0.85 * Math.sin(Math.PI * STOP.blinkAt / STOP.blinkDur);
+    } else {
+      if (!Number.isFinite(STOP.blinkT)) STOP.blinkT = blinkGap(GAME.sleepy, STOP.rand());
+      if ((STOP.blinkT -= dt) <= 0) { STOP.blinkAt = 0; STOP.blinkDur = 0.4 + 0.3 * STOP.rand(); }
+    }
+  } else { STOP.blinkT = Infinity; STOP.blinkAt = -1; }
+  if (Math.abs(op - STOP.blinkOp) > 0.01 || (op === 0) !== (STOP.blinkOp === 0)) { STOP.blinkOp = op; $('blinkOv').style.opacity = op ? op.toFixed(2) : '0'; }
+}
+function careSave() { lsSet('nlh.care', { fuel: TR.fuel, sleepy: GAME.sleepy }); }
+function careLoad() {
+  const c = lsGet('nlh.care', null), ok = x => Number.isFinite(x) && x >= 0 && x <= 1;
+  TR.fuel = c && ok(c.fuel) ? c.fuel : 0.82; GAME.sleepy = c && ok(c.sleepy) ? c.sleepy : 0;
+}
+// The small marks beside the speed box: fuel under 25% (red under 15%), sleepiness over 0.5 (red over 0.85).
+let _careKey = '';
+function careIcons() {
+  const f = TR.fuel < 0.25 ? (TR.fuel < 0.15 ? 2 : 1) : 0, s = GAME.sleepy > 0.5 ? (GAME.sleepy > 0.85 ? 2 : 1) : 0, key = f + ':' + s;
+  if (key === _careKey) return;
+  _careKey = key;
+  const F = $('icFuel'), S = $('icSleep');
+  F.hidden = !f; F.classList.toggle('red', f === 2); S.hidden = !s; S.classList.toggle('red', s === 2);
+}
 
 </script>

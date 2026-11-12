@@ -298,7 +298,7 @@ const finite = v => (Number.isFinite(v) ? v : 0);
 // inp: { throttle 0..1, brake 0..1, steer -1..1 (right positive) }
 function stepTruck(dt, inp) {
   const T = TR, vPrev = T.v;
-  const pt = powertrainStep(dt, finite(inp.throttle), finite(inp.brake));
+  const pt = powertrainStep(dt, T.fuel > 0 ? finite(inp.throttle) : 0, finite(inp.brake));   // an empty tank: no drive
   const lim = rigSteerLimit(T.v);
   const target = clamp(clamp(finite(inp.steer), -1, 1) * steerLock(T.v), -lim, lim);
   _cmd.steer = damp(RIG.steer, target, 7, dt);
@@ -329,7 +329,7 @@ function stepTruck(dt, inp) {
   T.latAcc = damp(T.latAcc, T.v * T.yawRate, 8, dt);
   T.spin += T.v / RW * dt;
   T.odo += Math.abs(T.v) * dt * SCALE / 1000;
-  T.fuel = Math.max(0, T.fuel - (Math.max(0, pt.drive * T.v) / (0.42 * 36e6) + 0.0004) * dt * SCALE / 600);
+  T.fuel = Math.max(0, T.fuel - fuelRate(pt.drive, T.v) * dt);
   const c = T.cab;
   const bump = (vnoise(T.s * 0.35, 0, 3) - 0.5) * Math.min(1, Math.abs(T.v) / 15);
   c.pv += ((clamp(T.accel * 0.006, -0.045, 0.035) + T.surge * 0.25 - c.p) * 70 - c.pv * 9) * dt; c.p += c.pv * dt;   // liquid cargo rocks the cab

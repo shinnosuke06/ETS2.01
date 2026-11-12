@@ -103,7 +103,11 @@ function drawCluster(st) {
   // fuel bar
   g.fillStyle = '#1d262e'; g.fillRect(430, 314, 164, 10);
   g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 314, 164 * st.fuel, 10);
-  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText('燃料', 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
+  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText(`燃料　残り 約 ${st.fuelKm} km`, 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
+  // sleepiness bar
+  g.fillStyle = '#1d262e'; g.fillRect(430, 346, 164, 8);
+  g.fillStyle = st.sleepy > 0.85 ? '#ff5a1f' : st.sleepy > 0.7 ? '#ffb020' : '#7fa7c9'; g.fillRect(430, 346, 164 * st.sleepy, 8);
+  g.fillStyle = '#9fb3c4'; g.textAlign = 'left'; g.fillText('眠気', 430, 368);
   if (st.damage > 1) { g.fillStyle = st.damage > 25 ? '#ff5a1f' : '#ffb020'; g.textAlign = 'center'; g.font = font(18); g.fillText('損傷 ' + Math.round(st.damage) + '%', 512, 96); }
   DASH.tex.needsUpdate = true;
 }

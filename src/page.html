@@ -76,6 +76,16 @@ body.touch .tb.only-touch{display:inline-block}
 
 #speedo{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);font-variant-numeric:tabular-nums}
 #speedo .num{font-size:30px;font-weight:700;line-height:1}
+#careIcons{display:flex;gap:6px}
+#careIcons .ic{width:26px;height:26px;border-radius:6px;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center}
+#careIcons .ic svg{width:18px;height:18px}
+#careIcons .ic.red{background:#d0381a}
+#careIcons .ic[hidden]{display:none}
+#topbar .tb.stop{background:#1f7a4a;border-color:#38b06d;color:#fff}
+#blinkOv{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:30}
+#fadeOv{position:fixed;inset:0;background:#000;opacity:0;transition:opacity .6s;display:flex;align-items:center;justify-content:center;z-index:31;color:#e8eef2;font-size:22px;font-weight:700;letter-spacing:.12em}
+#fadeOv.on{opacity:1}
+#fadeOv[hidden]{display:none}
 #speedo .u{font-size:11px;color:var(--ink-2)}
 #speedo .gear{font-family:var(--f-led);font-size:20px;color:var(--led)}
 #speedo .lim{width:30px;height:30px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 4px #d0201a;color:#1f3f9a;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
@@ -158,6 +168,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
       <button class="tb" id="bHazard" type="button" aria-pressed="false" title="ハザード (F)">ハザード</button>
       <button class="tb" id="bCouple" type="button" title="連結・切り離し (T)" hidden>自動連結</button>
+      <button class="tb stop" id="bStop" type="button" title="給油・仮眠・救援 (G)" hidden>給油</button>
       <button class="tb" id="bMap" type="button" title="地図 (M)">地図</button>
       <button class="tb" id="bMenu" type="button" title="メニュー (Esc)">メニュー</button>
     </div>
@@ -173,6 +184,10 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <div><div class="num" id="spdNum">0</div><div class="u">km/h</div></div>
       <div class="gear" id="spdGear">A3</div>
       <div class="lim" id="spdLim">90</div>
+      <div id="careIcons">
+        <span class="ic" id="icFuel" hidden title="燃料が少ない"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h9v18H5z M7 5v5h5V5z M15 8h2l2 2v8a1.5 1.5 0 0 1-3 0v-4h-1" fill="#fff" fill-rule="evenodd"/></svg></span>
+        <span class="ic" id="icSleep" hidden title="眠気"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13c3 4 15 4 18 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/><path d="M14 3h6l-6 6h6" stroke="#fff" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg></span>
+      </div>
     </div>
 
     <div id="touch" hidden>
@@ -355,6 +370,8 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
   </div>
 </div>
 
+<div id="blinkOv" aria-hidden="true"></div>
+<div id="fadeOv" hidden><span id="fadeText"></span></div>
 <div id="loading" class="led"><span id="loadText">地図を作成中…</span></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>

@@ -96,13 +96,13 @@ const GAME = {
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
   assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
-  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0, navDrawT: 0,   // red lights: seconds before the same junction can fine again; the front's last town point
+  redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0, navDrawT: 0, sleepy: 0, stopKind: null, careMsg: {},   // red lights: seconds before the same junction can fine again; the front's last town point
 };
 
 // ---- jobs -------------------------------------------------------------------
 function setupJob(idx) {
   const j = jobInfo(JOBS[idx]);
-  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
+  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, fuelCost: 0, fuelN: 0, rescue: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
   setRigTrailer(j.trailer, j.mass * 1000);
   RIG.assistOn = GAME.assist;
   TRL = TRAILER_MODELS[j.trailer];
@@ -223,6 +223,7 @@ function setCam(c) {
 function handleActions() {
   while (INP.actions.length) {
     const a = INP.actions.shift();
+    if (GAME.state === 'stop') continue;   // nothing while the screen is dark for a stop
     const drv = GAME.state === 'drive';
     if (a === 'menu') { if (GAME.state === 'map') mapClose(); else toggleMenu(); continue; }
     if (a === 'map') { if (GAME.state === 'map') mapClose(); else mapOpen(); continue; }
@@ -231,6 +232,7 @@ function handleActions() {
       case 'blinkL': GAME.blink = GAME.blink === -1 ? 0 : -1; break;
       case 'blinkR': GAME.blink = GAME.blink === 1 ? 0 : 1; break;
       case 'hazard': GAME.hazard = !GAME.hazard; GAME.autoHazard = false; break;
+      case 'stop': stopRun(GAME.stopKind); break;
       case 'couple':
         if (TR.link === 'coupled') requestUncouple();
         else if (TR.link === 'free' && !requestCouple()) led('トレーラーの 40 m 以内で止まってから押してください', true, 3.5);
@@ -397,9 +399,9 @@ function completeJob(how = {}) {
   const timeAdj = late > 0 ? -Math.round(Math.min(0.4, late / 5 * 0.02) * j.pay / 100) * 100 : Math.round(j.pay * 0.08 / 100) * 100;
   const dmgCost = Math.round(TR.damage * j.pay * 0.008 / 100) * 100;
   const dockBonus = how.dock ? Math.round(j.pay * 0.2 / 100) * 100 : 0;   // backed onto a dock
-  const total = j.pay + dockBonus + timeAdj - dmgCost - j.fines - j.toll - j.missPen;
+  const total = j.pay + dockBonus + timeAdj - dmgCost - j.fines - j.toll - j.missPen - j.fuelCost - j.rescue;
   GAME.money += total;
-  lsSet('nlh.money', GAME.money); lsSet('nlh.drive', null);
+  lsSet('nlh.money', GAME.money); lsSet('nlh.drive', null); careSave();
   const rows = [
     ['基本報酬', j.pay],
     ...(how.dock ? [['荷台口ボーナス（+20%）', dockBonus]] : []),
@@ -409,6 +411,8 @@ function completeJob(how = {}) {
     ['違反・事故', -j.fines],
   ];
   if (j.missPen) rows.push(['出口の通過', -j.missPen]);
+  if (j.fuelN) rows.push([`燃料代（給油 ${j.fuelN} 回）`, -j.fuelCost]);
+  if (j.rescue) rows.push(['救援', -j.rescue]);
   $('resRows').innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><span class="${v < 0 ? 'neg' : ''}">${v === 0 ? '—' : yen(v)}</span></div>`).join('') +
     `<div class="tot"><span>今回の利益</span><span>${yen(total)}</span></div>`;
   $('resRoute').textContent = `${j.a.jp} → ${j.b.jp}　${j.cargo} ${j.mass}t`;
@@ -432,6 +436,7 @@ $('nextBtn').addEventListener('click', async () => {
   if (GAME.jobIdx === 0 || h > 19.5 || h < 6) {
     const day = Math.floor(GAME.clock / 86400) + 1;
     GAME.clock = day * 86400 + (GAME.jobIdx === 0 ? 8.5 : 7.5) * 3600;
+    GAME.sleepy = 0; careSave();   // slept at home overnight
   }
   setupJob(GAME.jobIdx);
   GAME.state = 'loading';
@@ -519,6 +524,7 @@ function updateHud() {
   const pr = (id, v) => $(id).setAttribute('aria-pressed', String(!!v));
   pr('bCruise', TR.cruise); pr('bLights', GAME.lights); pr('bWiper', GAME.wiper); pr('bHazard', GAME.hazard);
   pr('tBlinkL', GAME.blink === -1); pr('tBlinkR', GAME.blink === 1);
+  careIcons();
   $('tGear').textContent = TR.dir === -1 ? 'R' : 'D';
   $('rotateHint').hidden = !(INP.usingTouch && innerHeight > innerWidth);
   const bc = $('bCouple'), auto = TR.link === 'free' && canAutoCouple();
@@ -530,9 +536,9 @@ function clusterState() {
   // an assist lamp: steady when the assists are switched off, flashing while that system is acting
   const lamp = on => (!GAME.assist ? 'on' : on ? 'flash' : 'off');
   return {
-    kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
+    kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn && TR.fuel > 0 ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
     lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
-    clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage,
+    clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage, fuelKm: fuelKm(TR.fuel), sleepy: GAME.sleepy,
     gcwText: gcwText(), link: TR.link,
     lamps: { abs: lamp(TR.assist.abs), esc: lamp(TR.assist.esc || TR.assist.rsc), tcs: lamp(TR.assist.tcs) },
     flashOn: performance.now() % 360 < 180,
@@ -818,10 +824,12 @@ function simTick(dt) {
     physicsAdvance(dt, { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: INP.steer });
     GAME.clock += dt * TIME_SCALE;
     gameLogic(dt);
+    careTick(dt);
     if (GAME.job) navUpdate(dt);
-    if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); }
+    if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); careSave(); }
   }
-  if (GAME.state !== 'menu' && GAME.state !== 'map') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }   // stopped behind the menu and the map
+  stopUpdate(); blinkUpdate(dt);
+  if (GAME.state !== 'menu' && GAME.state !== 'map' && GAME.state !== 'stop') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }   // stopped behind the menu and the map
   processEvents(dt);
   return driving;
 }
@@ -838,10 +846,11 @@ function frame(now) {
   for (const i of TOWN_MESH.keys()) townSignalsUpdate(i, GAME.clock / TIME_SCALE);
   updateVisuals(dt);
   updateCamera(dt);
+  saCanopyUpdate(activeCam);   // after the camera has moved
   setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));
   updateLighting(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
-  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
+  audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn && TR.fuel > 0, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
 
   if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, activeCam);
@@ -866,7 +875,8 @@ function frame(now) {
 function driveState() {
   const j = GAME.job;
   return { job: GAME.jobIdx, x: TR.x, z: TR.z, h: TR.h, v: TR.v, link: TR.link, trailer: { x: TR.tr.kx, z: TR.tr.kz, h: TR.tr.h },
-    clock: GAME.clock, money: GAME.money, damage: TR.damage, jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock } };
+    clock: GAME.clock, money: GAME.money, damage: TR.damage, fuel: TR.fuel, sleepy: GAME.sleepy,
+    jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock, fuelCost: j.fuelCost, fuelN: j.fuelN, rescue: j.rescue } };
 }
 function saveDrive() { if (GAME.state === 'drive' && GAME.job) lsSet('nlh.drive', driveState()); }
 function driveSaveOk(d) {
@@ -878,6 +888,10 @@ function driveSaveOk(d) {
 function loadDrive(d) {
   const j = GAME.job, free = d.link === 'free' || d.link === 'locking';
   Object.assign(j, d.jp); j.b = ICS[j.to]; j.whB = jobWh(j.to, j.toWh); TR.damage = d.damage;
+  for (const k of ['fuelCost', 'fuelN', 'rescue']) if (!(Number.isFinite(j[k]) && j[k] >= 0)) j[k] = 0;   // older saves have none
+  const unit = x => Number.isFinite(x) && x >= 0 && x <= 1;
+  if (unit(d.fuel)) TR.fuel = d.fuel;
+  if (unit(d.sleepy)) GAME.sleepy = d.sleepy;
   placeTruckAt(d.x, d.z, d.h, 0, { coupled: false });
   parkTrailerAt(d.trailer.x, d.trailer.z, d.trailer.h);
   if (!free) { rigCouple(); TR.link = 'coupled'; syncTR(); }   // coupled at the angle it was saved at
@@ -919,6 +933,7 @@ async function boot(data) {
   if (saved && d !== saved) lsSet('nlh.drive', null);
   if (d) { GAME.money = d.money; GAME.clock = d.clock; }
   applyTimeOfDay((GAME.clock / 3600) % 24, 0);
+  careLoad();
   setupJob(GAME.jobIdx);
   if (d) loadDrive(d);
   await preloadAround();
@@ -929,7 +944,7 @@ async function boot(data) {
 }
 try {
   window.claude?.hot?.snapshot?.(() => {
-    return GAME.state === 'drive' || GAME.state === 'menu' || GAME.state === 'map' ? { ...driveState(), state: GAME.state === 'drive' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
+    return GAME.state === 'drive' || GAME.state === 'menu' || GAME.state === 'map' || GAME.state === 'stop' ? { ...driveState(), state: GAME.state === 'drive' || GAME.state === 'stop' ? 'drive' : 'title' } : { job: GAME.jobIdx, state: 'title' };
   });
 } catch (e) { /* not in a viewer */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
