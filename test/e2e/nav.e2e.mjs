@@ -263,3 +263,14 @@ test('E3 全体地図：M で開くと時刻と周りの車が止まり、東名
     assert.deepEqual(errors, []);
   });
 });
+
+test('全体地図を開いたときの描画は 1 回 30 ms 以内', () => withGame({}, async page => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    __placeTown(2, -4.875, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
+    const t0 = performance.now(); mapOpen(); const open = performance.now() - t0; mapClose();
+    const cv = document.getElementById('mapCanvas'), t1 = performance.now(); for (let i = 0; i < 5; i++) drawMap(cv, navState()); return { open, each: (performance.now() - t1) / 5 };
+  });
+  assert.ok(r.open <= 30 && r.each <= 30, JSON.stringify(r));
+}));
