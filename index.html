@@ -61,6 +61,8 @@ body.touch .tb.only-touch{display:inline-block}
 #mapOv .mapbox{margin:auto;display:flex;flex-direction:column;gap:8px;width:min(960px,100%);max-height:100%}
 #mapCanvas{width:100%;aspect-ratio:4/3;max-height:calc(100vh - 90px);border-radius:10px;border:1px solid var(--stroke);background:#121b24;object-fit:contain}
 @media (max-width:1000px){#navCard{top:174px}}
+/* landscape with touch controls: the card goes in the middle, clear of the pads and pedals at the sides */
+@media (min-aspect-ratio:1/1){body.touch #navCard{left:50%;right:auto;transform:translateX(-50%)}}
 /* narrow screens: a long message would run into the destination sign, so the board drops below it */
 @media (max-width:1000px){#led{top:126px}}
 /* portrait: destination sign, then the buttons across the full width, then the message board */
@@ -1775,7 +1777,7 @@ const _NAV_DIR = { 'u+': [1, 0], 'v+': [0, 1], 'u-': [-1, 0], 'v-': [0, -1] };
 const _NAV_TEXT = {
   left: '左折', right: '右折', straight: '直進', gateLeft: '門は左', gateRight: '門は右', outLeft: '門を出て左', outRight: '門を出て右',
   plaza: '広場へ', arrive: '到着', etcIn: 'ETC 入口 20km/h 以下', etcOut: 'ETC 出口 20km/h 以下', ramp: '料金所 ETC は 20km/h 以下',
-  merge: '本線へ合流　右', exit: '出口　左', dock: '荷台口にバックで（+20%）', bay: '納品の枠へ',
+  merge: '本線へ合流　右', exit: '出口　左', dock: '荷台口にバックで（+20%）', bay: '納品の枠へ', wrongRamp: '目的地ではない出口です',
 };
 function navText(kind, name) { return kind === 'exitLane' ? `${name}IC 出口　左車線へ` : _NAV_TEXT[kind] || ''; }
 // The turn from direction a to direction b (unit vectors): 'left', 'right', 'straight', or null (back the way it came).
@@ -1940,12 +1942,31 @@ function navMatch(L, u, v, θ, prev) {
   return prev || null;
 }
 const _NAV_LEFTISH = { left: 1, gateLeft: 1, outLeft: 1, plaza: 1 }, _NAV_RIGHTISH = { right: 1, gateRight: 1, outRight: 1 };
+// Where `match` is along `route`: { k (which visit of its street piece), pos (route distance) }, or null. A route can
+// use a piece twice (from past a gate round the block and back to it): the first visit counts only from where it began.
+function _navPos(route, match) {
+  for (let k = 0; k < route.edges.length; k++) {
+    if (route.edges[k] !== match.edge || (k === 0 && match.d < -route.starts[0] - 0.5)) continue;
+    return { k, pos: route.starts[k] + match.d };
+  }
+  return null;
+}
+// The rest of `route` as town points: from `match` (or from the route's start) through the junctions to its end.
+function navRoutePoly(L, route, match) {
+  const E = navGraph(L).edges, at = match ? _navPos(route, match) : { k: 0, pos: 0 };
+  if (!at) return null;
+  const e0 = E[route.edges[at.k]], d = at.pos - route.starts[at.k], f = d / (e0.len || 1);
+  const pts = [[e0.a[0] + (e0.b[0] - e0.a[0]) * f, e0.a[1] + (e0.b[1] - e0.a[1]) * f]];
+  for (let i = at.k; i < route.edges.length - 1; i++) pts.push(E[route.edges[i]].b.slice());
+  pts.push(route.steps.at(-1).at.slice());
+  return pts;
+}
 // The next thing to do along `route` from `match`: { kind, dist, then, lanes }, or null when the rig is not on the route.
 function navGuide(L, route, match) {
   if (!route || !match) return null;
-  const k = route.edges.indexOf(match.edge);
-  if (k < 0) return null;
-  const pos = route.starts[k] + match.d, steps = route.steps;
+  const at = _navPos(route, match);
+  if (!at) return null;
+  const pos = at.pos, steps = route.steps;
   let i = 0;
   while (i < steps.length - 1 && steps[i].dist <= pos + 0.5) i++;
   const s = steps[i], last = i === steps.length - 1, dist = Math.max(0, s.dist - pos);
@@ -1982,7 +2003,11 @@ function navFollow(L, T, u, v, θ, dt) {
   if (!why || T.t - T.lastT < 3 || !m) return null;
   const r = navRoute(L, { edge: m.edge, d: m.d }, T.to);
   if (!r) return null;
-  T.route = r; T.lastT = T.t; T.offT = 0; T.backD = 0;
+  const at = _navPos(T.route, m), rest = at ? T.route.edges.slice(at.k) : null;   // what was still ahead on the old route
+  const same = !!rest && r.edges.length === rest.length && r.edges.every((e, i) => e === rest[i]);
+  T.lastT = T.t; T.offT = 0; T.backD = 0;
+  if (same) return null;   // off the streets (a yard, a dead end): the way from where it last was has not changed
+  T.route = r;
   return 'reroute';
 }
 
@@ -5731,9 +5756,11 @@ function drawMap(cv, st) {
   const dot = (u, v, col, r = 7) => { const p = P(u, v); g.fillStyle = col; g.beginPath(); g.arc(p[0], p[1], r, 0, TAU); g.fill(); };
   if (ti === j.from) dot(j.whA.gate.u, j.whA.gate.v, '#3fbf6f');
   if (ti === j.to) dot(j.whB.gate.u, j.whB.gate.v, '#2f9cff');
-  if (st.routePts && TR.town === ti) {
+  // the way: the rig's route in the town it is in; from the expressway, the destination town's way from the plaza
+  const pts = TR.zone === 'town' && TR.town === ti ? st.routePts : ti === j.to ? (() => { const r = navRoute(L, { plaza: true, start: true }, { gate: j.whB }); return r && navRoutePoly(L, r, null); })() : null;
+  if (pts && pts.length > 1) {
     g.strokeStyle = '#2f9cff'; g.lineWidth = Math.max(4, 8 * sc); g.lineCap = 'round'; g.beginPath();
-    st.routePts.forEach(([u, v], k) => { const p = P(u, v); k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.stroke();
+    pts.forEach(([u, v], k) => { const p = P(u, v); k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.stroke();
   }
   if (TR.zone === 'town' && TR.town === ti) {   // the rig, pointing the way it faces (town angle; v is drawn upward)
     const p = P(TR.tu, TR.tv), a = wrapA(TR.h - L.site.hu);
@@ -7667,6 +7694,7 @@ function navLeg() {
       if (u < y.u0 - 1 || u > y.u1 + 1 || v < y.v0 - 1 || v > y.v1 + 1) continue;
       if (TR.town === j.from && w.name === j.whA.name) return 'startYard';
       if (TR.town === j.to && w.name === j.whB.name) return 'destYard';
+      return 'yard';   // another company's yard: no route from here (the C1 guidance shows the way)
     }
     return Math.abs(u) <= 50 && v < 45 ? 'plaza' : 'town';
   }
@@ -7720,22 +7748,17 @@ function navManeuver() {
   if (leg === 'plaza') return mk(TR.tu >= 0 ? 'etcIn' : 'etcOut', null);   // the entrance path is on the u > 0 side
   if (leg === 'band') return mk('merge', null);
   const r = destRamp();
-  if (leg === 'exitRamp') return mk('ramp', Math.max(0, rampAt(TR.s).sEnd - TR.s) * SCALE);
+  if (leg === 'exitRamp') { const rr = rampAt(TR.s); return mk(rr.ic.i === j.to ? 'ramp' : 'wrongRamp', Math.max(0, rr.sEnd - TR.s) * SCALE); }
   if (TR.s >= r.sDiv - 160 && TR.s <= r.sDiv + r.uSep) return mk('exit', Math.max(0, r.sDiv - TR.s) * SCALE);
   if (TR.s >= r.sDiv - 700 && TR.s < r.sDiv - 160) return mk('exitLane', (r.sDiv - TR.s) * SCALE, null, [{ arrows: ['left', 'straight'], use: true }, { arrows: ['straight'], use: false }]);
   return null;
 }
-// The rest of the town route as town points, from the rig to the end.
+// The rest of the town route as town points, from the rig (or, in the start yard, from the gate) to the end.
 function navRoutePts() {
-  const T = NAV.T;
-  const TL = TOWNS_LOADED.get(TR.town);
-  if (NAV.leg !== 'town' || !T || !T.route || !T.match || !TL) return null;
-  const E = navGraph(TL.layout).edges, r = T.route, k = r.edges.indexOf(T.match.edge);
-  if (k < 0) return null;
-  const e0 = E[r.edges[k]], f = T.match.d / (e0.len || 1), pts = [[e0.a[0] + (e0.b[0] - e0.a[0]) * f, e0.a[1] + (e0.b[1] - e0.a[1]) * f]];
-  for (let i = k; i < r.edges.length - 1; i++) pts.push(E[r.edges[i]].b.slice());
-  pts.push(r.steps.at(-1).at.slice());
-  return pts;
+  const T = NAV.T, TL = TOWNS_LOADED.get(TR.town);
+  if (!T || !T.route || !TL) return null;
+  if (NAV.leg === 'startYard') return navRoutePoly(TL.layout, T.route, null);
+  return NAV.leg === 'town' && T.match ? navRoutePoly(TL.layout, T.route, T.match) : null;
 }
 function navState() {
   const j = GAME.job;

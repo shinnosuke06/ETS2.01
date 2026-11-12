@@ -524,6 +524,7 @@ function navLeg() {
       if (u < y.u0 - 1 || u > y.u1 + 1 || v < y.v0 - 1 || v > y.v1 + 1) continue;
       if (TR.town === j.from && w.name === j.whA.name) return 'startYard';
       if (TR.town === j.to && w.name === j.whB.name) return 'destYard';
+      return 'yard';   // another company's yard: no route from here (the C1 guidance shows the way)
     }
     return Math.abs(u) <= 50 && v < 45 ? 'plaza' : 'town';
   }
@@ -577,22 +578,17 @@ function navManeuver() {
   if (leg === 'plaza') return mk(TR.tu >= 0 ? 'etcIn' : 'etcOut', null);   // the entrance path is on the u > 0 side
   if (leg === 'band') return mk('merge', null);
   const r = destRamp();
-  if (leg === 'exitRamp') return mk('ramp', Math.max(0, rampAt(TR.s).sEnd - TR.s) * SCALE);
+  if (leg === 'exitRamp') { const rr = rampAt(TR.s); return mk(rr.ic.i === j.to ? 'ramp' : 'wrongRamp', Math.max(0, rr.sEnd - TR.s) * SCALE); }
   if (TR.s >= r.sDiv - 160 && TR.s <= r.sDiv + r.uSep) return mk('exit', Math.max(0, r.sDiv - TR.s) * SCALE);
   if (TR.s >= r.sDiv - 700 && TR.s < r.sDiv - 160) return mk('exitLane', (r.sDiv - TR.s) * SCALE, null, [{ arrows: ['left', 'straight'], use: true }, { arrows: ['straight'], use: false }]);
   return null;
 }
-// The rest of the town route as town points, from the rig to the end.
+// The rest of the town route as town points, from the rig (or, in the start yard, from the gate) to the end.
 function navRoutePts() {
-  const T = NAV.T;
-  const TL = TOWNS_LOADED.get(TR.town);
-  if (NAV.leg !== 'town' || !T || !T.route || !T.match || !TL) return null;
-  const E = navGraph(TL.layout).edges, r = T.route, k = r.edges.indexOf(T.match.edge);
-  if (k < 0) return null;
-  const e0 = E[r.edges[k]], f = T.match.d / (e0.len || 1), pts = [[e0.a[0] + (e0.b[0] - e0.a[0]) * f, e0.a[1] + (e0.b[1] - e0.a[1]) * f]];
-  for (let i = k; i < r.edges.length - 1; i++) pts.push(E[r.edges[i]].b.slice());
-  pts.push(r.steps.at(-1).at.slice());
-  return pts;
+  const T = NAV.T, TL = TOWNS_LOADED.get(TR.town);
+  if (!T || !T.route || !TL) return null;
+  if (NAV.leg === 'startYard') return navRoutePoly(TL.layout, T.route, null);
+  return NAV.leg === 'town' && T.match ? navRoutePoly(TL.layout, T.route, T.match) : null;
 }
 function navState() {
   const j = GAME.job;

@@ -133,10 +133,11 @@ test('N5 探し直し：ルートにない道に入る・逆向きに 15 m・20 
   // the wrong way along the route's street, south on Main A from v = 200: after 15 m
   T = tracker(base, to); hits = follow(A, T, line(-4.875, 200, -4.875, 170, 60, -Math.PI / 2));
   assert.ok(hits.length === 1 && hits[0] >= 30 && hits[0] <= 34, `wrong way: ${hits}`); assert.ok(arrives(T.route));
-  // 20 m and more from the route (inside a block) for 2 s
+  // 20 m and more from the route (inside a block) for 2 s, with no street under the rig: the route from where it last was
+  // is the same one, so nothing is announced (not every 3 s, as a yard or a dead end would otherwise get)
   T = tracker(base, to); follow(A, T, [[-4.875, 150, Math.PI / 2]]);
-  hits = follow(A, T, Array.from({ length: 200 }, () => [-45, 150, Math.PI / 2]), 1 / 60);
-  assert.ok(hits.length === 1 && hits[0] >= 118 && hits[0] <= 121, `after 2 s off the route: ${hits}`);   // 120 samples of 1/60 s (floating sums)
+  hits = follow(A, T, Array.from({ length: 600 }, () => [-45, 150, Math.PI / 2]), 1 / 60);
+  assert.deepEqual(hits, [], `off the route for 10 s: ${hits}`);
 });
 
 test('交差点を曲がるあいだは探し直さない', () => {
@@ -157,3 +158,35 @@ test('門を出る向きを間違えても、U ターンなしで探し直す', 
   const r = T.route; assert.equal(r.steps.at(-1).kind, 'plaza');
   for (let k = 1; k < r.edges.length; k++) { const a = G.edges[r.edges[k - 1]], b = G.edges[r.edges[k]]; assert.ok(!(a.from === b.to && a.to === b.from), 'no U-turn'); }
 });
+
+test('同じ道を 2 度使うルート（門を通り過ぎてから街区を回って戻る）では、2 度目に通るとき門までの案内になる', () => {
+  let found = 0;
+  for (let i = 0; i < 13 && found < 3; i++) {
+    const L = SIM.townLayout(i), G = SIM.navGraph(L);
+    for (const w of L.warehouses) for (const e of G.edges) {
+      if (e.street !== w.street) continue;
+      const k = L.streets[e.street].axis === 'v' ? 1 : 0, t = Math.abs((k ? w.gate.v : w.gate.u) - e.a[k]);
+      if (t > e.len || t + 15 > e.len - 1 || t < 25) continue;
+      const r = SIM.navRoute(L, { edge: e.id, d: t + 15 }, { gate: w });   // 15 m past the gate
+      if (!r || r.edges.indexOf(e.id) === r.edges.lastIndexOf(e.id)) continue;
+      found++;
+      const g = SIM.navGuide(L, r, { edge: e.id, d: t - 20, off: 0 });   // back on it, 20 m before the gate
+      assert.ok(g && /^gate/.test(g.kind) && Math.abs(g.dist - 20) < 1, `${L.site.ic.jp} ${w.name}: ${JSON.stringify(g)}`);
+      const pts = SIM.navRoutePoly(L, r, { edge: e.id, d: t - 20 });
+      assert.ok(pts.length === 2 && Math.hypot(pts[1][0] - r.steps.at(-1).at[0], pts[1][1] - r.steps.at(-1).at[1]) < 0.01, `the line: ${JSON.stringify(pts)}`);
+    }
+  }
+  assert.ok(found > 0, 'a route that uses a street piece twice');
+});
+
+test('ルートの線の点：広場から、門から、走っている位置から、終わりの所まで', () => {
+  const A = SIM.townLayout(2), w = A.warehouses[1];
+  const go = SIM.navRoute(A, { plaza: true, start: true }, { gate: w }), pg = SIM.navRoutePoly(A, go, null);
+  assert.deepEqual(pg[0].map(Math.round), [0, 45]); assert.deepEqual(pg.at(-1).map(x => Math.round(x * 100) / 100), go.steps.at(-1).at.map(x => Math.round(x * 100) / 100));
+  const out = SIM.navRoute(A, { gate: w }, { plaza: true }), po = SIM.navRoutePoly(A, out, null);
+  assert.deepEqual(po[0].map(x => Math.round(x * 100) / 100), out.steps[0].at.map(x => Math.round(x * 100) / 100)); assert.deepEqual(po.at(-1).map(Math.round), [0, 45]);
+  const pm = SIM.navRoutePoly(A, go, { edge: go.edges[0], d: 30 });
+  assert.deepEqual(pm[0].map(Math.round), [0, 75]);
+});
+
+test('目的地でない出口ランプの文', () => { assert.equal(SIM.navText('wrongRamp'), '目的地ではない出口です'); });

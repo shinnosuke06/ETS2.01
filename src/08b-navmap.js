@@ -68,9 +68,11 @@ function drawMap(cv, st) {
   const dot = (u, v, col, r = 7) => { const p = P(u, v); g.fillStyle = col; g.beginPath(); g.arc(p[0], p[1], r, 0, TAU); g.fill(); };
   if (ti === j.from) dot(j.whA.gate.u, j.whA.gate.v, '#3fbf6f');
   if (ti === j.to) dot(j.whB.gate.u, j.whB.gate.v, '#2f9cff');
-  if (st.routePts && TR.town === ti) {
+  // the way: the rig's route in the town it is in; from the expressway, the destination town's way from the plaza
+  const pts = TR.zone === 'town' && TR.town === ti ? st.routePts : ti === j.to ? (() => { const r = navRoute(L, { plaza: true, start: true }, { gate: j.whB }); return r && navRoutePoly(L, r, null); })() : null;
+  if (pts && pts.length > 1) {
     g.strokeStyle = '#2f9cff'; g.lineWidth = Math.max(4, 8 * sc); g.lineCap = 'round'; g.beginPath();
-    st.routePts.forEach(([u, v], k) => { const p = P(u, v); k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.stroke();
+    pts.forEach(([u, v], k) => { const p = P(u, v); k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.stroke();
   }
   if (TR.zone === 'town' && TR.town === ti) {   // the rig, pointing the way it faces (town angle; v is drawn upward)
     const p = P(TR.tu, TR.tv), a = wrapA(TR.h - L.site.hu);

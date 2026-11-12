@@ -6,7 +6,7 @@ const NAMES = ['TAU', 'clamp', 'lerp', 'damp', 'wrapA', 'rng', 'S0', 'DS', 'X_TR
   'posAt', 'project', 'elevAt', 'gradeAt', 'headingAt', 'drivable', 'rampAt', 'ROAD', 'roadBarrier', 'GROUND',
   'ENTRIES', 'entryEdges', 'entryAt', 'soundWallAt', 'SIGNS', 'rampEdges', 'TOWN_SITES', 'townSite', 'townUV', 'townXZ', 'townInside', 'townLayout', 'townLimitAt', 'townGraphDistance', 'townPlazaPoint', 'townGroundBlend', 'townHeight', 'TCELL',
   'townLoad', 'townUnload', 'TOWNS_LOADED', 'townCellAt', 'townGrid', 'townGridSteps', 'townFallbackLayout', 'TOWN_U0', 'TOWN_V0', 'TOWN_CELL', 'TOWN_NU', 'TOWN_NV', 'placeTruckAt', 'parkTrailerAt', 'routeHint',
-  'signalState', 'townIdm', 'townCarsInit', 'townCarsStep', 'townCarPose', 'townPlayerBoxes', 'townRedLight', 'dockCheck', 'bayCheck', 'resolveBoxContact', 'townNearestLane', '_townIndex', 'navGraph', 'navRoute', 'navText', 'NAV_TURN', 'NAV_SIDE', 'navMatch', 'navGuide', 'navFollow',
+  'signalState', 'townIdm', 'townCarsInit', 'townCarsStep', 'townCarPose', 'townPlayerBoxes', 'townRedLight', 'dockCheck', 'bayCheck', 'resolveBoxContact', 'townNearestLane', '_townIndex', 'navGraph', 'navRoute', 'navText', 'NAV_TURN', 'NAV_SIDE', 'navMatch', 'navGuide', 'navFollow', 'navRoutePoly',
   'EVENTS', 'GEARS', 'VMAX', 'engineTorque', 'startGear', 'powertrainStep',
   'MU', 'RIGP', 'RIG', 'rigSetTrailer', 'rigPlace', 'rigParkTrailer', 'rigStep', 'rigPose', 'rigApplyImpulse', 'rigAxleLoads', 'rigSteerLimit',
   'TRAILERS', 'TR', 'steerLock', 'setRigTrailer', 'placeTruck', 'parkTrailer', 'stepTruck', 'physicsAdvance',

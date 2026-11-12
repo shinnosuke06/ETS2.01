@@ -138,12 +138,16 @@ test('E5 高速：目的の出口の 2km の標識から「左車線へ」と 2 
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
     const r2 = RAMPS.find(x => x.ic.i === 2), at = (s, lat) => { placeTruck(s, lat, 0, { coupled: true }); for (let i = 0; i < 5; i++) simTick(1 / 60); const st = navState(); return { kind: st.maneuver && st.maneuver.kind, text: st.guide, lanes: st.maneuver && st.maneuver.lanes && st.maneuver.lanes.map(l => l.use), card: st.card }; };
     const en = ENTRIES[0];
-    return { far: at(r2.sDiv - 1500, X_TRV), lane: at(r2.sDiv - 650, X_TRV), exit: at(r2.sDiv - 100, X_TRV), band: at(en.s0 + 120, entryEdges(120).cx) };
+    const r1 = RAMPS.find(x => x.ic.i === 1);   // 横浜町田: not job 1's destination
+    return { far: at(r2.sDiv - 1500, X_TRV), lane: at(r2.sDiv - 650, X_TRV), exit: at(r2.sDiv - 100, X_TRV), band: at(en.s0 + 120, entryEdges(120).cx),
+      wrong: at(r1.sDiv + 450, rampEdges(450).cx), right: at(r2.sDiv + 450, rampEdges(450).cx) };
   });
   assert.equal(r.far.card, false, JSON.stringify(r));
   assert.deepEqual([r.lane.kind, r.lane.text, r.lane.lanes, r.lane.card], ['exitLane', '厚木IC 出口　左車線へ', [true, false], true]);
   assert.deepEqual([r.exit.kind, r.exit.text, r.exit.card], ['exit', '出口　左', true]);
   assert.deepEqual([r.band.kind, r.band.text, r.band.card], ['merge', '本線へ合流　右', true]);
+  assert.deepEqual([r.wrong.kind, r.wrong.text, r.wrong.card], ['wrongRamp', '目的地ではない出口です', true], 'a ramp that is not the destination');
+  assert.deepEqual([r.right.kind, r.right.text], ['ramp', '料金所 ETC は 20km/h 以下']);
 }));
 
 test('目的地が変わるとルートの終わりも変わる', () => withGame({}, async page => {
@@ -184,11 +188,13 @@ test('町の道から外れて道探しができない所では仮の案内（�
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
     // Atsugi as it is: in the yard of the other warehouse (not a street, not the destination)
     const w0 = townLayout(2).warehouses[0], y = w0.yard;
-    __placeTown(2, (y.u0 + y.u1) / 2, (y.v0 + y.v1) / 2, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
-    const st = navState(), out = { off: { guide: st.guide, maneuver: st.maneuver, leg: NAV.leg, name: GAME.job.whB.name } };
+    __placeTown(2, -4.875, 150, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);   // on Main A first, as if it drove in
+    __placeTown(2, (y.u0 + y.u1) / 2, (y.v0 + y.v1) / 2, 0, 1, 0); for (let i = 0; i < 10; i++) simTick(1 / 60);
+    let reroutes = 0; for (let i = 0; i < 600; i++) { simTick(1 / 60); if (NAV.msgT > 1.99) reroutes++; }   // 10 s standing there
+    const st = navState(), out = { off: { guide: st.guide, maneuver: st.maneuver, leg: NAV.leg, name: GAME.job.whB.name, reroutes } };
     return out;
   });
-  assert.equal(r.off.leg, 'town', JSON.stringify(r)); assert.equal(r.off.maneuver, null);
+  assert.equal(r.off.leg, 'yard', JSON.stringify(r)); assert.equal(r.off.maneuver, null); assert.equal(r.off.reroutes, 0, 'no new route announced in another yard');
   assert.match(r.off.guide, new RegExp('^' + r.off.name + 'まで \\d*0 m$'), JSON.stringify(r));
   const f = await page.evaluate(async () => {
     // Atsugi as the plain yard a failed build falls back to (no streets, no docks): the bay
@@ -221,9 +227,12 @@ test('E2 小さな札：スマホの縦・横で、ボタン・目的地の札�
       const box = el => { const q = el.getBoundingClientRect(); return { x: q.left, y: q.top, r: q.right, b: q.bottom, w: q.width, h: q.height }; };
       const card = document.getElementById('navCard');
       return { hidden: card.hidden, card: box(card), text: card.textContent, sign: box(document.getElementById('jobSign')), led: box(document.getElementById('led')),
-        buttons: [...document.querySelectorAll('#topbar .tb')].filter(b => !b.hidden).map(b => ({ name: b.textContent, ...box(b) })) };
+        buttons: [...document.querySelectorAll('#topbar .tb')].filter(b => !b.hidden).map(b => ({ name: b.textContent, ...box(b) })),
+        pads: ['blinkPad', 'wheelPad', 'gearPad', 'pedalPad', 'speedo'].map(id => ({ name: id, ...box(document.getElementById(id)) })).filter(b => b.w > 0) };
     });
     const hits = (a, b) => a.x < b.r - 1 && b.x < a.r - 1 && a.y < b.b - 1 && b.y < a.b - 1, tag = `${width}x${height}`;
+    assert.ok(r.pads.length >= 4, `${tag}: the touch controls are shown`);
+    for (const b of r.pads) assert.ok(!hits(r.card, b), `${tag}: the card overlaps ${b.name} ${JSON.stringify([r.card, b])}`);
     assert.equal(r.hidden, false, tag); assert.ok(r.card.w > 60 && r.card.h > 30, `${tag} ${JSON.stringify(r.card)}`); assert.match(r.text, /門は左/);
     assert.ok(r.card.x >= 0 && r.card.r <= width && r.card.y >= 0 && r.card.b <= height, `${tag}: the card is off screen ${JSON.stringify(r.card)}`);
     assert.ok(!hits(r.card, r.sign) && !hits(r.card, r.led), `${tag}: the card overlaps the sign or the board ${JSON.stringify(r)}`);
@@ -273,4 +282,20 @@ test('全体地図を開いたときの描画は 1 回 30 ms 以内', () => with
     const cv = document.getElementById('mapCanvas'), t1 = performance.now(); for (let i = 0; i < 5; i++) drawMap(cv, navState()); return { open, each: (performance.now() - t1) / 5 };
   });
   assert.ok(r.open <= 30 && r.each <= 30, JSON.stringify(r));
+}));
+
+test('構内でも青いルートが出る（出発の構内では門から）。高速にいるときの全体地図には、目的の町の広場から門までのルートが青く描かれる', () => withGame({}, async page => {
+  await startJob(page);
+  const r = await page.evaluate(async () => {
+    INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
+    const yard = { leg: NAV.leg, pts: (navState().routePts || []).length };
+    placeTruck(S0 + 1500, X_TRV, 0, { coupled: true }); for (let i = 0; i < 10; i++) simTick(1 / 60);
+    mapOpen(); await __t.frames(2);
+    const cv = document.getElementById('mapCanvas'), g = cv.getContext('2d'), top = Math.round(cv.height * 0.24) + 20, px = g.getImageData(0, top, cv.width, cv.height - top).data;
+    let blue = 0; for (let i = 0; i < px.length; i += 4) if (px[i] === 47 && px[i + 1] === 156 && px[i + 2] === 255) blue++;
+    mapClose();
+    return { yard, blue };
+  });
+  assert.equal(r.yard.leg, 'startYard'); assert.ok(r.yard.pts >= 2, JSON.stringify(r));
+  assert.ok(r.blue > 200, `blue route in the destination town on the map: ${r.blue}`);
 }));

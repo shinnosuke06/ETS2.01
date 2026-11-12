@@ -61,6 +61,8 @@ body.touch .tb.only-touch{display:inline-block}
 #mapOv .mapbox{margin:auto;display:flex;flex-direction:column;gap:8px;width:min(960px,100%);max-height:100%}
 #mapCanvas{width:100%;aspect-ratio:4/3;max-height:calc(100vh - 90px);border-radius:10px;border:1px solid var(--stroke);background:#121b24;object-fit:contain}
 @media (max-width:1000px){#navCard{top:174px}}
+/* landscape with touch controls: the card goes in the middle, clear of the pads and pedals at the sides */
+@media (min-aspect-ratio:1/1){body.touch #navCard{left:50%;right:auto;transform:translateX(-50%)}}
 /* narrow screens: a long message would run into the destination sign, so the board drops below it */
 @media (max-width:1000px){#led{top:126px}}
 /* portrait: destination sign, then the buttons across the full width, then the message board */

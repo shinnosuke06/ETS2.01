@@ -10,7 +10,7 @@ const _NAV_DIR = { 'u+': [1, 0], 'v+': [0, 1], 'u-': [-1, 0], 'v-': [0, -1] };
 const _NAV_TEXT = {
   left: '左折', right: '右折', straight: '直進', gateLeft: '門は左', gateRight: '門は右', outLeft: '門を出て左', outRight: '門を出て右',
   plaza: '広場へ', arrive: '到着', etcIn: 'ETC 入口 20km/h 以下', etcOut: 'ETC 出口 20km/h 以下', ramp: '料金所 ETC は 20km/h 以下',
-  merge: '本線へ合流　右', exit: '出口　左', dock: '荷台口にバックで（+20%）', bay: '納品の枠へ',
+  merge: '本線へ合流　右', exit: '出口　左', dock: '荷台口にバックで（+20%）', bay: '納品の枠へ', wrongRamp: '目的地ではない出口です',
 };
 function navText(kind, name) { return kind === 'exitLane' ? `${name}IC 出口　左車線へ` : _NAV_TEXT[kind] || ''; }
 // The turn from direction a to direction b (unit vectors): 'left', 'right', 'straight', or null (back the way it came).
@@ -175,12 +175,31 @@ function navMatch(L, u, v, θ, prev) {
   return prev || null;
 }
 const _NAV_LEFTISH = { left: 1, gateLeft: 1, outLeft: 1, plaza: 1 }, _NAV_RIGHTISH = { right: 1, gateRight: 1, outRight: 1 };
+// Where `match` is along `route`: { k (which visit of its street piece), pos (route distance) }, or null. A route can
+// use a piece twice (from past a gate round the block and back to it): the first visit counts only from where it began.
+function _navPos(route, match) {
+  for (let k = 0; k < route.edges.length; k++) {
+    if (route.edges[k] !== match.edge || (k === 0 && match.d < -route.starts[0] - 0.5)) continue;
+    return { k, pos: route.starts[k] + match.d };
+  }
+  return null;
+}
+// The rest of `route` as town points: from `match` (or from the route's start) through the junctions to its end.
+function navRoutePoly(L, route, match) {
+  const E = navGraph(L).edges, at = match ? _navPos(route, match) : { k: 0, pos: 0 };
+  if (!at) return null;
+  const e0 = E[route.edges[at.k]], d = at.pos - route.starts[at.k], f = d / (e0.len || 1);
+  const pts = [[e0.a[0] + (e0.b[0] - e0.a[0]) * f, e0.a[1] + (e0.b[1] - e0.a[1]) * f]];
+  for (let i = at.k; i < route.edges.length - 1; i++) pts.push(E[route.edges[i]].b.slice());
+  pts.push(route.steps.at(-1).at.slice());
+  return pts;
+}
 // The next thing to do along `route` from `match`: { kind, dist, then, lanes }, or null when the rig is not on the route.
 function navGuide(L, route, match) {
   if (!route || !match) return null;
-  const k = route.edges.indexOf(match.edge);
-  if (k < 0) return null;
-  const pos = route.starts[k] + match.d, steps = route.steps;
+  const at = _navPos(route, match);
+  if (!at) return null;
+  const pos = at.pos, steps = route.steps;
   let i = 0;
   while (i < steps.length - 1 && steps[i].dist <= pos + 0.5) i++;
   const s = steps[i], last = i === steps.length - 1, dist = Math.max(0, s.dist - pos);
@@ -217,6 +236,10 @@ function navFollow(L, T, u, v, θ, dt) {
   if (!why || T.t - T.lastT < 3 || !m) return null;
   const r = navRoute(L, { edge: m.edge, d: m.d }, T.to);
   if (!r) return null;
-  T.route = r; T.lastT = T.t; T.offT = 0; T.backD = 0;
+  const at = _navPos(T.route, m), rest = at ? T.route.edges.slice(at.k) : null;   // what was still ahead on the old route
+  const same = !!rest && r.edges.length === rest.length && r.edges.every((e, i) => e === rest[i]);
+  T.lastT = T.t; T.offT = 0; T.backD = 0;
+  if (same) return null;   // off the streets (a yard, a dead end): the way from where it last was has not changed
+  T.route = r;
   return 'reroute';
 }
