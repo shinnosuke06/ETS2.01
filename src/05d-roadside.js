@@ -168,7 +168,7 @@ function nightUpdate() {
     NIGHT_U.uLit.value = GAME.lampsOn ? clamp(dark * 1.5, 0, 1) : 0;
     const f = 5.6; NIGHT_U.uCar.value.set(TR.x + Math.sin(TR.h) * f, TR.y + 1, TR.z + Math.cos(TR.h) * f); NIGHT_U.uDir.value.set(Math.sin(TR.h), Math.cos(TR.h));
     RS_MAT.lampHead.color.copy(_lc0).lerp(_lc1, smooth(0.05, 0.6, night));
-    RS_MAT.pool.opacity = night * 0.42; RS_MAT.pool.visible = night > 0.02;
+    RS_MAT.pool.opacity = night * 0.5; RS_MAT.pool.visible = night > 0.02;
     RS_MAT.reflector.color.setScalar(lerp(0.85, 0.1, night));
     carLightsUpdate(dark);
   } catch (e) {

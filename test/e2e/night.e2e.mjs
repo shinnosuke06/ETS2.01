@@ -29,12 +29,15 @@ window.__darkS = () => { for (let s = S0 + 2000; s < ROUTE_END - 2000; s += 50) 
 test('E6 夜：IC の近くの路面は山の中の路面より明るい（明るさの差 12 以上）', () => withGame({}, async (page, errors) => {
   await startJob(page); await driveHelpers(page); await page.evaluate(LOOK);
   const ic = await page.evaluate(() => RAMPS.find(r => r.ic.i === 4).sDiv - 40);
-  await atNight(page, ic + 300, -7.65);
-  const lit = await page.evaluate(s => __look(s - 30, -7, 14, s + 30, -7, [0.3, 0.2, 0.7, 0.6]), ic);
+  await atNight(page, ic + 300, -7.65);   // the rig well past, so its own lights are not in the picture
+  // looking down from 14 m at the road under a lamp on the left (its pool: 1.5 m inside the arm's tip)
+  const lamp = await page.evaluate(s => lampsIn(s - 60, s + 60).find(l => l.lat < 0 && l.kind === 'ic'), ic);
+  const at = (s, lat) => page.evaluate(([s, lat]) => __look(s, lat, 14, s + 0.5, lat, [0.4, 0.4, 0.6, 0.6]), [s, lat]);
+  const lit = await at(lamp.s, lamp.armLat + 1.5);
   const dark = await page.evaluate(() => __darkS());
   assert.ok(dark, 'a dark stretch');
   await atNight(page, dark + 300, -7.65);
-  const unlit = await page.evaluate(s => __look(s - 30, -7, 14, s + 30, -7, [0.3, 0.2, 0.7, 0.6]), dark);
+  const unlit = await at(dark, lamp.armLat + 1.5);
   assert.ok(lit.mean - unlit.mean >= 12, JSON.stringify({ lit, unlit }));
   assert.deepEqual(errors, []);
 }));
