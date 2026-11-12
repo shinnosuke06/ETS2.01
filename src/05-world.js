@@ -28,12 +28,15 @@ function leftInner(s) {
   if (r) return Math.max(ROAD_IN, -rampEdges(s - r.sDiv).xl);
   const en = entryAt(s);
   if (en) return Math.max(ROAD_IN, -entryEdges(s - en.s0).xl);   // beyond the entrance band
+  const sx = saExitAt(s); if (sx) return Math.max(ROAD_IN, -saExitEdges(s - sx.sDiv).xl);   // beyond a service area's lanes
+  const sn = saEntryAt(s); if (sn) return Math.max(ROAD_IN, -saEntryEdges(s - sn.sLot1).xl);
   return ROAD_IN;
 }
 // The left post of a sign gantry: at the usual -13.1, or a metre beyond an entrance band's outer edge.
 function gantryLeftX(s) {
-  const en = entryAt(s);
-  return en ? Math.min(-13.1, entryEdges(s - en.s0).xl - 1.0) : -13.1;
+  const en = entryAt(s), sx = en ? null : saExitAt(s), sn = en || sx ? null : saEntryAt(s);
+  const e = en ? entryEdges(s - en.s0) : sx ? saExitEdges(s - sx.sDiv) : sn ? saEntryEdges(s - sn.sLot1) : null;
+  return e ? Math.min(-13.1, e.xl - 1.0) : -13.1;
 }
 
 const _tp = {};
@@ -52,6 +55,8 @@ function terrainY(s, x, d, side) {
   if (w > 0) y = lerp(y, Math.min(y, -5 + (n2 - 0.5) * 3), w * smooth(6, 30, d));
   const tb = townGroundBlend(s, x);   // give way to a town's ground (just under it)
   if (tb.w > 0) y = lerp(y, tb.y - 0.3, tb.w);
+  const sb = saGroundBlend(s, x);     // and to a service area's
+  if (sb.w > 0) y = lerp(y, sb.y - 0.3, sb.w);
   return y;
 }
 
@@ -281,6 +286,7 @@ function railRuns(ctx, side) {
     if (s > ROUTE_END) return false;
     if (side < 0) { const r = rampAt(s + 2) || rampAt(s - 2); if (r) { const u = s - r.sDiv; if (u > -6 && u < r.uSep + 14) return false; } }
     if (side < 0) { const e = entryAt(s + 2) || entryAt(s - 2); if (e) { const u = s - e.s0; if (u > e.uJoin - 14 && u < ENTRY_LEN + 6) return false; } }   // the acceleration lane
+    if (side < 0) { const a = saAt(s + 2) || saAt(s - 2); if (a) { const u = s - a.sDiv; if ((u > -6 && u < a.uSep + 14) || (u > SA_LOT1 + a.uJoin - 14 && u < SA_LEN + 6)) return false; } }   // a service area's lanes
     return true;
   });
 }
@@ -360,7 +366,7 @@ function buildTrees(ctx) {
     const w = waterAt(s, side);
     if (w > 0.2 && d > 10) continue;
     if (d < 15 && tunnelAt(s, 6)) continue;
-    if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townKeepOut(s + a, x + b))) continue;   // the town has its own street trees
+    if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns and service areas have their own trees
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 6, d + 6, side);
     const slope = Math.abs(y2 - y) / 6;
@@ -406,7 +412,7 @@ function buildHouses(ctx) {
     const inner = side < 0 ? leftInner(s) : ROAD_IN;
     const x = side * (inner + d);
     const hw = Math.hypot(w, dd) / 2 + 1;   // half the diagonal: clear at any turn
-    if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townKeepOut(s + a, x + b))) continue;   // towns place their own buildings
+    if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns place their own buildings
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 8, d + 8, side);
     if (Math.abs(y2 - y) > 2.5) continue;
@@ -596,6 +602,47 @@ function buildRamps(ctx) {
     }
   }
   buildEntries(ctx);
+  buildSaLanes(ctx);
+}
+// A service area's deceleration and acceleration lanes (the car park itself is the service area's own mesh).
+function buildSaLanes(ctx) {
+  const { O, i0, i1, s0, s1 } = ctx, E = {};
+  for (const a of SAS) {
+    if (a.sEnd < s0 || a.sDiv > s1) continue;
+    const lane = (base, u0, u1, edges, matA, matB, uSplit) => {   // the lane's pavement from u0 to u1 (u from base)
+      const f = Math.max(i0, Math.ceil((base + u0) / DS)), t = Math.min(i1, Math.floor((base + u1) / DS));
+      if (t <= f) return;
+      const xl = (i, s) => edges(s - base, E).xl, xr = (i, s) => edges(s - base, E).xr;
+      const uFn = (i, s, x0, x1) => { const e = edges(s - base, E), b = e.cx - 2.8; return [(x0 - b) / 5, (x1 - b) / 5]; };
+      const iSplit = Math.round((base + uSplit) / DS);
+      for (const [ff, tt, mat] of [[f, Math.min(t, iSplit), matA], [Math.max(f, iSplit), t, matB]]) if (tt > ff) addMesh(ctx, stripGeo(O, ff, tt, xl, xr, { y: 0.015, uFn, vScale: 24 }), mat, { receive: true });
+    };
+    const strip = (base, u0, u1, a0, b0, mat, y, sc) => {
+      const f = Math.max(i0, Math.ceil((base + u0) / DS)), t = Math.min(i1, Math.floor((base + u1) / DS));
+      if (t > f) addMesh(ctx, stripGeo(O, f, t, a0, b0, { y, uFn: (i, s, x0, x1) => [x0 / sc, x1 / sc], vScale: sc }), mat, { receive: true });
+    };
+    const rail = (base, u0, u1, edges) => {
+      const f = Math.max(i0, Math.ceil((base + u0) / DS)), t = Math.min(i1, Math.floor((base + u1) / DS));
+      if (t > f) addMesh(ctx, sweepGeo(O, f, t, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => edges(s - base, E).xl, vScale: 4 }), MAT.guard);
+    };
+    const drum = sn => {
+      if (sn < s0 || sn >= s1) return;
+      const c = localPt(O, sn, X_PAVE - 1.2, 0), d = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.95, 14).translate(0, 0.475, 0), MAT.drum);
+      d.position.set(c.x, c.y, c.z); ctx.grp.add(d);
+    };
+    // out: the lane, the zebra gore where it leaves the travel lane, grass up to the car park, the outer guardrail
+    lane(a.sDiv, 0, SA_LOT0 + 6, saExitEdges, MAT.rampA, MAT.rampB, a.uSep + 6);
+    strip(a.sDiv, 100, a.uSep + 4, (i, s) => Math.min(saExitEdges(s - a.sDiv, E).xr, X_EDGE - 0.12), X_EDGE - 0.12, MAT.zebra, 0.03, 3);
+    strip(a.sDiv, a.uSep, SA_LOT0, (i, s) => saExitEdges(s - a.sDiv, E).xr + 0.05, X_PAVE, MAT.grassFill, 0.0, 6);
+    rail(a.sDiv, 110, SA_LOT0 - 15, saExitEdges);
+    drum(a.sDiv + a.uSep + 8);
+    // back in: the lane, grass beside it, the zebra where it meets the travel lane, the outer guardrail where it narrows
+    lane(a.sLot1, -6, SA_LEN - SA_LOT1, saEntryEdges, MAT.rampB, MAT.rampA, a.uJoin - 6);
+    strip(a.sLot1, 0, a.uJoin, (i, s) => saEntryEdges(s - a.sLot1, E).xr + 0.05, X_PAVE, MAT.grassFill, 0.0, 6);
+    strip(a.sLot1, a.uJoin - 4, 100, (i, s) => Math.min(saEntryEdges(s - a.sLot1, E).xr, X_EDGE - 0.12), X_EDGE - 0.12, MAT.zebra, 0.03, 3);
+    rail(a.sLot1, 15, 175, saEntryEdges);
+    drum(a.sLot1 + a.uJoin - 8);
+  }
 }
 // Entrance ramps: from the town's plaza at lat -40 over to the travel lane, then an acceleration lane.
 function buildEntries(ctx) {
@@ -651,6 +698,19 @@ function signBoard(w, h, mat) {
   const back = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.05), MAT.signBack);
   g.add(back);
   return g;
+}
+// The service area marks on its signs: fuel, food, toilets, as white squares with dark pictures (n: how many).
+function saIcons(g, x, y, size, n = 3) {
+  const draw = [
+    (cx, cy, r) => { g.fillRect(cx - r * 0.45, cy - r * 0.55, r * 0.6, r * 1.1); g.fillRect(cx + 0.2 * r, cy - r * 0.35, r * 0.28, r * 0.12); g.fillRect(cx + 0.4 * r, cy - r * 0.35, r * 0.1, r * 0.7); },   // a pump
+    (cx, cy, r) => { for (const dx of [-0.35, 0.3]) g.fillRect(cx + dx * r, cy - r * 0.6, r * 0.12, r * 1.2); g.fillRect(cx - 0.52 * r, cy - r * 0.6, r * 0.46, r * 0.12); },   // a fork and knife
+    (cx, cy, r) => { for (const dx of [-0.3, 0.3]) { g.beginPath(); g.arc(cx + dx * r, cy - r * 0.45, r * 0.16, 0, TAU); g.fill(); g.fillRect(cx + dx * r - r * 0.14, cy - r * 0.22, r * 0.28, r * 0.75); } },   // two people
+  ];
+  for (let k = 0; k < n; k++) {
+    const x0 = x + k * (size + 16); g.fillStyle = '#fff'; roundRect(g, x0, y, size, size, 10); g.fill();
+    g.fillStyle = '#0b6b42'; draw[k](x0 + size / 2, y + size / 2, size / 2);
+  }
+  g.fillStyle = '#fff';
 }
 function postsFor(P, xs, h, r = 0.1) { for (const x of xs) P.add(new THREE.CylinderGeometry(r, r, h, 8), MAT.steel, x, h / 2, 0); }
 function nextICs(fromIdx, n = 3) {
@@ -810,7 +870,61 @@ function buildSigns(ctx) {
         const b = signBoard(1.6, 1.0, mat); b.position.y = 2.2; grp.add(b);
         break;
       }
+      case 'saAdv': case 'saNext': {   // on a gantry like the exit signs: the service area 2km / 1km / 500m ahead, or the next two
+        placeAt(grp, O, sg.s, 0, 0);
+        const xL = gantryLeftX(sg.s), bw = -0.5 - xL, bc = (xL - 0.7) / 2;
+        postsFor(P, [xL, -0.75], 8.0, 0.2);
+        P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.75, 0); P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.2, 0);
+        P.build(grp);
+        const a = sg.sa, mat = sg.t === 'saAdv'
+          ? cachedTex('saAdv:' + a.jp + sg.d, 1024, 460, (g, w, h) => {
+            greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+            fitText(g, a.jp, 520, 150); g.fillText(a.jp, 60, 190);
+            g.font = font(110); g.fillText('SA', 70 + Math.min(520, g.measureText(a.jp).width) + 40, 190);
+            g.font = font(50, 400); g.fillText(a.en, 66, 260);
+            saIcons(g, 60, 300, 120);
+            g.textAlign = 'right'; g.font = font(130); g.fillText(sg.d.replace('km', '').replace('m', ''), w - 160, 420);
+            g.font = font(60); g.fillText(sg.d.endsWith('km') ? 'km' : 'm', w - 60, 420);
+          })
+          : cachedTex('saNext:' + a.jp, 1024, 460, (g, w, h) => {
+            greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textBaseline = 'middle';
+            g.textAlign = 'left'; g.font = font(64); g.fillText('この先の SA', 50, 70);
+            SAS.filter(x => x.i >= a.i).slice(0, 2).forEach((x, k) => {
+              const y = 190 + k * 150, km = Math.round(x.kp - sToKp(sg.s));
+              g.textAlign = 'left'; g.font = font(96); g.fillText(x.jp, 60, y);
+              saIcons(g, 520, y - 50, 100, 1);
+              g.textAlign = 'right'; g.font = font(96); g.fillText(String(km), w - 140, y); g.font = font(56); g.fillText('km', w - 50, y + 10);
+            });
+          });
+        const b = signBoard(6.2, 2.79, mat); b.position.set(-8.0, 5.9, 0.2); grp.add(b);
+        break;
+      }
+      case 'saNose': {   // at the nose where the lane leaves for the service area
+        const e = saExitEdges(sg.s - sg.sa.sDiv);
+        placeAt(grp, O, sg.s, (e.xr + X_EDGE) / 2 - 0.4, 0);
+        postsFor(P, [0], 3.4, 0.09); P.build(grp);
+        const mat = cachedTex('saNose', 384, 256, (g, w, h) => {
+          greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.font = font(80); g.fillText('SA', w * 0.6, h * 0.32); g.font = font(64); g.fillText('入口', w * 0.6, h * 0.7);
+          g.save(); g.translate(w * 0.18, h * 0.5); g.rotate(-0.75);
+          g.beginPath(); g.moveTo(0, -70); g.lineTo(40, -15); g.lineTo(13, -15); g.lineTo(13, 60); g.lineTo(-13, 60); g.lineTo(-13, -15); g.lineTo(-40, -15); g.closePath(); g.fill(); g.restore();
+        });
+        const b = signBoard(2.3, 1.53, mat); b.position.y = 3.0; grp.add(b);
+        break;
+      }
+      case 'saMerge': {   // beside the acceleration lane
+        const e = saEntryEdges(sg.s - sg.sa.sLot1);
+        placeAt(grp, O, sg.s, e.xl - 1.2, 0);
+        postsFor(P, [-0.7, 0.7], 3.0, 0.07); P.build(grp);
+        const mat = cachedTex('saMerge', 384, 256, (g, w, h) => {
+          g.fillStyle = '#f2c21b'; g.fillRect(0, 0, w, h); g.strokeStyle = '#111'; g.lineWidth = 10; g.strokeRect(8, 8, w - 16, h - 16);
+          g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font(70); g.fillText('本線', w / 2, h * 0.32); g.font = font(64); g.fillText('合流注意', w / 2, h * 0.7);
+        });
+        const b = signBoard(1.9, 1.27, mat); b.position.y = 2.2; grp.add(b);
+        break;
+      }
     }
+    grp.userData.sign = sg.t;
     ctx.grp.add(grp);
   }
 }

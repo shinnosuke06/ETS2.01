@@ -96,6 +96,9 @@ window.__town = (i, pts) => { const site = TOWN_SITES[i], q = {}; return pts.map
 window.__placeTown = (i, u, v, du, dv, kmh, coupled = true) => { const site = TOWN_SITES[i], q = {}; townXZ(site, u, v, q); placeTruckAt(q.x, q.z, site.hu + Math.atan2(dv, du), kmh / 3.6, { coupled }); };
 // waits for the road and the towns near the rig with the game paused as on its loading screen, so the rig does not
 // roll on by itself while the frames go by
-window.__ready = async () => { const st = GAME.state; GAME.state = 'loading'; try { let left = 1; while (left) { left = updateChunks(TR.s, 4) + townsTick(200); await __t.frames(1); } } finally { GAME.state = st; } };`;
+window.__ready = async () => { const st = GAME.state; GAME.state = 'loading'; try { let left = 1; while (left) { left = updateChunks(TR.s, 4) + townsTick(200) + saTick(200); await __t.frames(1); } } finally { GAME.state = st; } };
+// service area k's points [[u, v], ...] as world [x, z]; the rig at (u, v) heading (du, dv) in service-area axes
+window.__sa = (k, pts) => { const a = SAS[k], q = {}; return pts.map(([u, v]) => { posAt(a.sDiv + u, -v, q); return [q.x, q.z]; }); };
+window.__placeSa = (k, u, v, du, dv, kmh, coupled = true) => { const a = SAS[k], q = posAt(a.sDiv + u, -v, {}); placeTruckAt(q.x, q.z, headingAt(a.sDiv + u) + Math.atan2(dv, du), kmh / 3.6, { coupled }); };`;
 // Put __drive, __town, __placeTown and __ready into the page.
 export const driveHelpers = page => page.evaluate(DRIVE_SRC);

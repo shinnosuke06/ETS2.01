@@ -2789,12 +2789,15 @@ function leftInner(s) {
   if (r) return Math.max(ROAD_IN, -rampEdges(s - r.sDiv).xl);
   const en = entryAt(s);
   if (en) return Math.max(ROAD_IN, -entryEdges(s - en.s0).xl);   // beyond the entrance band
+  const sx = saExitAt(s); if (sx) return Math.max(ROAD_IN, -saExitEdges(s - sx.sDiv).xl);   // beyond a service area's lanes
+  const sn = saEntryAt(s); if (sn) return Math.max(ROAD_IN, -saEntryEdges(s - sn.sLot1).xl);
   return ROAD_IN;
 }
 // The left post of a sign gantry: at the usual -13.1, or a metre beyond an entrance band's outer edge.
 function gantryLeftX(s) {
-  const en = entryAt(s);
-  return en ? Math.min(-13.1, entryEdges(s - en.s0).xl - 1.0) : -13.1;
+  const en = entryAt(s), sx = en ? null : saExitAt(s), sn = en || sx ? null : saEntryAt(s);
+  const e = en ? entryEdges(s - en.s0) : sx ? saExitEdges(s - sx.sDiv) : sn ? saEntryEdges(s - sn.sLot1) : null;
+  return e ? Math.min(-13.1, e.xl - 1.0) : -13.1;
 }
 
 const _tp = {};
@@ -2813,6 +2816,8 @@ function terrainY(s, x, d, side) {
   if (w > 0) y = lerp(y, Math.min(y, -5 + (n2 - 0.5) * 3), w * smooth(6, 30, d));
   const tb = townGroundBlend(s, x);   // give way to a town's ground (just under it)
   if (tb.w > 0) y = lerp(y, tb.y - 0.3, tb.w);
+  const sb = saGroundBlend(s, x);     // and to a service area's
+  if (sb.w > 0) y = lerp(y, sb.y - 0.3, sb.w);
   return y;
 }
 
@@ -3042,6 +3047,7 @@ function railRuns(ctx, side) {
     if (s > ROUTE_END) return false;
     if (side < 0) { const r = rampAt(s + 2) || rampAt(s - 2); if (r) { const u = s - r.sDiv; if (u > -6 && u < r.uSep + 14) return false; } }
     if (side < 0) { const e = entryAt(s + 2) || entryAt(s - 2); if (e) { const u = s - e.s0; if (u > e.uJoin - 14 && u < ENTRY_LEN + 6) return false; } }   // the acceleration lane
+    if (side < 0) { const a = saAt(s + 2) || saAt(s - 2); if (a) { const u = s - a.sDiv; if ((u > -6 && u < a.uSep + 14) || (u > SA_LOT1 + a.uJoin - 14 && u < SA_LEN + 6)) return false; } }   // a service area's lanes
     return true;
   });
 }
@@ -3121,7 +3127,7 @@ function buildTrees(ctx) {
     const w = waterAt(s, side);
     if (w > 0.2 && d > 10) continue;
     if (d < 15 && tunnelAt(s, 6)) continue;
-    if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townKeepOut(s + a, x + b))) continue;   // the town has its own street trees
+    if ([[0, 0], [-5, -5], [5, -5], [5, 5], [-5, 5]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns and service areas have their own trees
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 6, d + 6, side);
     const slope = Math.abs(y2 - y) / 6;
@@ -3167,7 +3173,7 @@ function buildHouses(ctx) {
     const inner = side < 0 ? leftInner(s) : ROAD_IN;
     const x = side * (inner + d);
     const hw = Math.hypot(w, dd) / 2 + 1;   // half the diagonal: clear at any turn
-    if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townKeepOut(s + a, x + b))) continue;   // towns place their own buildings
+    if ([[0, 0], [-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].some(([a, b]) => townKeepOut(s + a, x + b) || saKeepOut(s + a, x + b))) continue;   // towns place their own buildings
     const y = terrainY(s, x, d, side);
     const y2 = terrainY(s, x + side * 8, d + 8, side);
     if (Math.abs(y2 - y) > 2.5) continue;
@@ -3357,6 +3363,47 @@ function buildRamps(ctx) {
     }
   }
   buildEntries(ctx);
+  buildSaLanes(ctx);
+}
+// A service area's deceleration and acceleration lanes (the car park itself is the service area's own mesh).
+function buildSaLanes(ctx) {
+  const { O, i0, i1, s0, s1 } = ctx, E = {};
+  for (const a of SAS) {
+    if (a.sEnd < s0 || a.sDiv > s1) continue;
+    const lane = (base, u0, u1, edges, matA, matB, uSplit) => {   // the lane's pavement from u0 to u1 (u from base)
+      const f = Math.max(i0, Math.ceil((base + u0) / DS)), t = Math.min(i1, Math.floor((base + u1) / DS));
+      if (t <= f) return;
+      const xl = (i, s) => edges(s - base, E).xl, xr = (i, s) => edges(s - base, E).xr;
+      const uFn = (i, s, x0, x1) => { const e = edges(s - base, E), b = e.cx - 2.8; return [(x0 - b) / 5, (x1 - b) / 5]; };
+      const iSplit = Math.round((base + uSplit) / DS);
+      for (const [ff, tt, mat] of [[f, Math.min(t, iSplit), matA], [Math.max(f, iSplit), t, matB]]) if (tt > ff) addMesh(ctx, stripGeo(O, ff, tt, xl, xr, { y: 0.015, uFn, vScale: 24 }), mat, { receive: true });
+    };
+    const strip = (base, u0, u1, a0, b0, mat, y, sc) => {
+      const f = Math.max(i0, Math.ceil((base + u0) / DS)), t = Math.min(i1, Math.floor((base + u1) / DS));
+      if (t > f) addMesh(ctx, stripGeo(O, f, t, a0, b0, { y, uFn: (i, s, x0, x1) => [x0 / sc, x1 / sc], vScale: sc }), mat, { receive: true });
+    };
+    const rail = (base, u0, u1, edges) => {
+      const f = Math.max(i0, Math.ceil((base + u0) / DS)), t = Math.min(i1, Math.floor((base + u1) / DS));
+      if (t > f) addMesh(ctx, sweepGeo(O, f, t, RAIL_PROF.map(([x, y]) => [-(x + 0.25), y]), { xFn: (i, s) => edges(s - base, E).xl, vScale: 4 }), MAT.guard);
+    };
+    const drum = sn => {
+      if (sn < s0 || sn >= s1) return;
+      const c = localPt(O, sn, X_PAVE - 1.2, 0), d = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.95, 14).translate(0, 0.475, 0), MAT.drum);
+      d.position.set(c.x, c.y, c.z); ctx.grp.add(d);
+    };
+    // out: the lane, the zebra gore where it leaves the travel lane, grass up to the car park, the outer guardrail
+    lane(a.sDiv, 0, SA_LOT0 + 6, saExitEdges, MAT.rampA, MAT.rampB, a.uSep + 6);
+    strip(a.sDiv, 100, a.uSep + 4, (i, s) => Math.min(saExitEdges(s - a.sDiv, E).xr, X_EDGE - 0.12), X_EDGE - 0.12, MAT.zebra, 0.03, 3);
+    strip(a.sDiv, a.uSep, SA_LOT0, (i, s) => saExitEdges(s - a.sDiv, E).xr + 0.05, X_PAVE, MAT.grassFill, 0.0, 6);
+    rail(a.sDiv, 110, SA_LOT0 - 15, saExitEdges);
+    drum(a.sDiv + a.uSep + 8);
+    // back in: the lane, grass beside it, the zebra where it meets the travel lane, the outer guardrail where it narrows
+    lane(a.sLot1, -6, SA_LEN - SA_LOT1, saEntryEdges, MAT.rampB, MAT.rampA, a.uJoin - 6);
+    strip(a.sLot1, 0, a.uJoin, (i, s) => saEntryEdges(s - a.sLot1, E).xr + 0.05, X_PAVE, MAT.grassFill, 0.0, 6);
+    strip(a.sLot1, a.uJoin - 4, 100, (i, s) => Math.min(saEntryEdges(s - a.sLot1, E).xr, X_EDGE - 0.12), X_EDGE - 0.12, MAT.zebra, 0.03, 3);
+    rail(a.sLot1, 15, 175, saEntryEdges);
+    drum(a.sLot1 + a.uJoin - 8);
+  }
 }
 // Entrance ramps: from the town's plaza at lat -40 over to the travel lane, then an acceleration lane.
 function buildEntries(ctx) {
@@ -3412,6 +3459,19 @@ function signBoard(w, h, mat) {
   const back = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.05), MAT.signBack);
   g.add(back);
   return g;
+}
+// The service area marks on its signs: fuel, food, toilets, as white squares with dark pictures (n: how many).
+function saIcons(g, x, y, size, n = 3) {
+  const draw = [
+    (cx, cy, r) => { g.fillRect(cx - r * 0.45, cy - r * 0.55, r * 0.6, r * 1.1); g.fillRect(cx + 0.2 * r, cy - r * 0.35, r * 0.28, r * 0.12); g.fillRect(cx + 0.4 * r, cy - r * 0.35, r * 0.1, r * 0.7); },   // a pump
+    (cx, cy, r) => { for (const dx of [-0.35, 0.3]) g.fillRect(cx + dx * r, cy - r * 0.6, r * 0.12, r * 1.2); g.fillRect(cx - 0.52 * r, cy - r * 0.6, r * 0.46, r * 0.12); },   // a fork and knife
+    (cx, cy, r) => { for (const dx of [-0.3, 0.3]) { g.beginPath(); g.arc(cx + dx * r, cy - r * 0.45, r * 0.16, 0, TAU); g.fill(); g.fillRect(cx + dx * r - r * 0.14, cy - r * 0.22, r * 0.28, r * 0.75); } },   // two people
+  ];
+  for (let k = 0; k < n; k++) {
+    const x0 = x + k * (size + 16); g.fillStyle = '#fff'; roundRect(g, x0, y, size, size, 10); g.fill();
+    g.fillStyle = '#0b6b42'; draw[k](x0 + size / 2, y + size / 2, size / 2);
+  }
+  g.fillStyle = '#fff';
 }
 function postsFor(P, xs, h, r = 0.1) { for (const x of xs) P.add(new THREE.CylinderGeometry(r, r, h, 8), MAT.steel, x, h / 2, 0); }
 function nextICs(fromIdx, n = 3) {
@@ -3571,7 +3631,61 @@ function buildSigns(ctx) {
         const b = signBoard(1.6, 1.0, mat); b.position.y = 2.2; grp.add(b);
         break;
       }
+      case 'saAdv': case 'saNext': {   // on a gantry like the exit signs: the service area 2km / 1km / 500m ahead, or the next two
+        placeAt(grp, O, sg.s, 0, 0);
+        const xL = gantryLeftX(sg.s), bw = -0.5 - xL, bc = (xL - 0.7) / 2;
+        postsFor(P, [xL, -0.75], 8.0, 0.2);
+        P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.75, 0); P.box(MAT.steel, bw, 0.3, 0.3, bc, 7.2, 0);
+        P.build(grp);
+        const a = sg.sa, mat = sg.t === 'saAdv'
+          ? cachedTex('saAdv:' + a.jp + sg.d, 1024, 460, (g, w, h) => {
+            greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+            fitText(g, a.jp, 520, 150); g.fillText(a.jp, 60, 190);
+            g.font = font(110); g.fillText('SA', 70 + Math.min(520, g.measureText(a.jp).width) + 40, 190);
+            g.font = font(50, 400); g.fillText(a.en, 66, 260);
+            saIcons(g, 60, 300, 120);
+            g.textAlign = 'right'; g.font = font(130); g.fillText(sg.d.replace('km', '').replace('m', ''), w - 160, 420);
+            g.font = font(60); g.fillText(sg.d.endsWith('km') ? 'km' : 'm', w - 60, 420);
+          })
+          : cachedTex('saNext:' + a.jp, 1024, 460, (g, w, h) => {
+            greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textBaseline = 'middle';
+            g.textAlign = 'left'; g.font = font(64); g.fillText('この先の SA', 50, 70);
+            SAS.filter(x => x.i >= a.i).slice(0, 2).forEach((x, k) => {
+              const y = 190 + k * 150, km = Math.round(x.kp - sToKp(sg.s));
+              g.textAlign = 'left'; g.font = font(96); g.fillText(x.jp, 60, y);
+              saIcons(g, 520, y - 50, 100, 1);
+              g.textAlign = 'right'; g.font = font(96); g.fillText(String(km), w - 140, y); g.font = font(56); g.fillText('km', w - 50, y + 10);
+            });
+          });
+        const b = signBoard(6.2, 2.79, mat); b.position.set(-8.0, 5.9, 0.2); grp.add(b);
+        break;
+      }
+      case 'saNose': {   // at the nose where the lane leaves for the service area
+        const e = saExitEdges(sg.s - sg.sa.sDiv);
+        placeAt(grp, O, sg.s, (e.xr + X_EDGE) / 2 - 0.4, 0);
+        postsFor(P, [0], 3.4, 0.09); P.build(grp);
+        const mat = cachedTex('saNose', 384, 256, (g, w, h) => {
+          greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.font = font(80); g.fillText('SA', w * 0.6, h * 0.32); g.font = font(64); g.fillText('入口', w * 0.6, h * 0.7);
+          g.save(); g.translate(w * 0.18, h * 0.5); g.rotate(-0.75);
+          g.beginPath(); g.moveTo(0, -70); g.lineTo(40, -15); g.lineTo(13, -15); g.lineTo(13, 60); g.lineTo(-13, 60); g.lineTo(-13, -15); g.lineTo(-40, -15); g.closePath(); g.fill(); g.restore();
+        });
+        const b = signBoard(2.3, 1.53, mat); b.position.y = 3.0; grp.add(b);
+        break;
+      }
+      case 'saMerge': {   // beside the acceleration lane
+        const e = saEntryEdges(sg.s - sg.sa.sLot1);
+        placeAt(grp, O, sg.s, e.xl - 1.2, 0);
+        postsFor(P, [-0.7, 0.7], 3.0, 0.07); P.build(grp);
+        const mat = cachedTex('saMerge', 384, 256, (g, w, h) => {
+          g.fillStyle = '#f2c21b'; g.fillRect(0, 0, w, h); g.strokeStyle = '#111'; g.lineWidth = 10; g.strokeRect(8, 8, w - 16, h - 16);
+          g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font(70); g.fillText('本線', w / 2, h * 0.32); g.font = font(64); g.fillText('合流注意', w / 2, h * 0.7);
+        });
+        const b = signBoard(1.9, 1.27, mat); b.position.y = 2.2; grp.add(b);
+        break;
+      }
     }
+    grp.userData.sign = sg.t;
     ctx.grp.add(grp);
   }
 }
@@ -3936,6 +4050,191 @@ function townMeshDispose(i) {
 // Triangles and draw calls of town i's meshes.
 function townStats(i) {
   const M = TOWN_MESH.get(i), r = { tris: 0, meshes: 0 };
+  if (!M) return r;
+  M.grp.traverse(o => { if (!o.isMesh) return; r.meshes++; r.tris += triCount(o.geometry) * (o.isInstancedMesh ? o.count : 1); });
+  return r;
+}
+
+// ==== 05c-sa-mesh.js ====
+// ---------------------------------------------------------------------------
+// Service area meshes, built from a loaded layout in short steps (saMeshSteps).
+// The group sits at the road point in the car park's middle (u = 330, v = 0),
+// not turned: every point goes through posAt, so the car park follows the road.
+// ---------------------------------------------------------------------------
+const SA_MESH = new Map();   // k -> { grp, parts }
+// a service area point (u, v) at height y above the road there, in the group's frame
+function saLocal(sa, O, u, v, y = 0, out = []) {
+  const p = posAt(sa.sDiv + u, -v, _saP);
+  out[0] = p.x - O.x; out[1] = p.y + y - O.y; out[2] = p.z - O.z;
+  return out;
+}
+const _saP = {};
+// the world heading of a direction (hu, hv) at u
+const saHeading = (sa, u, hu, hv) => headingAt(sa.sDiv + u) + Math.atan2(hv, hu);
+
+// Flat pieces in the group's frame: quads over boxes of (u, v), cut every 10 m along u so they follow the road.
+class _SB {
+  constructor(sa, O) { this.sa = sa; this.O = O; this.p = []; this.t = []; }
+  quad4(a, b, c, d, y, s = 4) {   // corners [u, v] in order round the quad; each triangle is turned to face up
+    const P = q => saLocal(this.sa, this.O, q[0], q[1], y, []);
+    for (const tri of [[a, b, c], [a, c, d]]) {
+      let [p0, p1, p2] = tri.map(P), [t0, t1, t2] = tri;
+      const ny = (p1[2] - p0[2]) * (p2[0] - p0[0]) - (p1[0] - p0[0]) * (p2[2] - p0[2]);
+      if (ny < 0) { [p1, p2] = [p2, p1]; [t1, t2] = [t2, t1]; }
+      for (const [p, t] of [[p0, t0], [p1, t1], [p2, t2]]) { this.p.push(p[0], p[1], p[2]); this.t.push(t[0] / s, t[1] / s); }
+    }
+  }
+  box(u0, u1, v0, v1, y, s = 4, vFn = null) {   // vFn(u): the box's top edge where it narrows
+    for (let u = u0; u < u1 - 1e-6; u += 10) {
+      const ua = u, ub = Math.min(u1, u + 10), va = vFn ? vFn(ua) : v1, vb = vFn ? vFn(ub) : v1;
+      this.quad4([ua, v0], [ub, v0], [ub, vb], [ua, va], y, s);
+    }
+  }
+  // a thin strip from p to q (a painted line), w wide
+  line(p, q, w, y) {
+    const du = q[0] - p[0], dv = q[1] - p[1], L = Math.hypot(du, dv) || 1, nu = -dv / L * w / 2, nv = du / L * w / 2;
+    this.quad4([p[0] - nu, p[1] - nv], [q[0] - nu, q[1] - nv], [q[0] + nu, q[1] + nv], [p[0] + nu, p[1] + nv], y, 1);
+  }
+  geo() {
+    if (!this.p.length) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(this.t, 2));
+    g.computeVertexNormals(); g.computeBoundingSphere();
+    return g;
+  }
+}
+
+function* saMeshSteps(k) {
+  const A = SA_LOADED.get(k), L = A.layout, sa = L.sa;
+  const o = posAt(sa.sDiv + 330, 0, {}), O = { x: o.x, y: o.y, z: o.z };
+  const grp = new THREE.Group(); grp.position.set(O.x, O.y, O.z);
+  const M = { grp, parts: {} };
+  const add = (name, geo, mat, { cast = false, receive = true } = {}) => {
+    if (!geo) return null;
+    const m = new THREE.Mesh(geo, mat); m.castShadow = cast && Q.shadow > 0; m.receiveShadow = receive; grp.add(m);
+    M.parts[name] = (M.parts[name] || 0) + triCount(geo);
+    return m;
+  };
+  // instances: { u, v, y, ry (world heading), sx, sy, sz, c }
+  const inst = (name, geo, mat, list, { colors = false, cast = false } = {}) => {
+    if (!list.length) return null;
+    const im = new THREE.InstancedMesh(geo, mat, list.length), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3(), c = new THREE.Color(), w = [];
+    list.forEach((it, n) => {
+      saLocal(sa, O, it.u, it.v, it.y || 0, w); e.set(0, it.ry != null ? it.ry : headingAt(sa.sDiv + it.u), 0); q.setFromEuler(e);
+      im.setMatrixAt(n, m4.compose(p.set(w[0], w[1], w[2]), q, sc.set(it.sx || 1, it.sy || 1, it.sz || 1)));
+      if (colors) im.setColorAt(n, c.set(it.c));
+    });
+    im.instanceMatrix.needsUpdate = true; if (colors && im.instanceColor) im.instanceColor.needsUpdate = true;
+    im.castShadow = cast && Q.shadow > 0; im.receiveShadow = true; grp.add(im);
+    M.parts[name] = (M.parts[name] || 0) + triCount(geo) * list.length;
+    return im;
+  };
+  const R = rng(911 + 37 * k + 5 * L.visit);
+
+  // ---- ground: grass under everything, asphalt over the paved boxes and the throat to the exit lane ----
+  { const G = new _SB(sa, O), P = new _SB(sa, O);
+    G.box(SA_LOT0, SA_LOT1, 13.6, 102, -0.05, 6);
+    for (const [u0, u1, v0, v1] of L.paved) P.box(u0, u1, v0, v1, 0.02, 6);
+    const top = L.fallback ? 80 : 56;
+    P.box(420, 460, 18, top, 0.02, 6, u => top - (u - 420) * (top - 27) / 40);
+    P.box(SA_LOT0 - 6, SA_LOT0 + 4, 18, 26, 0.02, 6); P.box(SA_LOT1 - 4, SA_LOT1 + 6, 18, 26, 0.02, 6);
+    add('ground', G.geo(), MAT.grassFill); add('paved', P.geo(), MAT.townRoad); }
+  yield null;
+
+  // ---- kerbs, walkway, islands, planted islands; the painted lines and arrows ----
+  { const W = new _SB(sa, O), Pl = new _SB(sa, O), Ln = new _SB(sa, O);
+    for (const [u0, u1, v0, v1] of L.walk) W.box(u0, u1, v0, v1, 0.15, 3);
+    for (const p of L.islands) W.box(p.u0, p.u1, p.v0, p.v1, 0.2, 3);
+    for (const p of L.planted) Pl.box(p.u0, p.u1, p.v0, p.v1, 0.12, 4);
+    const y = 0.05, side = (s, k2) => { const nu = -s.hv * s.w / 2 * k2, nv = s.hu * s.w / 2 * k2, h = s.len / 2; Ln.line([s.u - s.hu * h + nu, s.v - s.hv * h + nv], [s.u + s.hu * h + nu, s.v + s.hv * h + nv], 0.15, y); };
+    for (const s of L.stalls) { side(s, 1); side(s, -1); }
+    for (const p of L.pumps) { side(p, 1); side(p, -1); }
+    if (L.carPark) for (const row of L.carPark.rows) for (let u = L.carPark.u0; u <= L.carPark.u1; u += L.carPark.slotW) Ln.line([u, row.v - 2.5], [u, row.v + 2.5], 0.12, y);
+    // arrows along the one-way aisles: a shaft and a head, pointing toward +u
+    const arrow = (u, v) => { Ln.line([u - 3, v], [u + 1, v], 0.35, y); Ln.quad4([u + 1, v - 0.9], [u + 3, v], [u + 3, v], [u + 1, v + 0.9], y, 1); };
+    for (const u of [200, 300]) arrow(u, 23);
+    for (const u of [300, 410]) arrow(u, 51);
+    add('kerbs', W.geo(), MAT.concrete); add('planted', Pl.geo(), MAT.hedge); add('markings', Ln.geo(), MAT.mark); }
+  yield null;
+
+  // ---- the building, the fuel canopy and its pumps, the hedge along the back ----
+  { const boxes = [], whites = [], darks = [];
+    const b = L.building;
+    if (b) {
+      const WALLC = [0xe9e4d8, 0xdfe3e6, 0xeadfcf, 0xd8d2c4], c = WALLC[Math.floor(b.hue * WALLC.length) % WALLC.length];
+      const cu = (b.u0 + b.u1) / 2, cv = (b.v0 + b.v1) / 2;
+      boxes.push({ u: cu, v: cv, sx: b.v1 - b.v0, sy: b.h, sz: b.u1 - b.u0, c });   // SHARED.box: x across (v), z along (u)
+      boxes.push({ u: cu, v: cv, y: b.h, sx: b.v1 - b.v0 + 1.2, sy: 0.6, sz: b.u1 - b.u0 + 1.2, c: 0x5b6670 });
+      darks.push({ u: cu, v: b.v0 - 0.05, y: 0.9, sx: 0.12, sy: 2.2, sz: b.u1 - b.u0 - 6 });   // the glass front toward the car park
+    }
+    const cp = L.canopy;
+    if (cp) {
+      whites.push({ u: (cp.u0 + cp.u1) / 2, v: (cp.v0 + cp.v1) / 2, y: cp.h, sx: cp.v1 - cp.v0, sy: 0.9, sz: cp.u1 - cp.u0 });
+      for (const [u, v] of cp.pillars) whites.push({ u, v, sx: 0.6, sy: cp.h, sz: 0.6 });
+      for (const isl of L.islands) for (const u of [372, 382]) { const v = (isl.v0 + isl.v1) / 2; whites.push({ u, v, y: 0.2, sx: 0.8, sy: 1.7, sz: 1.1 }); darks.push({ u, v, y: 1.1, sx: 0.85, sy: 0.5, sz: 0.7 }); }
+    }
+    if (!L.fallback) for (let u = SA_LOT0; u < SA_LOT1; u += 6) boxes.push({ u: u + 3, v: 101.5, sx: 1.2, sy: 1.1, sz: 6, c: 0x3f6b35 });
+    inst('building', SHARED.box, MAT.house, boxes, { colors: true, cast: true });
+    inst('canopy', SHARED.box, MAT.white, whites, { cast: true });
+    inst('canopy', SHARED.box, MAT.black, darks); }
+  yield null;
+
+  // ---- shrubs on the planted islands and in the strip by the road, trees along the back ----
+  { const shrubs = [], trees = [], n = Q.trees;
+    const scatter = (u0, u1, v0, v1, per, out, sz) => { const cnt = Math.round((u1 - u0) * (v1 - v0) / per * n); for (let i = 0; i < cnt; i++) out.push({ u: u0 + R() * (u1 - u0), v: v0 + R() * (v1 - v0), y: 0.1, ...sz(), c: [0x3d6b33, 0x4b7a3a, 0x355e2e][Math.floor(R() * 3)] }); };
+    scatter(190, 455, 13.8, 16.6, 6, shrubs, () => ({ sx: 1.1, sy: 0.8, sz: 1.1 }));
+    for (const p of L.planted) scatter(p.u0 + 1, p.u1 - 1, p.v0 + 1, p.v1 - 1, 9, shrubs, () => ({ sx: 1.2, sy: 0.9 + R() * 0.5, sz: 1.2 }));
+    if (!L.fallback) for (let u = SA_LOT0 + 8; u < SA_LOT1; u += 16 / n) trees.push({ u: u + R() * 4, v: 104 + R() * 4, y: 0, sx: 2.2, sy: 6 + R() * 3, sz: 2.2, c: AUTUMN[Math.floor(R() * 3)] });
+    inst('plants', SHARED.ico, MAT.tree, shrubs, { colors: true });
+    inst('plants', SHARED.cone, MAT.tree, trees, { colors: true, cast: true }); }
+  yield null;
+
+  // ---- parked vehicles: one instanced mesh per kind and part (the car park's cars are plain boxes on low quality) ----
+  { const plain = Q.detail < 0.5, byKind = new Map(), boxesC = [];
+    for (const c of L.cars) {
+      const cols = CAR_COLORS[c.kind === 'truck' ? 'truck' : c.kind], col = cols[Math.floor(R() * cols.length)];
+      const it = { u: c.u, v: c.v, ry: saHeading(sa, c.u, c.hu, c.hv) + Math.PI, c: col };
+      if (plain && c.kind !== 'truck') { boxesC.push({ ...it, sx: c.wid, sy: 1.45, sz: c.len }); continue; }
+      if (!byKind.has(c.kind)) byKind.set(c.kind, []);
+      byKind.get(c.kind).push(it);
+    }
+    const paint = new THREE.MeshPhongMaterial({ color: 0xffffff, specular: 0x666666, shininess: 60 });
+    M.paint = paint;
+    for (const [kind, list] of byKind) {
+      const P = PROTOS[kind];
+      inst('cars', P.body, paint, list, { colors: true, cast: kind === 'truck' });
+      inst('cars', P.det, CAR_DET, list); inst('cars', P.lit, CAR_LIT, list);
+    }
+    inst('cars', SHARED.box, paint, boxesC, { colors: true }); }
+  yield null;
+
+  // ---- the signs inside: 大型車, 給油所, 出口 on posts ----
+  { const P = new Parts();
+    for (const sg of L.signs) {
+      const g = new THREE.Group(), w = saLocal(sa, O, sg.u, sg.v, 0);
+      g.position.set(w[0], w[1], w[2]); g.rotation.y = headingAt(sa.sDiv + sg.u) + Math.PI;
+      const mat = cachedTex('saIn:' + sg.text, 256, 128, (c, W, H) => { greenSignBase(c, W, H); c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; fitText(c, sg.text, W - 30, 64); c.fillText(sg.text, W / 2, H / 2 + 2); });
+      const b = signBoard(1.8, 0.9, mat); b.position.y = 2.4; g.add(b);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.0, 6).translate(0, 1.0, 0), MAT.steel); g.add(post);
+      grp.add(g); M.parts.signs = (M.parts.signs || 0) + 40;
+    }
+    void P; }
+  yield null;
+
+  SA_MESH.set(k, M);
+  scene.add(grp);
+}
+function saMeshDispose(k) {
+  const M = SA_MESH.get(k);
+  if (!M) return;
+  scene.remove(M.grp);
+  M.grp.traverse(o => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); if (o.isInstancedMesh && o.dispose) o.dispose(); });
+  if (M.paint) M.paint.dispose();
+  SA_MESH.delete(k);
+}
+// Triangles and draw calls of service area k's meshes.
+function saStats(k) {
+  const M = SA_MESH.get(k), r = { tris: 0, meshes: 0 };
   if (!M) return r;
   M.grp.traverse(o => { if (!o.isMesh) return; r.meshes++; r.tris += triCount(o.geometry) * (o.isInstancedMesh ? o.count : 1); });
   return r;
@@ -7620,11 +7919,39 @@ function townsTick(budgetMs = 6) {
   }
   return TOWN_JOBS.size;
 }
+// ---- service areas: made in short steps from 1.5 km before one, dropped 2.5 km away, one at a time ----
+const SA_JOBS = new Map(), SA_VISITS = SAS.map(() => 0);
+function* saBuildJob(k) {
+  let L, G;
+  try { L = saLayout(k, SA_VISITS[k]++); G = yield* saGridSteps(L); }
+  catch (e) { console.warn('service area ' + k + ' could not be made; using a plain car park:', e && e.message); L = saFallbackLayout(k); G = saGrid(L); }
+  saAdd(k, L, G);
+  yield* saMeshSteps(k);
+}
+function saDrop(k) { SA_JOBS.delete(k); saMeshDispose(k); saUnload(k); }
+// Runs service area steps for up to budgetMs; returns how many are still being made.
+function saTick(budgetMs = 6) {
+  for (const k of [...new Set([...SA_LOADED.keys(), ...SA_JOBS.keys()])]) {
+    const a = SAS[k];
+    if ((TR.s < a.sDiv - 2500 || TR.s > a.sEnd + 2500) && TR.sa !== k) saDrop(k);
+  }
+  const want = SAS.find(a => TR.s >= a.sDiv - 1500 && TR.s <= a.sEnd + 200);
+  if (want && !SA_LOADED.has(want.i) && !SA_JOBS.has(want.i)) {
+    for (const k of [...SA_LOADED.keys(), ...SA_JOBS.keys()]) if (k !== want.i && TR.sa !== k) saDrop(k);   // one at a time
+    SA_JOBS.set(want.i, saBuildJob(want.i));
+  }
+  const t0 = performance.now();
+  for (const [k, job] of SA_JOBS) {
+    while (performance.now() - t0 < budgetMs) if (job.next().done) { SA_JOBS.delete(k); break; }
+    break;
+  }
+  return SA_JOBS.size;
+}
 async function preloadAround(label) {
   $('loading').hidden = false;
   let left = 99, n = 0;
   while (left > 0) {
-    left = updateChunks(TR.s, 2) + townsTick(40);
+    left = updateChunks(TR.s, 2) + townsTick(40) + saTick(40);
     n += 2;
     $('loadText').textContent = (label || '地図を作成中') + '… ' + Math.min(99, Math.round(n / (n + left) * 100)) + '%';
     await new Promise(r => setTimeout(r, 0));
@@ -8264,7 +8591,7 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;
   const t0 = performance.now();
   const driving = simTick(dt);
-  if (GAME.state !== 'loading') { updateChunks(TR.s, 1); townsTick(6); }
+  if (GAME.state !== 'loading') { updateChunks(TR.s, 1); townsTick(6); saTick(6); }
   for (const i of TOWN_MESH.keys()) townSignalsUpdate(i, GAME.clock / TIME_SCALE);
   updateVisuals(dt);
   updateCamera(dt);

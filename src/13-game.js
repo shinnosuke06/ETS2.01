@@ -162,11 +162,39 @@ function townsTick(budgetMs = 6) {
   }
   return TOWN_JOBS.size;
 }
+// ---- service areas: made in short steps from 1.5 km before one, dropped 2.5 km away, one at a time ----
+const SA_JOBS = new Map(), SA_VISITS = SAS.map(() => 0);
+function* saBuildJob(k) {
+  let L, G;
+  try { L = saLayout(k, SA_VISITS[k]++); G = yield* saGridSteps(L); }
+  catch (e) { console.warn('service area ' + k + ' could not be made; using a plain car park:', e && e.message); L = saFallbackLayout(k); G = saGrid(L); }
+  saAdd(k, L, G);
+  yield* saMeshSteps(k);
+}
+function saDrop(k) { SA_JOBS.delete(k); saMeshDispose(k); saUnload(k); }
+// Runs service area steps for up to budgetMs; returns how many are still being made.
+function saTick(budgetMs = 6) {
+  for (const k of [...new Set([...SA_LOADED.keys(), ...SA_JOBS.keys()])]) {
+    const a = SAS[k];
+    if ((TR.s < a.sDiv - 2500 || TR.s > a.sEnd + 2500) && TR.sa !== k) saDrop(k);
+  }
+  const want = SAS.find(a => TR.s >= a.sDiv - 1500 && TR.s <= a.sEnd + 200);
+  if (want && !SA_LOADED.has(want.i) && !SA_JOBS.has(want.i)) {
+    for (const k of [...SA_LOADED.keys(), ...SA_JOBS.keys()]) if (k !== want.i && TR.sa !== k) saDrop(k);   // one at a time
+    SA_JOBS.set(want.i, saBuildJob(want.i));
+  }
+  const t0 = performance.now();
+  for (const [k, job] of SA_JOBS) {
+    while (performance.now() - t0 < budgetMs) if (job.next().done) { SA_JOBS.delete(k); break; }
+    break;
+  }
+  return SA_JOBS.size;
+}
 async function preloadAround(label) {
   $('loading').hidden = false;
   let left = 99, n = 0;
   while (left > 0) {
-    left = updateChunks(TR.s, 2) + townsTick(40);
+    left = updateChunks(TR.s, 2) + townsTick(40) + saTick(40);
     n += 2;
     $('loadText').textContent = (label || '地図を作成中') + '… ' + Math.min(99, Math.round(n / (n + left) * 100)) + '%';
     await new Promise(r => setTimeout(r, 0));
@@ -806,7 +834,7 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;
   const t0 = performance.now();
   const driving = simTick(dt);
-  if (GAME.state !== 'loading') { updateChunks(TR.s, 1); townsTick(6); }
+  if (GAME.state !== 'loading') { updateChunks(TR.s, 1); townsTick(6); saTick(6); }
   for (const i of TOWN_MESH.keys()) townSignalsUpdate(i, GAME.clock / TIME_SCALE);
   updateVisuals(dt);
   updateCamera(dt);
