@@ -146,5 +146,77 @@ function navRoute(L, from, to) {
     if (turn !== 'straight') steps.push({ kind: turn, at: e.b.slice(), edge: e.id, dist });
   }
   steps.push({ kind: fin.kind, at: fin.at, edge: fin.edge, dist });
-  return { edges, cost: fin.cost, steps };
+  // where each edge starts, as distance along the route from the start (the first edge starts before it)
+  const starts = [-seed[1]];
+  for (let k = 1; k < edges.length; k++) starts.push(starts[k - 1] + E[edges[k - 1]].len);
+  return { edges, cost: fin.cost, steps, starts };
+}
+
+// ---- where the rig is, what to do next, and when to look for a new route ----
+const _navHt = st => st.lanes * st.laneW + st.walkW;   // half a street's width with its pavements
+const _NAV_ANG = { 'u+': 0, 'v+': Math.PI / 2, 'u-': Math.PI, 'v-': -Math.PI / 2 };
+// The street piece under a town point heading θ: { edge, d, off }. In a junction (two streets' widths), off the streets,
+// or heading across the street, the previous answer stands (prev, or null).
+function navMatch(L, u, v, θ, prev) {
+  const G = navGraph(L);
+  let st = null, n = 0;
+  for (const s of L.streets) {
+    const h = _navHt(s), inside = s.axis === 'v' ? Math.abs(u - s.c) <= h && v >= s.a0 && v <= s.a1 : Math.abs(v - s.c) <= h && u >= s.a0 && u <= s.a1;
+    if (inside) { st = s; n++; }
+  }
+  if (n !== 1) return prev || null;
+  const k = st.axis === 'v' ? 1 : 0, t = k ? v : u;
+  for (const e of G.edges) {
+    if (e.street !== st.id) continue;
+    if (t < Math.min(e.a[k], e.b[k]) - 0.01 || t > Math.max(e.a[k], e.b[k]) + 0.01) continue;
+    if (Math.abs(wrapA(θ - _NAV_ANG[e.dir])) >= Math.PI / 3) continue;
+    return { edge: e.id, d: Math.abs(t - e.a[k]), off: Math.abs((k ? u : v) - st.c) };
+  }
+  return prev || null;
+}
+const _NAV_LEFTISH = { left: 1, gateLeft: 1, outLeft: 1, plaza: 1 }, _NAV_RIGHTISH = { right: 1, gateRight: 1, outRight: 1 };
+// The next thing to do along `route` from `match`: { kind, dist, then, lanes }, or null when the rig is not on the route.
+function navGuide(L, route, match) {
+  if (!route || !match) return null;
+  const k = route.edges.indexOf(match.edge);
+  if (k < 0) return null;
+  const pos = route.starts[k] + match.d, steps = route.steps;
+  let i = 0;
+  while (i < steps.length - 1 && steps[i].dist <= pos + 0.5) i++;
+  const s = steps[i], last = i === steps.length - 1, dist = Math.max(0, s.dist - pos);
+  let kind = s.kind, then = null;
+  if (last && dist < 8) kind = 'arrive';
+  else if (dist > 300) kind = 'straight';
+  else if (!last && steps[i + 1].dist - s.dist <= 60) then = { kind: steps[i + 1].kind, dist: steps[i + 1].dist - pos };
+  const st = L.streets[navGraph(L).edges[match.edge].street];
+  const lanes = st.kind === 'main' && st.lanes >= 2
+    ? [{ arrows: ['left', 'straight'], use: !_NAV_RIGHTISH[kind] }, { arrows: ['straight', 'right'], use: !_NAV_LEFTISH[kind] }] : null;
+  return { kind, dist, then, lanes };
+}
+// Follow the rig along T.route ({ route, to, match, offT, backD, lastT, t }); 'reroute' when a new route was made from
+// where it is: on a street not on the route (5 m in), 15 m the wrong way along the route, or 20 m off it for 2 s.
+function navFollow(L, T, u, v, θ, dt) {
+  T.t += dt;
+  const G = navGraph(L), E = G.edges, prev = T.match, m = navMatch(L, u, v, θ, prev);
+  T.match = m;
+  if (!T.route) return null;
+  const on = new Set(T.route.edges);
+  let off = Infinity;
+  for (const id of on) {   // distance to the route's nearest piece
+    const e = E[id], du = e.b[0] - e.a[0], dv = e.b[1] - e.a[1], q = clamp(((u - e.a[0]) * du + (v - e.a[1]) * dv) / (du * du + dv * dv || 1), 0, 1);
+    off = Math.min(off, Math.hypot(e.a[0] + du * q - u, e.a[1] + dv * q - v));
+  }
+  T.offT = off > 20 ? T.offT + dt : 0;
+  let why = false;
+  if (m && !on.has(m.edge)) {
+    const e = E[m.edge], back = T.route.edges.some(id => E[id].from === e.to && E[id].to === e.from);
+    if (back) { if (prev && prev.edge === m.edge) T.backD += Math.max(0, m.d - prev.d); why = T.backD >= 15; }
+    else why = m.d > 5;
+  } else T.backD = 0;
+  if (T.offT >= 2) why = true;
+  if (!why || T.t - T.lastT < 3 || !m) return null;
+  const r = navRoute(L, { edge: m.edge, d: m.d }, T.to);
+  if (!r) return null;
+  T.route = r; T.lastT = T.t; T.offT = 0; T.backD = 0;
+  return 'reroute';
 }
