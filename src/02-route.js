@@ -73,7 +73,8 @@ function regionAt(s, out = _reg) {
   return out;
 }
 
-const WATER = [{ kp0: 127, kp1: 145, side: -1 }, { kp0: 251.5, kp1: 255.5, side: 0 }];
+// the sea on the left from just past the Fujikawa service area (its last 1.5 km before kp0 turns to water)
+const WATER = [{ kp0: 135.5, kp1: 145, side: -1 }, { kp0: 251.5, kp1: 255.5, side: 0 }];
 function waterAt(s, side) {
   const kp = sToKp(s);
   for (const w of WATER) {
@@ -142,6 +143,43 @@ for (const e of ENTRIES) { e.uJoin = ENTRY_LEN; for (let u = 0; u < ENTRY_LEN; u
 function entryAt(s) {
   for (const e of ENTRIES) if (s >= e.s0 && s <= e.s1) return e;
   return null;
+}
+
+// ---- service areas (サービスエリア), westbound only -----------------------------------------------
+// Service-area coordinates are road coordinates: u = s - sDiv along the road, v = -lat to the left of it.
+// A 180 m deceleration lane, the car park (u 180..460, v 16..100), a 200 m acceleration lane: 660 m in all.
+const SA_LEN = 660, SA_LOT0 = 180, SA_LOT1 = 460, SA_JOIN = 560;
+// The deceleration lane (u from the divergence): beside the travel lane for 100 m, then out to 22 m from the centre.
+function saExitEdges(u, out = {}) {
+  const cx = u < 100 ? -11.25 : lerp(-11.25, -22, smooth(100, SA_LOT0, u));
+  out.cx = cx; out.xl = u < 80 ? lerp(-9.05, cx - 2.8, smooth(0, 80, u)) : cx - 2.8; out.xr = cx + 2.2;
+  return out;
+}
+// The acceleration lane (u from the car park's end): in from 22 m over 100 m, then 100 m beside the travel lane,
+// its outer edge closing in over the last 30 m.
+function saEntryEdges(u, out = {}) {
+  const cx = u < 100 ? lerp(-22, -11.25, smooth(0, 100, u)) : -11.25;
+  out.cx = cx; out.xl = u > 170 ? lerp(cx - 2.8, -12.2, smooth(170, 200, u)) : cx - 2.8; out.xr = cx + 2.2;
+  return out;
+}
+const SAS = [['中井', 'Nakai', 45.8], ['足柄', 'Ashigara', 71.5], ['富士川', 'Fujikawa', 127.0], ['牧之原', 'Makinohara', 189.5],
+  ['浜名湖', 'Hamanako', 259.0], ['上郷', 'Kamigo', 313.0]].map(([jp, en, kp], i) => {
+  const sDiv = kpToS(kp), a = { i, jp, en, kp, sDiv, sLot0: sDiv + SA_LOT0, sLot1: sDiv + SA_LOT1, sJoin: sDiv + SA_JOIN, sEnd: sDiv + SA_LEN, uSep: SA_LOT0, uJoin: SA_LEN - SA_LOT1 };
+  for (let u = 80; u < SA_LOT0; u += 1) if (saExitEdges(u).xr < -12.75) { a.uSep = u; break; }        // where the lane leaves the mainline's pavement
+  for (let u = 0; u < SA_LEN - SA_LOT1; u += 1) if (saEntryEdges(u).xr >= -12.75) { a.uJoin = u; break; }   // where it meets it again
+  return a;
+});
+function saAt(s) { for (const a of SAS) if (s >= a.sDiv && s <= a.sEnd) return a; return null; }
+function saExitAt(s) { for (const a of SAS) if (s >= a.sDiv && s <= a.sLot0) return a; return null; }
+function saEntryAt(s) { for (const a of SAS) if (s >= a.sLot1 && s <= a.sEnd) return a; return null; }
+// How far an exit's divergence is, in km as the signs count it: 2km, 1km and 500m signs stand 700, 400 and 160 m before it.
+function signKm(d) {
+  if (d <= 0) return 0;
+  if (d >= 700) return 2 + (d - 700) * SCALE / 1000;
+  const P = [[0, 0], [160, 0.5], [400, 1], [700, 2]];
+  let k = 1; while (P[k][0] < d) k++;
+  const [d0, k0] = P[k - 1], [d1, k1] = P[k];
+  return k0 + (k1 - k0) * (d - d0) / (d1 - d0);
 }
 
 // ---- centreline samples ------------------------------------------------------
@@ -229,12 +267,13 @@ function project(x, z, hint, out) {
 }
 
 // Drivable lateral intervals for the westbound side at s.
+const _sae = { cx: 0, xl: 0, xr: 0 };
 function drivable(s, out) {
   out.length = 0;
   let lo = -12.2, hi = -1.75;
   if (tunnelAt(s)) { lo = -12.55; hi = -1.25; }
-  const r = rampAt(s), en = r ? null : entryAt(s);
-  const e = r ? rampEdges(s - r.sDiv) : en ? entryEdges(s - en.s0) : null;
+  const r = rampAt(s), en = r ? null : entryAt(s), sx = r || en ? null : saExitAt(s), sn = r || en || sx ? null : saEntryAt(s);
+  const e = r ? rampEdges(s - r.sDiv) : en ? entryEdges(s - en.s0) : sx ? saExitEdges(s - sx.sDiv, _sae) : sn ? saEntryEdges(s - sn.sLot1, _sae) : null;
   if (e) {
     if (e.xr >= lo - 0.2) out.push([Math.min(lo, e.xl + 0.2), hi]);
     else { out.push([lo, hi]); out.push([e.xl + 0.2, e.xr - 0.1]); }
@@ -288,6 +327,28 @@ const SIGNS = [];
   for (const e of ENTRIES) {
     let k = 0;
     for (const g of SIGNS) if (['dist', 'speed', 'gap'].includes(g.t) && g.s >= e.s0 - 20 && g.s <= e.s1 + 20) g.s = e.s1 + 30 + 60 * k++;
+  }
+  // nor in a service area's lanes and car park: the left signs, kilometre posts and LED boards go just past it
+  for (const a of SAS) {
+    let k = 0;
+    for (const g of SIGNS) if (['dist', 'speed', 'gap', 'kp', 'led'].includes(g.t) && g.s >= a.sDiv - 20 && g.s <= a.sEnd + 20) {
+      if (g.t === 'kp') g.drop = true; else g.s = a.sEnd + 30 + 60 * k++;
+    }
+  }
+  for (let k = SIGNS.length - 1; k >= 0; k--) if (SIGNS[k].drop) SIGNS.splice(k, 1);
+  // the service areas' own signs: 2km, 1km, 500m and the next service areas before (on gantries, whose left post
+  // stands beyond an entrance band), the nose, the merge warning. One that falls on an exit ramp or by a tunnel moves 20 m at a time toward the service area, or is left out
+  // if that would bring it within 100 m of the next sign.
+  const busy = s => RAMPS.some(r => s > r.sDiv - 40 && s < r.sEnd + 40) || TUNNELS.some(t => s > t.s0 - 40 && s < t.s1 + 40);
+  for (const a of SAS) {
+    const plan = [[a.sDiv - 1000, { t: 'saNext', sa: a }], [a.sDiv - 700, { t: 'saAdv', sa: a, d: '2km' }], [a.sDiv - 400, { t: 'saAdv', sa: a, d: '1km' }], [a.sDiv - 160, { t: 'saAdv', sa: a, d: '500m' }]];
+    plan.forEach(([s0, g], k) => {
+      const limit = k < plan.length - 1 ? plan[k + 1][0] - 100 : a.sDiv - 40;
+      let ss = s0; while (busy(ss) && ss <= limit) ss += 20;
+      if (ss <= limit) SIGNS.push({ ...g, s: ss });
+    });
+    SIGNS.push({ s: a.sDiv + a.uSep - 30, t: 'saNose', sa: a });
+    SIGNS.push({ s: a.sLot1 + 60, t: 'saMerge', sa: a });
   }
   // nothing roadside inside the bores
   for (let k = SIGNS.length - 1; k >= 0; k--) if (tunnelAt(SIGNS[k].s, 25)) SIGNS.splice(k, 1);

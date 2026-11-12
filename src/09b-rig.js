@@ -170,7 +170,7 @@ function rigRollSlosh(h, aLat, aLongT, aLatT) {
 }
 
 // ---- contacts: guardrails and walls push on the body corners, barriers stop the nose ----
-const _gc = { pen: 0, nx: 0, nz: 0, tx: 0, tz: 0, i: 0 }, _ga = { y: 0, gx: 0, gz: 0, zone: 'road', town: -1, s: 0, lat: 0, i: 0 };
+const _gc = { pen: 0, nx: 0, nz: 0, tx: 0, tz: 0, i: 0 }, _ga = { y: 0, gx: 0, gz: 0, zone: 'road', town: -1, sa: -1, s: 0, lat: 0, i: 0 };
 let _cFx = 0, _cFz = 0, _cT = 0;
 // One corner of body b at (a forward, side * half-width right) of its centre of mass.
 function rigCorner(b, rec, a, side, h) {

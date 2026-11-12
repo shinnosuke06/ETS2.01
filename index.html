@@ -637,7 +637,8 @@ function regionAt(s, out = _reg) {
   return out;
 }
 
-const WATER = [{ kp0: 127, kp1: 145, side: -1 }, { kp0: 251.5, kp1: 255.5, side: 0 }];
+// the sea on the left from just past the Fujikawa service area (its last 1.5 km before kp0 turns to water)
+const WATER = [{ kp0: 135.5, kp1: 145, side: -1 }, { kp0: 251.5, kp1: 255.5, side: 0 }];
 function waterAt(s, side) {
   const kp = sToKp(s);
   for (const w of WATER) {
@@ -706,6 +707,43 @@ for (const e of ENTRIES) { e.uJoin = ENTRY_LEN; for (let u = 0; u < ENTRY_LEN; u
 function entryAt(s) {
   for (const e of ENTRIES) if (s >= e.s0 && s <= e.s1) return e;
   return null;
+}
+
+// ---- service areas (サービスエリア), westbound only -----------------------------------------------
+// Service-area coordinates are road coordinates: u = s - sDiv along the road, v = -lat to the left of it.
+// A 180 m deceleration lane, the car park (u 180..460, v 16..100), a 200 m acceleration lane: 660 m in all.
+const SA_LEN = 660, SA_LOT0 = 180, SA_LOT1 = 460, SA_JOIN = 560;
+// The deceleration lane (u from the divergence): beside the travel lane for 100 m, then out to 22 m from the centre.
+function saExitEdges(u, out = {}) {
+  const cx = u < 100 ? -11.25 : lerp(-11.25, -22, smooth(100, SA_LOT0, u));
+  out.cx = cx; out.xl = u < 80 ? lerp(-9.05, cx - 2.8, smooth(0, 80, u)) : cx - 2.8; out.xr = cx + 2.2;
+  return out;
+}
+// The acceleration lane (u from the car park's end): in from 22 m over 100 m, then 100 m beside the travel lane,
+// its outer edge closing in over the last 30 m.
+function saEntryEdges(u, out = {}) {
+  const cx = u < 100 ? lerp(-22, -11.25, smooth(0, 100, u)) : -11.25;
+  out.cx = cx; out.xl = u > 170 ? lerp(cx - 2.8, -12.2, smooth(170, 200, u)) : cx - 2.8; out.xr = cx + 2.2;
+  return out;
+}
+const SAS = [['中井', 'Nakai', 45.8], ['足柄', 'Ashigara', 71.5], ['富士川', 'Fujikawa', 127.0], ['牧之原', 'Makinohara', 189.5],
+  ['浜名湖', 'Hamanako', 259.0], ['上郷', 'Kamigo', 313.0]].map(([jp, en, kp], i) => {
+  const sDiv = kpToS(kp), a = { i, jp, en, kp, sDiv, sLot0: sDiv + SA_LOT0, sLot1: sDiv + SA_LOT1, sJoin: sDiv + SA_JOIN, sEnd: sDiv + SA_LEN, uSep: SA_LOT0, uJoin: SA_LEN - SA_LOT1 };
+  for (let u = 80; u < SA_LOT0; u += 1) if (saExitEdges(u).xr < -12.75) { a.uSep = u; break; }        // where the lane leaves the mainline's pavement
+  for (let u = 0; u < SA_LEN - SA_LOT1; u += 1) if (saEntryEdges(u).xr >= -12.75) { a.uJoin = u; break; }   // where it meets it again
+  return a;
+});
+function saAt(s) { for (const a of SAS) if (s >= a.sDiv && s <= a.sEnd) return a; return null; }
+function saExitAt(s) { for (const a of SAS) if (s >= a.sDiv && s <= a.sLot0) return a; return null; }
+function saEntryAt(s) { for (const a of SAS) if (s >= a.sLot1 && s <= a.sEnd) return a; return null; }
+// How far an exit's divergence is, in km as the signs count it: 2km, 1km and 500m signs stand 700, 400 and 160 m before it.
+function signKm(d) {
+  if (d <= 0) return 0;
+  if (d >= 700) return 2 + (d - 700) * SCALE / 1000;
+  const P = [[0, 0], [160, 0.5], [400, 1], [700, 2]];
+  let k = 1; while (P[k][0] < d) k++;
+  const [d0, k0] = P[k - 1], [d1, k1] = P[k];
+  return k0 + (k1 - k0) * (d - d0) / (d1 - d0);
 }
 
 // ---- centreline samples ------------------------------------------------------
@@ -793,12 +831,13 @@ function project(x, z, hint, out) {
 }
 
 // Drivable lateral intervals for the westbound side at s.
+const _sae = { cx: 0, xl: 0, xr: 0 };
 function drivable(s, out) {
   out.length = 0;
   let lo = -12.2, hi = -1.75;
   if (tunnelAt(s)) { lo = -12.55; hi = -1.25; }
-  const r = rampAt(s), en = r ? null : entryAt(s);
-  const e = r ? rampEdges(s - r.sDiv) : en ? entryEdges(s - en.s0) : null;
+  const r = rampAt(s), en = r ? null : entryAt(s), sx = r || en ? null : saExitAt(s), sn = r || en || sx ? null : saEntryAt(s);
+  const e = r ? rampEdges(s - r.sDiv) : en ? entryEdges(s - en.s0) : sx ? saExitEdges(s - sx.sDiv, _sae) : sn ? saEntryEdges(s - sn.sLot1, _sae) : null;
   if (e) {
     if (e.xr >= lo - 0.2) out.push([Math.min(lo, e.xl + 0.2), hi]);
     else { out.push([lo, hi]); out.push([e.xl + 0.2, e.xr - 0.1]); }
@@ -852,6 +891,28 @@ const SIGNS = [];
   for (const e of ENTRIES) {
     let k = 0;
     for (const g of SIGNS) if (['dist', 'speed', 'gap'].includes(g.t) && g.s >= e.s0 - 20 && g.s <= e.s1 + 20) g.s = e.s1 + 30 + 60 * k++;
+  }
+  // nor in a service area's lanes and car park: the left signs, kilometre posts and LED boards go just past it
+  for (const a of SAS) {
+    let k = 0;
+    for (const g of SIGNS) if (['dist', 'speed', 'gap', 'kp', 'led'].includes(g.t) && g.s >= a.sDiv - 20 && g.s <= a.sEnd + 20) {
+      if (g.t === 'kp') g.drop = true; else g.s = a.sEnd + 30 + 60 * k++;
+    }
+  }
+  for (let k = SIGNS.length - 1; k >= 0; k--) if (SIGNS[k].drop) SIGNS.splice(k, 1);
+  // the service areas' own signs: 2km, 1km, 500m and the next service areas before (on gantries, whose left post
+  // stands beyond an entrance band), the nose, the merge warning. One that falls on an exit ramp or by a tunnel moves 20 m at a time toward the service area, or is left out
+  // if that would bring it within 100 m of the next sign.
+  const busy = s => RAMPS.some(r => s > r.sDiv - 40 && s < r.sEnd + 40) || TUNNELS.some(t => s > t.s0 - 40 && s < t.s1 + 40);
+  for (const a of SAS) {
+    const plan = [[a.sDiv - 1000, { t: 'saNext', sa: a }], [a.sDiv - 700, { t: 'saAdv', sa: a, d: '2km' }], [a.sDiv - 400, { t: 'saAdv', sa: a, d: '1km' }], [a.sDiv - 160, { t: 'saAdv', sa: a, d: '500m' }]];
+    plan.forEach(([s0, g], k) => {
+      const limit = k < plan.length - 1 ? plan[k + 1][0] - 100 : a.sDiv - 40;
+      let ss = s0; while (busy(ss) && ss <= limit) ss += 20;
+      if (ss <= limit) SIGNS.push({ ...g, s: ss });
+    });
+    SIGNS.push({ s: a.sDiv + a.uSep - 30, t: 'saNose', sa: a });
+    SIGNS.push({ s: a.sLot1 + 60, t: 'saMerge', sa: a });
   }
   // nothing roadside inside the bores
   for (let k = SIGNS.length - 1; k >= 0; k--) if (tunnelAt(SIGNS[k].s, 25)) SIGNS.splice(k, 1);
@@ -1292,17 +1353,19 @@ function townFallbackLayout(i) {
   return { site, streets: [], nodes: [], blocks: [], warehouses: [wh], buildings: [], fences, lanes, plaza, cornerR: TOWN_CORNER_R, fallback: true };
 }
 
-const _gIdx = (iu, iv) => iv * TOWN_NU + iu;
-// Fill the cells of the box [u0, u1] x [v0, v1] (town metres) that pass keep(u, v) with value t.
-function _gFill(type, u0, u1, v0, v1, t, keep) {
-  const a0 = clamp(Math.floor((u0 - TOWN_U0) / TOWN_CELL), 0, TOWN_NU - 1), a1 = clamp(Math.ceil((u1 - TOWN_U0) / TOWN_CELL) - 1, 0, TOWN_NU - 1);
-  const b0 = clamp(Math.floor((v0 - TOWN_V0) / TOWN_CELL), 0, TOWN_NV - 1), b1 = clamp(Math.ceil((v1 - TOWN_V0) / TOWN_CELL) - 1, 0, TOWN_NV - 1);
+// A grid of square cells over the box of a site's coordinates from (u0, v0), nu x nv cells: each cell's kind (TCELL),
+// and once made, the signed distance to the nearest wall. Towns and service areas both use it.
+function gridNew(u0, v0, nu, nv, cell = TOWN_CELL) { return { u0, v0, nu, nv, cell, type: new Uint8Array(nu * nv), dist: null }; }
+// Fill the cells of the box [u0, u1] x [v0, v1] (site metres) that pass keep(u, v) with value t.
+function _gFill(G, u0, u1, v0, v1, t, keep) {
+  const C = G.cell, a0 = clamp(Math.floor((u0 - G.u0) / C), 0, G.nu - 1), a1 = clamp(Math.ceil((u1 - G.u0) / C) - 1, 0, G.nu - 1);
+  const b0 = clamp(Math.floor((v0 - G.v0) / C), 0, G.nv - 1), b1 = clamp(Math.ceil((v1 - G.v0) / C) - 1, 0, G.nv - 1);
   for (let iv = b0; iv <= b1; iv++) {
-    const v = TOWN_V0 + (iv + 0.5) * TOWN_CELL;
+    const v = G.v0 + (iv + 0.5) * C;
     for (let iu = a0; iu <= a1; iu++) {
-      const u = TOWN_U0 + (iu + 0.5) * TOWN_CELL;
+      const u = G.u0 + (iu + 0.5) * C;
       if (keep && !keep(u, v)) continue;
-      type[_gIdx(iu, iv)] = t;
+      G.type[iv * G.nu + iu] = t;
     }
   }
 }
@@ -1315,17 +1378,17 @@ function _pathDist(u, v, pts) { let d = Infinity; for (let i = 1; i < pts.length
 
 // The grid, made in steps (each yield is a short piece of work). The last value is { type, dist }.
 function* townGridSteps(L) {
-  const type = new Uint8Array(TOWN_NU * TOWN_NV), C = TCELL;
+  const G = gridNew(TOWN_U0, TOWN_V0, TOWN_NU, TOWN_NV), type = G.type, C = TCELL;
   for (let iv0 = 0; iv0 < TOWN_NV; iv0 += 100) {        // inside the town: walls until painted; outside: out
     for (let iv = iv0; iv < Math.min(TOWN_NV, iv0 + 100); iv++) {
       const v = TOWN_V0 + (iv + 0.5) * TOWN_CELL;
-      for (let iu = 0; iu < TOWN_NU; iu++) type[_gIdx(iu, iv)] = townInside(TOWN_U0 + (iu + 0.5) * TOWN_CELL, v) ? C.WALL : C.OUT;
+      for (let iu = 0; iu < TOWN_NU; iu++) type[iv * TOWN_NU + iu] = townInside(TOWN_U0 + (iu + 0.5) * TOWN_CELL, v) ? C.WALL : C.OUT;
     }
     yield null;
   }
   const box = st => (st.axis === 'v' ? [st.c - _ht(st), st.c + _ht(st), st.a0, st.a1] : [st.a0, st.a1, st.c - _ht(st), st.c + _ht(st)]);
   const carr = st => (st.axis === 'v' ? [st.c - _hc(st), st.c + _hc(st), st.a0, st.a1] : [st.a0, st.a1, st.c - _hc(st), st.c + _hc(st)]);
-  for (const st of L.streets) { const b = box(st); _gFill(type, b[0], b[1], b[2], b[3], C.WALK); }
+  for (const st of L.streets) { const b = box(st); _gFill(G, b[0], b[1], b[2], b[3], C.WALK); }
   yield null;
   // rounded kerbs: in each corner between two arms, the 12 m square outside the kerb circle is road, a ring inside it pavement
   for (const n of L.nodes) {
@@ -1333,68 +1396,74 @@ function* townGridSteps(L) {
     for (const [su, sv] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
       if (!n.arms[sv > 0 ? 'v+' : 'v-'] || !n.arms[su > 0 ? 'u+' : 'u-']) continue;
       const ku = n.u + su * _hc(V), kv = n.v + sv * _hc(U), cu = ku + su * r, cv = kv + sv * r;
-      _gFill(type, Math.min(ku, cu), Math.max(ku, cu), Math.min(kv, cv), Math.max(kv, cv), C.WALK, (u, v) => Math.hypot(u - cu, v - cv) > r - walk);
-      _gFill(type, Math.min(ku, cu), Math.max(ku, cu), Math.min(kv, cv), Math.max(kv, cv), C.ROAD, (u, v) => Math.hypot(u - cu, v - cv) > r);
+      _gFill(G, Math.min(ku, cu), Math.max(ku, cu), Math.min(kv, cv), Math.max(kv, cv), C.WALK, (u, v) => Math.hypot(u - cu, v - cv) > r - walk);
+      _gFill(G, Math.min(ku, cu), Math.max(ku, cu), Math.min(kv, cv), Math.max(kv, cv), C.ROAD, (u, v) => Math.hypot(u - cu, v - cv) > r);
     }
   }
-  for (const st of L.streets) { const b = carr(st); _gFill(type, b[0], b[1], b[2], b[3], C.ROAD); }
+  for (const st of L.streets) { const b = carr(st); _gFill(G, b[0], b[1], b[2], b[3], C.ROAD); }
   yield null;
   // the plaza roads (6 m either side of each path, so a trailer cutting the bend stays on them) and the booth islands
   for (const path of [L.plaza.exitPath, L.plaza.entryPath]) if (path) for (let k = 1; k < path.length; k++) {   // each piece of the path as a capsule
     const band = Math.min(Math.abs(path[k - 1][0]), Math.abs(path[k][0])) > PLAZA_BAND_U - 0.5;   // on the ramp's or band's lane: just its 5 m
     const a = band ? [path[k - 1][0], path[k - 1][1] + 0.3] : path[k - 1], b = band ? [path[k][0], path[k][1] + 0.3] : path[k], w = band ? 2.5 : 6;
-    _gFill(type, Math.min(a[0], b[0]) - w, Math.max(a[0], b[0]) + w, Math.min(a[1], b[1]) - w, Math.max(a[1], b[1]) + w, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= w);
+    _gFill(G, Math.min(a[0], b[0]) - w, Math.max(a[0], b[0]) + w, Math.min(a[1], b[1]) - w, Math.max(a[1], b[1]) + w, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= w);
   }
-  for (const [u0, u1] of [[-1.2, 1.2], [-9.5, -7.5], [7.5, 9.5]]) _gFill(type, u0, u1, 24, 38, C.WALL);
+  for (const [u0, u1] of [[-1.2, 1.2], [-9.5, -7.5], [7.5, 9.5]]) _gFill(G, u0, u1, 24, 38, C.WALL);
   yield null;
   // warehouse yards and their gates, then the fences (1 m thick)
   for (const w of L.warehouses) {
-    const y = w.yard; _gFill(type, y.u0, y.u1, y.v0, y.v1, C.YARD);
+    const y = w.yard; _gFill(G, y.u0, y.u1, y.v0, y.v1, C.YARD);
     const g = w.gate, lu = -g.nv, lv = g.nu;     // across the gate
     const p = [g.u + lu * 7, g.v + lv * 7], q = [g.u - lu * 7 + g.nu * 1.2, g.v - lv * 7 + g.nv * 1.2];
-    _gFill(type, Math.min(p[0], q[0]), Math.max(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[1], q[1]), C.YARD);
+    _gFill(G, Math.min(p[0], q[0]), Math.max(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[1], q[1]), C.YARD);
   }
   for (const f of L.fences) if (f.kind !== 'hedge') {
     const pts = [[f.u0, f.v0], [f.u1, f.v1]];
-    _gFill(type, Math.min(f.u0, f.u1) - 0.5, Math.max(f.u0, f.u1) + 0.5, Math.min(f.v0, f.v1) - 0.5, Math.max(f.v0, f.v1) + 0.5, C.WALL, (u, v) => _pathDist(u, v, pts) <= 0.5);
+    _gFill(G, Math.min(f.u0, f.u1) - 0.5, Math.max(f.u0, f.u1) + 0.5, Math.min(f.v0, f.v1) - 0.5, Math.max(f.v0, f.v1) + 0.5, C.WALL, (u, v) => _pathDist(u, v, pts) <= 0.5);
   }
   yield null;
+  yield* gridSdfSteps(G);
+  return G;
+}
+// The signed distance for a grid whose cells are painted (3-4 chamfer, in steps): to the nearest wall for free
+// cells (road, pavement, yard), to the nearest free cell for walls; zero on the cell boundary, clamped to +-6 m.
+function* gridSdfSteps(G) {
   // signed distance (3-4 chamfer): to the nearest wall for free cells, to the nearest free cell for walls
-  const INF = 65000, dF = new Uint16Array(TOWN_NU * TOWN_NV), dW = new Uint16Array(TOWN_NU * TOWN_NV);
+  const NU = G.nu, NV = G.nv, N = NU * NV, type = G.type, C = TCELL, INF = 65000, dF = new Uint16Array(N), dW = new Uint16Array(N);
   for (let i = 0; i < type.length; i++) { const fr = type[i] === C.ROAD || type[i] === C.WALK || type[i] === C.YARD; dF[i] = fr ? INF : 0; dW[i] = fr ? 0 : INF; }
   yield null;
   const relax = (D, i, j, c) => { const x = D[j] + c; if (x < D[i]) D[i] = x; };
-  for (let iv0 = 0; iv0 < TOWN_NV; iv0 += 50) {
-    for (let iv = iv0; iv < Math.min(TOWN_NV, iv0 + 50); iv++) for (let iu = 0; iu < TOWN_NU; iu++) {
-      const i = _gIdx(iu, iv);
+  for (let iv0 = 0; iv0 < NV; iv0 += 50) {
+    for (let iv = iv0; iv < Math.min(NV, iv0 + 50); iv++) for (let iu = 0; iu < NU; iu++) {
+      const i = iv * NU + iu;
       for (const D of [dF, dW]) {
         if (D[i] === 0) continue;
         if (iu > 0) relax(D, i, i - 1, 3);
-        if (iv > 0) { relax(D, i, i - TOWN_NU, 3); if (iu > 0) relax(D, i, i - TOWN_NU - 1, 4); if (iu < TOWN_NU - 1) relax(D, i, i - TOWN_NU + 1, 4); }
+        if (iv > 0) { relax(D, i, i - NU, 3); if (iu > 0) relax(D, i, i - NU - 1, 4); if (iu < NU - 1) relax(D, i, i - NU + 1, 4); }
       }
     }
     yield null;
   }
-  for (let iv0 = TOWN_NV - 1; iv0 >= 0; iv0 -= 50) {
-    for (let iv = iv0; iv > Math.max(-1, iv0 - 50); iv--) for (let iu = TOWN_NU - 1; iu >= 0; iu--) {
-      const i = _gIdx(iu, iv);
+  for (let iv0 = NV - 1; iv0 >= 0; iv0 -= 50) {
+    for (let iv = iv0; iv > Math.max(-1, iv0 - 50); iv--) for (let iu = NU - 1; iu >= 0; iu--) {
+      const i = iv * NU + iu;
       for (const D of [dF, dW]) {
         if (D[i] === 0) continue;
-        if (iu < TOWN_NU - 1) relax(D, i, i + 1, 3);
-        if (iv < TOWN_NV - 1) { relax(D, i, i + TOWN_NU, 3); if (iu < TOWN_NU - 1) relax(D, i, i + TOWN_NU + 1, 4); if (iu > 0) relax(D, i, i + TOWN_NU - 1, 4); }
+        if (iu < NU - 1) relax(D, i, i + 1, 3);
+        if (iv < NV - 1) { relax(D, i, i + NU, 3); if (iu < NU - 1) relax(D, i, i + NU + 1, 4); if (iu > 0) relax(D, i, i + NU - 1, 4); }
       }
     }
     yield null;
   }
-  const dist = new Int16Array(TOWN_NU * TOWN_NV), k = TOWN_CELL / 3;
-  for (let i0 = 0; i0 < dist.length; i0 += 100 * TOWN_NU) {
-    for (let i = i0; i < Math.min(dist.length, i0 + 100 * TOWN_NU); i++) {
-      const d = dF[i] > 0 ? dF[i] * k - TOWN_CELL / 2 : -(dW[i] * k - TOWN_CELL / 2);   // zero on the cell boundary
+  const dist = new Int16Array(N), k = G.cell / 3;
+  for (let i0 = 0; i0 < dist.length; i0 += 100 * NU) {
+    for (let i = i0; i < Math.min(dist.length, i0 + 100 * NU); i++) {
+      const d = dF[i] > 0 ? dF[i] * k - G.cell / 2 : -(dW[i] * k - G.cell / 2);   // zero on the cell boundary
       dist[i] = d >= 6 ? 600 : d <= -6 ? -600 : Math.round(d * 100);
     }
     yield null;
   }
-  return { type, dist };
+  G.dist = dist;
 }
 function townGrid(L) { const it = townGridSteps(L); for (;;) { const r = it.next(); if (r.done) return r.value; } }
 
@@ -1418,15 +1487,15 @@ function townUnload(i) {
 }
 // Signed distance (m, positive on drivable ground) and cell type at a town point, from the grid.
 function townSample(grid, u, v) {
-  const fu = (u - TOWN_U0) / TOWN_CELL - 0.5, fv = (v - TOWN_V0) / TOWN_CELL - 0.5;
-  const iu = clamp(Math.floor(fu), 0, TOWN_NU - 2), iv = clamp(Math.floor(fv), 0, TOWN_NV - 2), tu = clamp(fu - iu, 0, 1), tv = clamp(fv - iv, 0, 1);
-  const D = grid.dist, i = _gIdx(iu, iv);
-  return ((D[i] * (1 - tu) + D[i + 1] * tu) * (1 - tv) + (D[i + TOWN_NU] * (1 - tu) + D[i + TOWN_NU + 1] * tu) * tv) / 100;
+  const NU = grid.nu, fu = (u - grid.u0) / grid.cell - 0.5, fv = (v - grid.v0) / grid.cell - 0.5;
+  const iu = clamp(Math.floor(fu), 0, NU - 2), iv = clamp(Math.floor(fv), 0, grid.nv - 2), tu = clamp(fu - iu, 0, 1), tv = clamp(fv - iv, 0, 1);
+  const D = grid.dist, i = iv * NU + iu;
+  return ((D[i] * (1 - tu) + D[i + 1] * tu) * (1 - tv) + (D[i + NU] * (1 - tu) + D[i + NU + 1] * tu) * tv) / 100;
 }
 function townCellAt(grid, u, v) {
-  const iu = Math.floor((u - TOWN_U0) / TOWN_CELL), iv = Math.floor((v - TOWN_V0) / TOWN_CELL);
-  if (iu < 0 || iv < 0 || iu >= TOWN_NU || iv >= TOWN_NV) return TCELL.OUT;
-  return grid.type[_gIdx(iu, iv)];
+  const iu = Math.floor((u - grid.u0) / grid.cell), iv = Math.floor((v - grid.v0) / grid.cell);
+  if (iu < 0 || iv < 0 || iu >= grid.nu || iv >= grid.nv) return TCELL.OUT;
+  return grid.type[iv * grid.nu + iu];
 }
 
 // ==== 02c-ground.js ====
@@ -1449,6 +1518,17 @@ function _groundTown(x, z) {
   }
   return null;
 }
+// The loaded service area whose ground holds road point (s, lat) (its coordinates are left in _gsa), or null.
+const _gsa = { u: 0, v: 0 };
+function _groundSa(s, lat) {
+  for (const k of GROUND.sas) {
+    const A = SA_LOADED.get(k);
+    if (!A) continue;
+    const u = s - A.layout.sa.sDiv, v = -lat;
+    if (saInside(u, v)) { _gsa.u = u; _gsa.v = v; return A; }
+  }
+  return null;
+}
 // A route sample index near a world point, for a first projection from far away (placing the rig).
 function routeHint(x, z) {
   let best = 0, bd = Infinity;
@@ -1456,11 +1536,12 @@ function routeHint(x, z) {
   return best;
 }
 const GROUND = {
-  towns: [],
-  // out = { y, gx, gz, zone, town, s, lat, i }: height, uphill slope along x and z, 'road' | 'town'
+  towns: [], sas: [],
+  // out = { y, gx, gz, zone, town, sa, s, lat, i }: height, uphill slope along x and z, 'road' | 'town' | 'sa'
   at(x, z, hint, out) {
     const R = ROAD, T = this.towns.length ? _groundTown(x, z) : null;
     R.project(x, z, hint, _gpr);
+    out.sa = -1;
     if (T) {
       const site = T.layout.site, u = _guv.u, v = _guv.v, e = 0.5;
       const hu = (townHeight(site, u + e, v) - townHeight(site, u - e, v)) / (2 * e), hv = (townHeight(site, u, v + e) - townHeight(site, u, v - e)) / (2 * e);
@@ -1469,9 +1550,10 @@ const GROUND = {
       out.zone = 'town'; out.town = site.i; out.s = _gpr.s; out.lat = _gpr.lat; out.i = _gpr.i;
       return out;
     }
-    const s = _gpr.s, g = R.gradeAt(s), h = R.headingAt(s);
-    out.y = R.elevAt(s); out.gx = g * Math.sin(h); out.gz = g * Math.cos(h);
-    out.zone = 'road'; out.town = -1; out.s = s; out.lat = _gpr.lat; out.i = _gpr.i;
+    const s = _gpr.s, g = R.gradeAt(s), h = R.headingAt(s), A = this.sas.length ? _groundSa(s, _gpr.lat) : null;
+    out.y = R.elevAt(s); out.gx = g * Math.sin(h); out.gz = g * Math.cos(h);   // a service area is level across, like the road
+    if (A && townCellAt(A.grid, _gsa.u, _gsa.v) === TCELL.WALK) out.y += 0.15;
+    out.zone = A ? 'sa' : 'road'; out.sa = A ? A.layout.sa.i : -1; out.town = -1; out.s = s; out.lat = _gpr.lat; out.i = _gpr.i;
     return out;
   },
   // out = { pen, nx, nz, tx, tz, i }: how far the point is outside the drivable ground (0: inside),
@@ -1488,6 +1570,17 @@ const GROUND = {
       return out;
     }
     R.project(x, z, hint, _gpr);
+    const A = this.sas.length ? _groundSa(_gpr.s, _gpr.lat) : null;
+    if (A) {   // the grid's distance; u runs along the road, v to its left
+      const G = A.grid, u = _gsa.u, v = _gsa.v, d = townSample(G, u, v), e = 0.25, h = R.headingAt(_gpr.s);
+      let du = townSample(G, u + e, v) - townSample(G, u - e, v), dv = townSample(G, u, v + e) - townSample(G, u, v - e);
+      const m = Math.hypot(du, dv);
+      if (m > 1e-9) { du /= m; dv /= m; } else { du = 0; dv = -1; }   // deep inside a wall: back toward the road
+      const Tx = Math.sin(h), Tz = Math.cos(h), Lx = Math.cos(h), Lz = -Math.sin(h);
+      out.i = _gpr.i; out.pen = Math.max(0, -d);
+      out.nx = du * Tx + dv * Lx; out.nz = du * Tz + dv * Lz; out.tx = -out.nz; out.tz = out.nx;
+      return out;
+    }
     const ivs = R.drivable(_gpr.s, _giv), lat = _gpr.lat;
     let iv = ivs[0], bd = Infinity;
     for (const c of ivs) {
@@ -2009,6 +2102,198 @@ function navFollow(L, T, u, v, θ, dt) {
   if (same) return null;   // off the streets (a yard, a dead end): the way from where it last was has not changed
   T.route = r;
   return 'reroute';
+}
+
+// ==== 02f-sa.js ====
+// ---------------------------------------------------------------------------
+// Service areas (data only, no DOM): the car park beside the expressway with its
+// truck stalls, fuel bays, building and parked vehicles, the paths through it,
+// and its grid of cells (the same kind of grid a town has). Coordinates are road
+// coordinates (see SAS in 02-route.js): u = s - sDiv along the road, v = -lat to
+// the left of it. One way through: the deceleration lane, aisle A past the
+// stalls, aisle B behind them, the fuel bays, the exit, the acceleration lane.
+// ---------------------------------------------------------------------------
+const SA_GRID = { u0: 130, v0: 10, nu: 760, nv: 188, cell: 0.5 };
+// the part of the road's left side that the service area's own ground answers for
+function saInside(u, v) { return u >= 140 && u <= 500 && v >= 13.6 && v <= 102; }
+const SA_STALL = { n: 12, u0: 212, du: 5.66, v: 37, w: 4, len: 20 };
+const SA_PUMP = { u: 377, v: [26, 36], w: 4.5, len: 22 };
+const SA_CAR_KINDS = ['kei', 'sedan', 'minivan'];
+
+// A path of [u, v] points every metre or so: straight lines, 45-degree corners, S-bends.
+function _saLine(out, b) { const a = out[out.length - 1], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2)); for (let k = 1; k <= n; k++) out.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); }
+// an S-bend from the last point to b: v eases across while u goes on
+function _saS(out, b) {
+  const a = out[out.length - 1], n = Math.max(2, Math.ceil(Math.abs(b[0] - a[0]) / 2));
+  for (let k = 1; k <= n; k++) { const t = k / n, e = (1 - Math.cos(Math.PI * t)) / 2; out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * e]); }
+}
+// a corner of radius R at P, from direction d1 to d2 (unit vectors), then on to the corner's end
+function _saCorner(out, P, d1, d2, R) {
+  const cosA = d1[0] * d2[0] + d1[1] * d2[1], half = Math.acos(clamp(cosA, -1, 1)) / 2, T = R * Math.tan(half);
+  _saLine(out, [P[0] - d1[0] * T, P[1] - d1[1] * T]);
+  const left = d1[0] * d2[1] - d1[1] * d2[0] > 0, nx = left ? -d1[1] : d1[1], ny = left ? d1[0] : -d1[0];   // toward the corner's centre
+  const s = out[out.length - 1], c = [s[0] + nx * R, s[1] + ny * R], a0 = Math.atan2(s[1] - c[1], s[0] - c[0]);
+  const da = (left ? 1 : -1) * 2 * half, n = 10;
+  for (let k = 1; k <= n; k++) { const a = a0 + da * k / n; out.push([c[0] + R * Math.cos(a), c[1] + R * Math.sin(a)]); }
+}
+
+function saLayout(k, visit = 0) {
+  const sa = SAS[k], R = rng(7001 + 131 * k + 17 * visit), D = Math.SQRT1_2;
+  const stalls = [];
+  for (let n = 0; n < SA_STALL.n; n++) stalls.push({ id: n, u: SA_STALL.u0 + SA_STALL.du * n, v: SA_STALL.v, hu: D, hv: D, w: SA_STALL.w, len: SA_STALL.len, taken: false });
+  const nTaken = 4 + Math.floor(R() * 4), order = stalls.map(s => s.id);   // 4..7 of 12: 3 to 6 tenths, at least 5 free
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  for (const id of order.slice(0, nTaken)) stalls[id].taken = true;
+  const pumps = SA_PUMP.v.map((v, id) => ({ id, u: SA_PUMP.u, v, hu: 1, hv: 0, w: SA_PUMP.w, len: SA_PUMP.len }));
+  const cars = [];
+  for (const s of stalls) if (s.taken) cars.push({ u: s.u, v: s.v, hu: s.hu, hv: s.hv, len: 12, wid: 2.5, kind: 'truck' });
+  const carPark = { u0: 205, u1: 325, rows: [{ v: 59, hv: -1 }, { v: 71, hv: 1 }], slotW: 2.5, len: 5 };
+  for (const row of carPark.rows) for (let u = carPark.u0 + 1.25; u < carPark.u1; u += carPark.slotW) {
+    if (R() < 0.5) cars.push({ u, v: row.v, hu: 0, hv: row.hv, len: 4.4, wid: 1.75, kind: SA_CAR_KINDS[Math.floor(R() * 3)] });
+  }
+  const hue = R();
+  return {
+    sa, kind: 'sa', visit, fallback: false, stalls, pumps, cars, carPark,
+    building: { u0: 215, u1: 275, v0: 79, v1: 99, h: 5.5, hue },
+    canopy: { u0: 357, u1: 397, v0: 20, v1: 44, h: 6.5, pillars: [[362.5, 31], [391.5, 31], [362.5, 40.25], [391.5, 40.25]] },
+    islands: [{ u0: 362, u1: 392, v0: 29, v1: 33 }, { u0: 362, u1: 392, v0: 39, v1: 41.5 }],
+    planted: [{ u0: 180, u1: 190, v0: 28, v1: 46 }, { u0: 298, u1: 320, v0: 28, v1: 46 }],
+    // what the grid paints as road, in order (boxes [u0, u1, v0, v1]); the throat narrows toward the exit lane
+    paved: [[180, 335, 18, 28], [190, 298, 28, 46], [190, 420, 46, 56], [200, 330, 56, 76], [320, 420, 18, 56]],
+    walk: [[205, 285, 76, 79]],
+    signs: [{ u: 186, v: 30, text: '大型車' }, { u: 340, v: 15, text: '給油所' }, { u: 452, v: 30, text: '出口' }],
+  };
+}
+// A plain car park when the layout cannot be made: one fuel bay, four straight drive-through stalls, no building.
+function saFallbackLayout(k) {
+  const sa = SAS[k];
+  const stalls = [40, 44.5, 49, 53.5].map((v, id) => ({ id, u: 270, v, hu: 1, hv: 0, w: 4, len: 20, taken: false }));
+  return { sa, kind: 'sa', visit: 0, fallback: true, stalls, pumps: [{ id: 0, u: 360, v: 26, hu: 1, hv: 0, w: 4.5, len: 22 }], cars: [],
+    carPark: null, building: null, canopy: null, islands: [], planted: [], paved: [[180, 420, 18, 80]], walk: [], signs: [] };
+}
+
+// The way between two places in the car park as [u, v] points: a is 'in' | { stall } | { pump }, b is { stall } | { pump } | 'out'.
+// 'in' starts on the deceleration lane at u = 140; 'out' ends on the acceleration lane at u = 500.
+function saPath(L, a, b) {
+  const out = [], D = Math.SQRT1_2, E = {};
+  if (a === 'in') { for (let u = 140; u <= 180; u += 5) out.push([u, -saExitEdges(u, E).cx]); _saLine(out, [190, 23]); }
+  else if (a.stall != null) { const s = L.stalls[a.stall]; out.push([s.u, s.v]); }
+  else { const p = L.pumps[a.pump]; out.push([p.u, p.v]); }
+  const toOut = () => { _saS(out, [455, 22]); _saLine(out, [460, 22]); for (let u = 465; u <= 500; u += 5) out.push([u, -saEntryEdges(u - 460, E).cx]); };
+  if (L.fallback) {   // an open car park: S-bends between straight runs
+    const at = out[out.length - 1];
+    if (b === 'out') { if (at[0] < 300) _saLine(out, [Math.max(at[0] + 10, 300), at[1]]); _saLine(out, [400, at[1]]); toOut(); return out; }
+    const t = b.stall != null ? L.stalls[b.stall] : L.pumps[b.pump];
+    if (a !== 'in') _saLine(out, [at[0] + 25, at[1]]);
+    _saS(out, [t.u - 22, t.v]); _saLine(out, [t.u, t.v]);
+    return out;
+  }
+  if (a === 'in' && b.stall != null) {
+    const s = L.stalls[b.stall];
+    _saCorner(out, [s.u - 14, 23], [1, 0], [D, D], 14); _saLine(out, [s.u, s.v]);
+    return out;
+  }
+  if (a.stall != null) {   // out of the stall onto aisle B, heading on along it
+    const s = L.stalls[a.stall];
+    _saCorner(out, [s.u + 14, 51], [D, D], [1, 0], 14);
+    if (b === 'out') { _saLine(out, [400, 51]); toOut(); return out; }
+    const p = L.pumps[b.pump];
+    _saLine(out, [Math.max(out[out.length - 1][0] + 2, 318), 51]); _saS(out, [357, p.v]); _saLine(out, [p.u, p.v]);
+    return out;
+  }
+  if (a === 'in') {   // along aisle A
+    if (b === 'out') { _saLine(out, [318, 23]); _saS(out, [355, 51]); _saLine(out, [400, 51]); toOut(); return out; }
+    const p = L.pumps[b.pump];
+    _saLine(out, [330, 23]); _saS(out, [357, p.v]); _saLine(out, [p.u, p.v]);
+    return out;
+  }
+  _saLine(out, [400, out[out.length - 1][1]]); toOut();   // from a fuel bay
+  return out;
+}
+
+// The grid in steps (each yield a short piece of work); the last value is the grid with its distances.
+function* saGridSteps(L) {
+  const G = gridNew(SA_GRID.u0, SA_GRID.v0, SA_GRID.nu, SA_GRID.nv, SA_GRID.cell), C = TCELL, E = {};
+  for (let iv = 0; iv < G.nv; iv++) {   // inside: walls (planting, fences) until painted; outside: out
+    const v = G.v0 + (iv + 0.5) * G.cell;
+    for (let iu = 0; iu < G.nu; iu++) G.type[iv * G.nu + iu] = saInside(G.u0 + (iu + 0.5) * G.cell, v) ? C.WALL : C.OUT;
+  }
+  yield null;
+  const inside = (u, v) => saInside(u, v);
+  // the lanes: the deceleration lane up to the car park, the acceleration lane from it
+  for (let u = 130; u < 186; u += 0.5) { const e = saExitEdges(u, E); _gFill(G, u, u + 0.5, -e.xr, -e.xl, C.ROAD, inside); }
+  for (let u = 454; u < 510; u += 0.5) { const e = saEntryEdges(Math.max(0, u - SA_LOT1), E); _gFill(G, u, u + 0.5, -e.xr, -e.xl, C.ROAD, inside); }
+  for (const [u0, u1, v0, v1] of L.paved) _gFill(G, u0, u1, v0, v1, C.ROAD, inside);
+  if (!L.fallback) {   // the throat: from the fuel bays and aisle B down to the exit lane's width
+    _gFill(G, 420, 460, 18, 56, C.ROAD, (u, v) => v <= 56 - (u - 420) * (56 - 27) / 40);
+  } else _gFill(G, 420, 460, 18, 80, C.ROAD, (u, v) => v <= 80 - (u - 420) * (80 - 27) / 40);
+  yield null;
+  for (const [u0, u1, v0, v1] of L.walk) _gFill(G, u0, u1, v0, v1, C.WALK, inside);
+  for (const p of L.planted) _gFill(G, p.u0, p.u1, p.v0, p.v1, C.WALL);
+  for (const p of L.islands) _gFill(G, p.u0, p.u1, p.v0, p.v1, C.WALL);
+  if (L.building) _gFill(G, L.building.u0, L.building.u1, L.building.v0, L.building.v1, C.WALL);
+  for (const c of L.cars) {   // parked vehicles: boxes along their heading
+    const r = Math.hypot(c.len, c.wid) / 2 + 0.3;
+    _gFill(G, c.u - r, c.u + r, c.v - r, c.v + r, C.WALL, (u, v) => {
+      const du = u - c.u, dv = v - c.v;
+      return Math.abs(du * c.hu + dv * c.hv) <= c.len / 2 + 0.15 && Math.abs(-du * c.hv + dv * c.hu) <= c.wid / 2 + 0.15;
+    });
+  }
+  yield null;
+  yield* gridSdfSteps(G);
+  return G;
+}
+function saGrid(L) { const it = saGridSteps(L); for (;;) { const r = it.next(); if (r.done) return r.value; } }
+
+// The loaded service areas (one at a time in the game; tests load any).
+const SA_LOADED = new Map();
+function saAdd(k, layout, grid) {
+  SA_LOADED.set(k, { layout, grid });
+  if (!GROUND.sas.includes(k)) GROUND.sas.push(k);
+}
+function saLoad(k, visit = 0) {
+  if (SA_LOADED.has(k)) return SA_LOADED.get(k);
+  let layout, grid;
+  try { layout = saLayout(k, visit); grid = saGrid(layout); }
+  catch (e) { console.warn('service area ' + k + ' could not be made; using a plain car park:', e && e.message); layout = saFallbackLayout(k); grid = saGrid(layout); }
+  saAdd(k, layout, grid);
+  return SA_LOADED.get(k);
+}
+function saUnload(k) {
+  SA_LOADED.delete(k);
+  const i = GROUND.sas.indexOf(k); if (i >= 0) GROUND.sas.splice(i, 1);
+}
+
+// The slot (a free truck stall, or a fuel bay) holding the tractor's centre (u, v) with its heading (hu, hv) within 20 degrees.
+const _SA_COS20 = Math.cos(20 * Math.PI / 180);
+function _saSlot(list, u, v, hu, hv) {
+  for (const s of list) {
+    if (s.taken) continue;
+    const du = u - s.u, dv = v - s.v;
+    if (Math.abs(du * s.hu + dv * s.hv) > s.len / 2 || Math.abs(-du * s.hv + dv * s.hu) > s.w / 2) continue;
+    if (hu * s.hu + hv * s.hv >= _SA_COS20) return s;
+  }
+  return null;
+}
+function saStallAt(L, u, v, hu, hv) { return _saSlot(L.stalls, u, v, hu, hv); }
+function saPumpAt(L, u, v, hu, hv) { return _saSlot(L.pumps, u, v, hu, hv); }
+
+// Expressway houses and trees keep out of each service area and its surroundings.
+function saKeepOut(s, lat) {
+  for (const a of SAS) { const u = s - a.sDiv, v = -lat; if (u >= 100 && u <= 560 && v >= 10 && v <= 140) return true; }
+  return false;
+}
+// How much the expressway's terrain at (s, lat) gives way to a service area's ground: 1 over the car park, 0 40 m beyond it.
+const _sgb = { w: 0, y: null };
+function saGroundBlend(s, lat) {
+  _sgb.w = 0; _sgb.y = null;
+  for (const a of SAS) {
+    const u = s - a.sDiv, v = -lat;
+    if (u < 100 || u > 560 || v < 13.6) continue;
+    const d = Math.hypot(Math.max(0, SA_LOT0 - u, u - SA_LOT1), Math.max(0, v - 102)), w = 1 - smooth(0, 40, d);
+    if (w > _sgb.w) { _sgb.w = w; _sgb.y = elevAt(a.sDiv + clamp(u, SA_LOT0, SA_LOT1)); }
+  }
+  return _sgb;
 }
 
 // ==== 03-gfx.js ====
@@ -6024,7 +6309,7 @@ function rigRollSlosh(h, aLat, aLongT, aLatT) {
 }
 
 // ---- contacts: guardrails and walls push on the body corners, barriers stop the nose ----
-const _gc = { pen: 0, nx: 0, nz: 0, tx: 0, tz: 0, i: 0 }, _ga = { y: 0, gx: 0, gz: 0, zone: 'road', town: -1, s: 0, lat: 0, i: 0 };
+const _gc = { pen: 0, nx: 0, nz: 0, tx: 0, tz: 0, i: 0 }, _ga = { y: 0, gx: 0, gz: 0, zone: 'road', town: -1, sa: -1, s: 0, lat: 0, i: 0 };
 let _cFx = 0, _cFz = 0, _cT = 0;
 // One corner of body b at (a forward, side * half-width right) of its centre of mass.
 function rigCorner(b, rec, a, side, h) {
@@ -6284,7 +6569,7 @@ const TR = {
   assist: { abs: false, tcs: false, esc: false, rsc: false },
   cab: { p: 0, pv: 0, r: 0, rv: 0, hv: 0, hy: 0 },
   spin: 0, onRamp: false, acc: 0, snapT: 0, railT: { t: 0, r: 0 },
-  zone: 'road', town: -1, tu: 0, tv: 0,          // on the expressway or in a town (TOWN_SITES[town]); town position (u, v)
+  zone: 'road', town: -1, sa: -1, tu: 0, tv: 0,  // on the expressway, in a town (TOWN_SITES[town]) or a service area (SAS[sa]); town position (u, v)
   assistT: { abs: 0, tcs: 0, esc: 0, rsc: 0 },   // each lamp stays on a moment after its system last acted
   sentRoll: false, sentJack: false, dlPrev: null,
 };
@@ -6309,7 +6594,7 @@ function syncTR() {
   ROAD.project(T.x, T.z, T.idx, _pj); T.idx = _pj.i; T.s = _pj.s; T.lat = _pj.lat;
   ROAD.project(T.x + Math.sin(T.h) * RIGP.front, T.z + Math.cos(T.h) * RIGP.front, T.idx, _pjF);
   T.frontS = _pjF.s; T.frontLat = _pjF.lat;
-  GROUND.at(T.x, T.z, T.idx, _gt); T.y = _gt.y; T.zone = _gt.zone; T.town = _gt.town;
+  GROUND.at(T.x, T.z, T.idx, _gt); T.y = _gt.y; T.zone = _gt.zone; T.town = _gt.town; T.sa = _gt.sa;
   if (T.town >= 0) { townUV(TOWN_SITES[T.town], T.x, T.z, _gt); T.tu = _gt.u; T.tv = _gt.v; }
   T.pitch = Math.atan2(GROUND.at(T.x + Math.sin(T.h) * WB, T.z + Math.cos(T.h) * WB, T.idx, _gt).y - T.y, WB);
   const tr = T.tr;
@@ -6343,7 +6628,7 @@ function truckRestore() {
 }
 function truckHealthy() {
   const t = RIG.t, r = RIG.r;
-  return Number.isFinite(t.x + t.z + t.h + t.vx + t.vz + t.w + r.x + r.z + r.h + r.vx + r.vz + r.w + TR.s + TR.lat + TR.v) && (TR.zone === 'town' || Math.abs(TR.lat) <= 200);
+  return Number.isFinite(t.x + t.z + t.h + t.vx + t.vz + t.w + r.x + r.z + r.h + r.vx + r.vz + r.w + TR.s + TR.lat + TR.v) && (TR.zone === 'town' || TR.zone === 'sa' || Math.abs(TR.lat) <= 200);
 }
 
 // Put the tractor's rear axle on the road at (s, lat). opts.coupled (default true) tows the job
@@ -6446,6 +6731,9 @@ function towReset() {
   if (T.zone === 'town' && TOWNS_LOADED.has(T.town)) {   // in a town: onto the nearest lane, facing along it
     const L = TOWNS_LOADED.get(T.town).layout, p = townNearestLane(L, T.tu, T.tv);
     if (p) { const q = townXZ(L.site, p.u, p.v, {}); placeTruckAt(q.x, q.z, L.site.hu + p.h, 0, { coupled: towing }); return; }
+  }
+  if (T.zone === 'sa' && T.sa >= 0) {   // in a service area: onto aisle A, facing along the road
+    const a = SAS[T.sa]; placeTruck(clamp(T.s, a.sDiv + 200, a.sDiv + 320), -23, 0, { coupled: towing }); return;
   }
   const lat = r && T.lat < -13.4 ? rampEdges(T.s - r.sDiv).cx : -10.75;
   placeTruck(T.s, lat, 0, { coupled: towing });

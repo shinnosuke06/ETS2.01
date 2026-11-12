@@ -17,6 +17,17 @@ function _groundTown(x, z) {
   }
   return null;
 }
+// The loaded service area whose ground holds road point (s, lat) (its coordinates are left in _gsa), or null.
+const _gsa = { u: 0, v: 0 };
+function _groundSa(s, lat) {
+  for (const k of GROUND.sas) {
+    const A = SA_LOADED.get(k);
+    if (!A) continue;
+    const u = s - A.layout.sa.sDiv, v = -lat;
+    if (saInside(u, v)) { _gsa.u = u; _gsa.v = v; return A; }
+  }
+  return null;
+}
 // A route sample index near a world point, for a first projection from far away (placing the rig).
 function routeHint(x, z) {
   let best = 0, bd = Infinity;
@@ -24,11 +35,12 @@ function routeHint(x, z) {
   return best;
 }
 const GROUND = {
-  towns: [],
-  // out = { y, gx, gz, zone, town, s, lat, i }: height, uphill slope along x and z, 'road' | 'town'
+  towns: [], sas: [],
+  // out = { y, gx, gz, zone, town, sa, s, lat, i }: height, uphill slope along x and z, 'road' | 'town' | 'sa'
   at(x, z, hint, out) {
     const R = ROAD, T = this.towns.length ? _groundTown(x, z) : null;
     R.project(x, z, hint, _gpr);
+    out.sa = -1;
     if (T) {
       const site = T.layout.site, u = _guv.u, v = _guv.v, e = 0.5;
       const hu = (townHeight(site, u + e, v) - townHeight(site, u - e, v)) / (2 * e), hv = (townHeight(site, u, v + e) - townHeight(site, u, v - e)) / (2 * e);
@@ -37,9 +49,10 @@ const GROUND = {
       out.zone = 'town'; out.town = site.i; out.s = _gpr.s; out.lat = _gpr.lat; out.i = _gpr.i;
       return out;
     }
-    const s = _gpr.s, g = R.gradeAt(s), h = R.headingAt(s);
-    out.y = R.elevAt(s); out.gx = g * Math.sin(h); out.gz = g * Math.cos(h);
-    out.zone = 'road'; out.town = -1; out.s = s; out.lat = _gpr.lat; out.i = _gpr.i;
+    const s = _gpr.s, g = R.gradeAt(s), h = R.headingAt(s), A = this.sas.length ? _groundSa(s, _gpr.lat) : null;
+    out.y = R.elevAt(s); out.gx = g * Math.sin(h); out.gz = g * Math.cos(h);   // a service area is level across, like the road
+    if (A && townCellAt(A.grid, _gsa.u, _gsa.v) === TCELL.WALK) out.y += 0.15;
+    out.zone = A ? 'sa' : 'road'; out.sa = A ? A.layout.sa.i : -1; out.town = -1; out.s = s; out.lat = _gpr.lat; out.i = _gpr.i;
     return out;
   },
   // out = { pen, nx, nz, tx, tz, i }: how far the point is outside the drivable ground (0: inside),
@@ -56,6 +69,17 @@ const GROUND = {
       return out;
     }
     R.project(x, z, hint, _gpr);
+    const A = this.sas.length ? _groundSa(_gpr.s, _gpr.lat) : null;
+    if (A) {   // the grid's distance; u runs along the road, v to its left
+      const G = A.grid, u = _gsa.u, v = _gsa.v, d = townSample(G, u, v), e = 0.25, h = R.headingAt(_gpr.s);
+      let du = townSample(G, u + e, v) - townSample(G, u - e, v), dv = townSample(G, u, v + e) - townSample(G, u, v - e);
+      const m = Math.hypot(du, dv);
+      if (m > 1e-9) { du /= m; dv /= m; } else { du = 0; dv = -1; }   // deep inside a wall: back toward the road
+      const Tx = Math.sin(h), Tz = Math.cos(h), Lx = Math.cos(h), Lz = -Math.sin(h);
+      out.i = _gpr.i; out.pen = Math.max(0, -d);
+      out.nx = du * Tx + dv * Lx; out.nz = du * Tz + dv * Lz; out.tx = -out.nz; out.tz = out.nx;
+      return out;
+    }
     const ivs = R.drivable(_gpr.s, _giv), lat = _gpr.lat;
     let iv = ivs[0], bd = Infinity;
     for (const c of ivs) {
