@@ -109,6 +109,10 @@ function drawCluster(st) {
 }
 
 const _np = {};
+// The guidance arrow's turn for each kind (radians, 0 = straight up), and the lane arrows as characters.
+const NAV_ARROW = { left: -Math.PI / 2, right: Math.PI / 2, gateLeft: -Math.PI / 2, gateRight: Math.PI / 2, outLeft: -Math.PI / 2, outRight: Math.PI / 2,
+  merge: Math.PI / 4, exit: -Math.PI / 4, exitLane: -Math.PI / 6, dock: Math.PI };
+const NAV_GLYPH = { left: '←', straight: '↑', right: '→' };
 function drawNav(st) {
   const g = DASH.ng, W = 512, H = 320;
   g.fillStyle = '#121b24'; g.fillRect(0, 0, W, H);
@@ -162,6 +166,19 @@ function drawNav(st) {
     townXZ(site, 0, 0, q); const pz = toScr(q.x, q.z); townXZ(site, 0, 45, q); const pg = toScr(q.x, q.z);   // the plaza to Main A
     g.lineWidth = 7; g.beginPath(); g.moveTo(pz[0], pz[1]); g.lineTo(pg[0], pg[1]); g.stroke();
   }
+  if (TL && st.routePts && st.routePts.length > 1) {   // the way ahead, in blue over the grey streets
+    const site = TL.layout.site, q = {};
+    g.strokeStyle = '#2f9cff'; g.lineWidth = 6; g.beginPath();
+    st.routePts.forEach(([u, v], i) => { townXZ(site, u, v, q); const p = toScr(q.x, q.z); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); });
+    g.stroke();
+  }
+  if (st.destMarks) {   // the destination yard: docks in orange, the bay outlined in blue
+    g.fillStyle = '#ff9a1a';
+    for (const [x, z] of st.destMarks.docks) { const p = toScr(x, z); g.fillRect(p[0] - 4, p[1] - 4, 8, 8); }
+    g.strokeStyle = '#2f9cff'; g.lineWidth = 2; g.beginPath();
+    st.destMarks.bay.forEach(([x, z], i) => { const p = toScr(x, z); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); });
+    g.closePath(); g.stroke();
+  }
   if (st.destWh && (TL || st.inTown)) {
     const p = toScr(st.destWh.x, st.destWh.z);
     g.fillStyle = '#2f9cff'; g.beginPath(); g.arc(p[0], p[1], 9, 0, TAU); g.fill();
@@ -180,11 +197,23 @@ function drawNav(st) {
   // header
   g.fillStyle = 'rgba(8,12,16,.92)'; g.fillRect(0, 0, W, 54);
   let gx = 16;
-  if (st.target && st.inTown) {   // which way the target lies, seen from the truck (up: straight ahead)
-    const p = toScr(st.target.x, st.target.z), a = Math.atan2(p[0] - cx, cy - p[1]);
+  const arrow = a => {   // a block arrow at the band's left, turned by a (up: straight ahead)
     g.save(); g.translate(30, 27); g.rotate(a); g.fillStyle = '#2f9cff';
     g.beginPath(); g.moveTo(0, -17); g.lineTo(12, 3); g.lineTo(4, 3); g.lineTo(4, 16); g.lineTo(-4, 16); g.lineTo(-4, 3); g.lineTo(-12, 3); g.closePath(); g.fill(); g.restore();
     gx = 58;
+  };
+  if (st.maneuver) {
+    if (st.maneuver.kind === 'arrive') { g.fillStyle = '#2f9cff'; g.beginPath(); g.arc(30, 27, 13, 0, TAU); g.fill(); gx = 58; }
+    else arrow(NAV_ARROW[st.maneuver.kind] || 0);
+  } else if (st.target && st.inTown) {   // no route: which way the target lies, seen from the truck
+    const p = toScr(st.target.x, st.target.z); arrow(Math.atan2(p[0] - cx, cy - p[1]));
+  }
+  if (st.maneuver && st.maneuver.lanes) {   // the lanes, lit where to drive
+    st.maneuver.lanes.forEach((l, i) => {
+      const x = 16 + i * 34; g.fillStyle = l.use ? '#2f9cff' : 'rgba(40,52,64,.95)'; roundRect(g, x, 60, 30, 30, 4); g.fill();
+      g.fillStyle = l.use ? '#ffffff' : '#7f8e9b'; g.font = font(15); g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(l.arrows.map(a => NAV_GLYPH[a]).join(''), x + 15, 76);
+    });
   }
   g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = font(22);
   g.fillText(st.guide, gx, 28);

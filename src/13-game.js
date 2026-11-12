@@ -508,6 +508,90 @@ function clusterState() {
     flashOn: performance.now() % 360 < 180,
   };
 }
+// ---- navigation: which part of the way the rig is on, its route through the town, the next thing to do ----
+const NAV = { leg: 'expressway', T: null, key: '', msgT: 0, m: null, warned: false };
+const _nvq = {};
+// The part of the way at the rig's front: a yard (start or destination), the plaza, a town's streets, the entrance band,
+// the exit ramp, or the expressway.
+function navLeg() {
+  const j = GAME.job;
+  if (TR.zone === 'town' && TOWNS_LOADED.has(TR.town)) {
+    const L = TOWNS_LOADED.get(TR.town).layout, u = TR.tu, v = TR.tv;
+    for (const w of L.warehouses) {
+      const y = w.yard;
+      if (u < y.u0 - 1 || u > y.u1 + 1 || v < y.v0 - 1 || v > y.v1 + 1) continue;
+      if (TR.town === j.from && w.name === j.whA.name) return 'startYard';
+      if (TR.town === j.to && w.name === j.whB.name) return 'destYard';
+    }
+    return Math.abs(u) <= 50 && v < 45 ? 'plaza' : 'town';
+  }
+  if (TR.onRamp) return 'exitRamp';
+  const e = entryAt(TR.s);
+  return e && TR.lat < -12.5 ? 'band' : 'expressway';
+}
+// Called every simulation step while driving: keeps the town route up to date (a new one when the rig leaves it).
+function navUpdate(dt) {
+  try {
+    NAV.msgT = Math.max(0, NAV.msgT - dt);
+    NAV.leg = navLeg();
+    if (NAV.leg !== 'town' && NAV.leg !== 'startYard') return;
+    const j = GAME.job, L = TOWNS_LOADED.get(TR.town).layout, site = L.site;
+    const to = NAV.leg === 'startYard' || TR.town !== j.to ? { plaza: true } : { gate: j.whB };
+    const key = `${TR.town}:${NAV.leg === 'startYard' ? 'yard' : 'street'}:${to.gate ? j.to + ':' + to.gate.name : 'plaza'}`;
+    townUV(site, TR.x + Math.sin(TR.h) * RIGP.front, TR.z + Math.cos(TR.h) * RIGP.front, _nvq);
+    const θ = wrapA(TR.h - site.hu);
+    if (NAV.key !== key || !NAV.T || !NAV.T.route) {
+      let route = null, match = null;
+      if (NAV.leg === 'startYard') route = navRoute(L, { gate: j.whA }, to);
+      else { match = navMatch(L, _nvq.u, _nvq.v, θ, null); if (match) route = navRoute(L, { edge: match.edge, d: match.d }, to); }
+      NAV.T = { route, to, match, offT: 0, backD: 0, lastT: -99, t: 0 };
+      if (route || NAV.leg === 'startYard') NAV.key = key;
+      return;
+    }
+    if (NAV.leg === 'town' && navFollow(L, NAV.T, _nvq.u, _nvq.v, θ, dt) === 'reroute') { NAV.msgT = 2; led('ルートを探し直しました', false, 2); }
+  } catch (e) { if (!NAV.warned) { console.warn('navigation:', e && e.message); NAV.warned = true; } }
+}
+// The next thing to do for the leg the rig is on: { kind, text, dist (m, or null), then, lanes } or null.
+function navManeuver() {
+  const j = GAME.job, leg = NAV.leg, q = {};
+  const mk = (kind, dist, then = null, lanes = null) => ({ kind, text: navText(kind, j.b.jp), dist, then: then && { kind: then.kind, text: navText(then.kind, j.b.jp), dist: then.dist }, lanes });
+  if (leg === 'town' || leg === 'startYard') {
+    const T = NAV.T, TL = TOWNS_LOADED.get(TR.town);   // the town can be gone since the last step (the rig was moved)
+    if (!T || !T.route || !TL) return null;
+    const L = TL.layout;
+    if (leg === 'startYard') {
+      const s0 = T.route.steps[0]; townXZ(L.site, j.whA.gate.u, j.whA.gate.v, q);
+      return mk(s0.kind, Math.hypot(TR.x - q.x, TR.z - q.z));
+    }
+    const g = navGuide(L, T.route, T.match);
+    return g && mk(g.kind, g.dist, g.then, g.lanes);
+  }
+  if (leg === 'destYard') {
+    const site = TOWN_SITES[j.to];
+    let best = Infinity; for (const d of j.whB.docks) { townXZ(site, d.u, d.v, q); best = Math.min(best, Math.hypot(TR.x - q.x, TR.z - q.z)); }
+    if (best === Infinity) { townXZ(site, j.whB.bay.u, j.whB.bay.v, q); return mk('bay', Math.hypot(TR.x - q.x, TR.z - q.z)); }   // a yard with no docks (the plain one)
+    return mk('dock', best, { kind: 'bay', dist: null });
+  }
+  if (leg === 'plaza') return mk(TR.tu >= 0 ? 'etcIn' : 'etcOut', null);   // the entrance path is on the u > 0 side
+  if (leg === 'band') return mk('merge', null);
+  const r = destRamp();
+  if (leg === 'exitRamp') return mk('ramp', Math.max(0, rampAt(TR.s).sEnd - TR.s) * SCALE);
+  if (TR.s >= r.sDiv - 160 && TR.s <= r.sDiv + r.uSep) return mk('exit', Math.max(0, r.sDiv - TR.s) * SCALE);
+  if (TR.s >= r.sDiv - 700 && TR.s < r.sDiv - 160) return mk('exitLane', (r.sDiv - TR.s) * SCALE, null, [{ arrows: ['left', 'straight'], use: true }, { arrows: ['straight'], use: false }]);
+  return null;
+}
+// The rest of the town route as town points, from the rig to the end.
+function navRoutePts() {
+  const T = NAV.T;
+  const TL = TOWNS_LOADED.get(TR.town);
+  if (NAV.leg !== 'town' || !T || !T.route || !T.match || !TL) return null;
+  const E = navGraph(TL.layout).edges, r = T.route, k = r.edges.indexOf(T.match.edge);
+  if (k < 0) return null;
+  const e0 = E[r.edges[k]], f = T.match.d / (e0.len || 1), pts = [[e0.a[0] + (e0.b[0] - e0.a[0]) * f, e0.a[1] + (e0.b[1] - e0.a[1]) * f]];
+  for (let i = k; i < r.edges.length - 1; i++) pts.push(E[r.edges[i]].b.slice());
+  pts.push(r.steps.at(-1).at.slice());
+  return pts;
+}
 function navState() {
   const j = GAME.job;
   const dr = destRamp();
@@ -531,12 +615,30 @@ function navState() {
     const site = TOWN_SITES[TR.town], g = jobLayout(TR.town).plaza.gates.entry, q = townXZ(site, g.u, g.v, {});
     target = { x: q.x, z: q.z }; guide = `${site.ic.jp} IC 入口まで ${Math.round(Math.hypot(TR.x - q.x, TR.z - q.z) / 10) * 10} m`; gd = '';
   }
+  let footer = `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`;
+  // the guidance: the next thing to do, where there is one; the C1 guide above stays as the fallback (no town route)
+  let maneuver = null, card = false;
+  try { maneuver = navManeuver(); } catch (e) { maneuver = null; }
+  if (maneuver) {
+    guide = maneuver.text;
+    gd = maneuver.dist == null ? '' : maneuver.dist >= 1000 ? (maneuver.dist / 1000).toFixed(1) + ' km' : Math.round(maneuver.dist / 10) * 10 + ' m';
+    if (maneuver.kind === 'straight' && NAV.leg === 'town') guide = navText('straight');
+    const leg = NAV.leg, turn = /^(left|right|gateLeft|gateRight|outLeft|outRight|plaza)$/.test(maneuver.kind);
+    card = leg === 'plaza' || leg === 'startYard' || leg === 'destYard' || leg === 'band' || leg === 'exitRamp' || maneuver.kind === 'exit' || maneuver.kind === 'exitLane' || (leg === 'town' && turn && maneuver.dist <= 300);
+  }
+  if (TR.zone === 'town' && TR.town === j.to) footer = `${destWh.name}まで ${Math.round(Math.hypot(TR.x - gw.x, TR.z - gw.z) / 10) * 10} m`;
   const trailer = TR.link === 'free' && TR.trailerKey ? { x: TR.tr.kx, z: TR.tr.kz } : null;
-  if (trailer && !TR.onRamp) { guide = 'トレーラーを連結してください'; gd = Math.round(Math.hypot(TR.x - trailer.x, TR.z - trailer.z)) + ' m'; target = trailer; }
+  if (trailer && !TR.onRamp) { guide = 'トレーラーを連結してください'; gd = Math.round(Math.hypot(TR.x - trailer.x, TR.z - trailer.z)) + ' m'; target = trailer; maneuver = null; card = false; }
+  // the destination yard's docks and bay, for the map
+  let destMarks = null;
+  if (TR.zone === 'town' && TR.town === j.to) {
+    const site = TOWN_SITES[j.to], P = (u, v) => { const q = townXZ(site, u, v, {}); return [q.x, q.z]; }, b = j.whB.bay, bu = -b.hv, bv = b.hu;
+    destMarks = { docks: j.whB.docks.map(d => P(d.u, d.v)), bay: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([k, m]) => P(b.u + b.hu * k * 9 + bu * m * 2, b.v + b.hv * k * 9 + bv * m * 2)) };
+  }
   return {
-    trailer, town, destWh, target, inTown: TR.zone === 'town',
+    trailer, town, destWh, target, inTown: TR.zone === 'town', maneuver, card, reroute: NAV.msgT > 0, routePts: navRoutePts(), destMarks, leg: NAV.leg,
     x: TR.x, z: TR.z, heading: TR.h, s: TR.s, destS: dr.sEnd, destIc: j.to,
-    guide, guideDist: gd, footer: `${j.b.jp} IC まで ${rem.toFixed(1)} km　到着予定 ${fmtClock(eta)}`, limit: GAME.limit || 90,
+    guide, guideDist: gd, footer, limit: GAME.limit || 90,
   };
 }
 
@@ -690,6 +792,7 @@ function simTick(dt) {
     physicsAdvance(dt, { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: INP.steer });
     GAME.clock += dt * TIME_SCALE;
     gameLogic(dt);
+    if (GAME.job) navUpdate(dt);
     if ((GAME.saveT += dt) >= 10) { GAME.saveT = 0; saveDrive(); }
   }
   if (GAME.state !== 'menu') { updateTraffic(Math.min(dt, 0.05), driving); townTrafficStep(Math.min(dt, 0.05), driving); }
