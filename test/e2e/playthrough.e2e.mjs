@@ -18,7 +18,8 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
     // through Tokyo's entrance gate and onto the entrance ramp
     __placeTown(0, 4.875, 80, 0, -1, 10); await __ready();
     const L0 = TOWNS_LOADED.get(0).layout, en = ENTRIES[0], ramp = [];
-    for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const p = posAt(s, s < en.s1 ? entryEdges(s - en.s0).cx : X_TRV, {}); ramp.push([p.x, p.z]); }
+    // along the band, easing over into the travel lane before the band closes (from u = 330 to 420)
+    for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const u = s - en.s0, p = posAt(s, u < 330 ? entryEdges(u).cx : lerp(entryEdges(330).cx, X_TRV, smooth(330, 420, u)), {}); ramp.push([p.x, p.z]); }
     __drive([...__town(0, [[4.875, 80], ...L0.plaza.entryPath]), ramp[0]], 15, 90, false);
     log.entryGate = L0.plaza.gates.entry.state;
     __clearRoad(en.s0 - 600, en.s1 + 600);                                   // a clear gap to merge into
@@ -26,7 +27,9 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
     // the expressway (cruise for a while), Atsugi's exit and plaza, by lane-keeping
     const d = destRamp(); let n = 0, cruiseT = 0, cruiseMin = 99, cruiseMax = 0;
     while (GAME.state === 'drive' && n++ < 60 * 400 && TR.zone === 'road') {
-      if (n % 30 === 0) __clearRoad(TR.s + 8, TR.s + 400);   // the driver does not brake for slower trucks ahead (cars behind stay)
+      // the driver does not look at traffic: it does not brake for slower trucks ahead, and just after the entrance its
+      // path swings it into the overtaking lane for a moment; clear the cars ahead, and behind it over the first 600 m
+      if (n % 30 === 0) __clearRoad(TR.s < en.s1 + 600 ? TR.s - 150 : TR.s + 8, TR.s + 400);
       const u = TR.s - d.sDiv, kmh = TR.v * 3.6;
       let lat = X_TRV, want = 85;
       if (u > -150 && u < 120) lat = -9.8;                                  // drift left toward the exit lane
