@@ -17,7 +17,7 @@ const TOWN_STREET = {
 };
 const TOWN_STOP_BACK = 16;   // stop lines stand this far before the crossing street's kerb line (waiting cars clear of the corner)
 const TOWN_OUT = 6;          // lanes leaving a junction start this far past it (beyond the crossing, 2 - 6 m out)
-const TOWN_POCKET = 22, TOWN_TAPER = 10;   // the right-turn lane before a junction, and the stretch where it opens
+const TOWN_POCKET = 22, TOWN_TAPER = 10, TOWN_POCKET_MIN = 16;   // the right-turn lane before a junction (16 to 22 m: room for a rig), and the stretch where it opens
 const TOWN_WH_NAMES = ['物流センター', '配送センター', '倉庫'];
 
 function townSite(i) {
@@ -85,7 +85,7 @@ const _TURNS = { 'v+': { straight: 'v+', left: 'u-', right: 'u+' }, 'v-': { stra
 function _roundWall(pts, kerbs) {
   const out = [pts[0]];
   for (let k = 1; k < pts.length - 1; k++) {
-    const p = pts[k], K = kerbs.find(c => Math.hypot(c.u - p[0], c.v - p[1]) < 15);
+    const p = pts[k], K = kerbs.find(c => Math.hypot(c.u - p[0], c.v - p[1]) < TOWN_CORNER_R + 3);
     if (!K) { out.push(p); continue; }
     const foot = (a, b) => { const du = b[0] - a[0], dv = b[1] - a[1], t = ((K.u - a[0]) * du + (K.v - a[1]) * dv) / (du * du + dv * dv); return [a[0] + du * t, a[1] + dv * t]; };
     const f1 = foot(pts[k - 1], p), f2 = foot(p, pts[k + 1]);
@@ -166,10 +166,14 @@ function townLayout(i) {
       // for each way: [start station, end station, sign along the street, from, to]
       const ways = [[p, q, 1, p.a + koOut(p), q.a - koIn(q)], [q, p, -1, q.a - koOut(q), p.a + koIn(p)]];
       // a turn lane wants a junction ahead with a way off to the right, and room for itself before the start
-      const wants = ways.map(([s0, s1, sg, from, to]) => !!s1.node && s1.node.signal && !!s1.node.arms[_TURNS[(st.axis === 'v' ? 'v' : 'u') + (sg > 0 ? '+' : '-')].right] && Math.abs(to - from) >= POCKET + 8);
-      if (wants[0] && wants[1]) {   // both: they share the centre strip, so they must not overlap (4 m apart at least)
-        const a = ways[0], b = ways[1];   // a's turn lane lies in [a.to - POCKET, a.to], b's in [b.to, b.to + POCKET]
-        if (a[4] - POCKET < b[4] + POCKET + 4) wants[0] = wants[1] = false;
+      const MINP = TOWN_POCKET_MIN + TOWN_TAPER, dOf = d => (st.axis === 'v' ? 'v' : 'u') + (d > 0 ? '+' : '-');
+      const wants = ways.map(([s0, s1, sg, from, to]) => !!s1.node && s1.node.signal && !!s1.node.arms[_TURNS[dOf(sg)].right] && !!s1.node.arms[dOf(sg)] && Math.abs(to - from) >= MINP + 8);
+      // each way's turn lane length (with its taper); both: they share the centre strip, so they must lie 4 m apart or
+      // more: shortened alike (to TOWN_POCKET_MIN at the least), or neither is made
+      const plen = [POCKET, POCKET];
+      if (wants[0] && wants[1]) {
+        const a = ways[0], b = ways[1], room = (a[4] - b[4] - 4) / 2;   // a's lane lies in [a.to - len, a.to], b's in [b.to, b.to + len]
+        if (room < MINP) wants[0] = wants[1] = false; else plen[0] = plen[1] = Math.min(POCKET, room);
       }
       ways.forEach(([s0, s1, dir, from, to], w) => {
         if (dir * (to - from) < 2) return;
@@ -181,7 +185,7 @@ function townLayout(i) {
         };
         for (let k = 0; k < st.lanes; k++) {
           if (k === st.lanes - 1 && wants[w]) {   // the inner lane splits where the turn lane opens
-            const bp = to - dir * POCKET, o = bp + dir * TOWN_TAPER;
+            const bp = to - dir * plen[w], o = bp + dir * TOWN_TAPER;
             const first = addLane({ ...base, k, pts: [_lanePt(st, from, dir, k), _lanePt(st, bp, dir, k)], node0: s0.node ? s0.node.id : null, edge0: !s0.node });
             const on = addLane({ ...base, k, pts: [_lanePt(st, bp, dir, k), _lanePt(st, to, dir, k)], node1: s1.node.id });
             const turnL = addLane({ ...base, k: st.lanes, pocket: true, pts: [_lanePt(st, bp, dir, k), _lanePt(st, o, dir, st.lanes), _lanePt(st, to, dir, st.lanes)], node1: s1.node.id });

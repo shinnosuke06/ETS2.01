@@ -107,14 +107,14 @@ test('停止線は交わる道の車道の端から 16 m 手前（中心から 2
     if (l.node0 != null) { const n = L.nodes[l.node0]; assert.ok(Math.abs(Math.abs(at(l.pts[0]) - at([n.u, n.v])) - 14.75) < 1e-6, `${L.site.ic.jp} lane ${l.id} start`); }
   }
 });
-test('右折車線：右へ行ける交差点の手前にあり（長さ 22 m ＋寄せ 10 m）、中央線の上。右折は右折車線から、直進は 2 本から、左折は左の車線から。両方向の右折車線は重ならない', () => {
+test('右折車線：右へ行ける交差点の手前にあり（長さ 16〜22 m ＋寄せ 10 m）、中央線の上。右折は右折車線から、直進は 2 本から、左折は左の車線から。両方向の右折車線は重ならない', () => {
   let pockets = 0;
   for (const L of ALL) {
     for (const l of L.lanes) {
       if (!l.pocket) continue; pockets++;
       const st = L.streets[l.street], across = p => (st.axis === 'v' ? p[0] : p[1]) - st.c;
       assert.ok(Math.abs(across(l.pts.at(-1))) < 1e-9 && Math.abs(across(l.pts[1])) < 1e-9, 'on the centre line');
-      assert.ok(Math.abs(l.len - Math.hypot(10, 3.5) - 22) < 1e-6, `length ${l.len}`);
+      const pl = l.len - Math.hypot(10, 3.5); assert.ok(pl >= 16 - 1e-6 && pl <= 22 + 1e-6, `length ${l.len}`);
       const turns = l.next.map(id => L.lanes[id].turn); assert.deepEqual(turns, ['right'], `${L.site.ic.jp} pocket ${l.id} → ${turns}`);
       const first = L.lanes.find(x => x.next.includes(l.id)); assert.equal(first.next.length, 2);
       // the oncoming turn lane on the same piece of street lies 4 m or more away along it
@@ -132,6 +132,14 @@ test('右折車線：右へ行ける交差点の手前にあり（長さ 22 m �
     }
   }
   assert.ok(pockets > 13 * 6, `${pockets} turn lanes`);
+  // every approach with a way off to the right and a way on has a turn lane where the piece of street is 110 m or longer
+  for (const L of ALL) for (const n of L.nodes) for (const d of ['v+', 'v-', 'u+', 'u-']) {
+    const into = L.lanes.filter(l => l.node1 === n.id && l.dir === d && !l.turn);
+    if (!into.length || !n.arms[d] || !n.arms[{ 'v+': 'u+', 'v-': 'u-', 'u+': 'v-', 'u-': 'v+' }[d]]) continue;
+    const st = L.streets[into[0].street], others = L.nodes.filter(m => m !== n && m.streets.includes(st.id)), at = m => (st.axis === 'v' ? m.v : m.u);
+    const back = others.filter(m => (d[1] === '+' ? at(m) < at(n) : at(m) > at(n))).map(m => Math.abs(at(n) - at(m)));
+    if (back.length && Math.min(...back) >= 110) assert.ok(into.some(l => l.pocket), `${L.site.ic.jp} node ${n.id} ${d}: no turn lane`);
+  }
 });
 
 test('同じ町は何度作っても同じ形', () => {

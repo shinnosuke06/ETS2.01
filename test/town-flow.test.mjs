@@ -149,3 +149,26 @@ test('町の車は右折車線に入って右折し、直進は右折車線を�
   }
   assert.ok(pocketThenRight >= 3 && bad === 0, `${pocketThenRight} right turns from a turn lane, ${bad} other`);
 });
+// Cars entering a junction on red: none that stood at its line while the light was red (a car moving fast when it
+// turned red may go on). Sampled every 0.1 s in four towns with two seeds.
+test('町の車は、赤の間に停止線で止まっていた車がそのまま赤で交差点に入ることはない（0.1 秒ごとに見る）', () => {
+  const bad = [];
+  for (const i of [2, 3, 6, 8, 11]) for (const seed of [77, 1234]) {
+    const L = SIM.townLayout(i), R = SIM.rng(seed), cars = SIM.townCarsInit(L, 25, R), stood = new Map();
+    for (let t = 0; t < 600; t += 0.1) {
+      const before = new Map(cars.map(c => [c, { lane: c.lane, front: c.d + c.len / 2 }]));
+      SIM.townCarsStep(L, cars, 0.1, t, [], R);
+      for (const c of cars) {
+        const b = before.get(c), from = L.lanes[b.lane];
+        if (c.hidden || from.stopD == null) { stood.delete(c); continue; }
+        const red = SIM.signalState(L.nodes[from.stopNode], from.stopAxis, t) === 'red';
+        if (!red) { stood.delete(c); continue; }
+        if (c.lane === b.lane && c.v < 0.3 && from.stopD - (c.d + c.len / 2) < 6) stood.set(c, b.lane);
+        if (b.lane !== c.lane && L.lanes[c.lane].turn && b.front < from.stopD - 0.3 && SIM.signalState(L.nodes[from.stopNode], from.stopAxis, t - 4) === 'red') bad.push(`${L.site.ic.jp} seed ${seed} t ${t.toFixed(1)} node ${from.stopNode}: in after 4 s of red`);
+        const crossed = b.front < from.stopD && (c.lane !== b.lane || c.d + c.len / 2 >= from.stopD);
+        if (crossed && stood.get(c) === b.lane) bad.push(`${L.site.ic.jp} seed ${seed} t ${t.toFixed(1)} node ${from.stopNode}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, []);
+});

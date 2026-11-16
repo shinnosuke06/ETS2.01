@@ -382,10 +382,10 @@ function* townMeshSteps(i) {
       if (!(key === 'exit' ? L.plaza.exitPath : L.plaza.entryPath)) continue;
       const face = gate.dir > 0 ? -24 : -38, rot = gate.dir > 0 ? Math.PI : 0;   // the signs face the traffic coming to the gate
       const sg = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95), etc); sg.position.set(gate.u, y + 4.75, face - (gate.dir > 0 ? 0.02 : -0.02)); sg.rotation.y = rot; grp.add(sg);
-      const ts = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), tsign); ts.position.set(gate.u * 1.6, y + 7.3, face - (gate.dir > 0 ? 0.02 : -0.02)); ts.rotation.y = rot; grp.add(ts);
+      const ts = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), tsign); ts.position.set(gate.u * 1.5, y + 7.3, face - (gate.dir > 0 ? 0.02 : -0.02)); ts.rotation.y = rot; grp.add(ts);
       // the bar pivots on the island to the gate lane's right and swings up
       const pivot = new THREE.Group(), side = gate.dir > 0 ? 1 : -1;
-      pivot.position.set(gate.u + side * 4.4, y + 1.05, -gate.v);   // by the middle island pivot.rotation.y = gate.dir > 0 ? 0 : Math.PI;
+      pivot.position.set(gate.u + side * 4.4, y + 1.05, -gate.v); pivot.rotation.y = gate.dir > 0 ? 0 : Math.PI;   // by the middle island
       pivot.add(new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.09, 0.09).translate(-2.8, 0, 0), MAT.bar)); grp.add(pivot);
       M.gates[key] = pivot; tolls++;
     }

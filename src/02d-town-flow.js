@@ -26,9 +26,10 @@ function _townIndex(L) {
   let X = _tflow.get(L);
   if (X) return X;
   const OPP = { 'v+': 'v-', 'v-': 'v+', 'u+': 'u-', 'u-': 'u+' };
-  X = { starts: L.lanes.filter(l => l.edge0 && !l.plaza && !l.turn && l.len >= 30).map(l => l.id),   // not the short stubs right before a junction
-    turns: new Map(), opp: new Map(), claim: new Map(), src: new Map() };   // claim: stop-sign junction -> the car crossing it
-  for (const l of L.lanes) if (!l.turn) for (const id of l.next) if (L.lanes[id].turn) X.src.set(id, l.dir);   // src: a turn -> the way it came in
+  X = { starts: L.lanes.filter(l => l.edge0 && !l.plaza && !l.turn).map(l => l.id), turns: new Map(), opp: new Map(), claim: new Map(), src: new Map() };   // claim: stop-sign junction -> the car crossing it
+  X.from = new Map(); X.sib = new Map();   // sib: lanes that start where this one does (a split, or the turns off one lane)
+  for (const l of L.lanes) if (l.next.length > 1) for (const a of l.next) X.sib.set(a, l.next.filter(b => b !== a));
+  for (const l of L.lanes) if (!l.turn) for (const id of l.next) if (L.lanes[id].turn) { X.src.set(id, l.dir); X.from.set(id, l.id); }   // src: a turn -> the way it came in; from: the lane
   for (const l of L.lanes) if (l.turn) { if (!X.turns.has(l.node0)) X.turns.set(l.node0, []); X.turns.get(l.node0).push(l.id); }
   // X.opp: for each lane coming to a junction, the oncoming lanes a right turn gives way to, as [lane, metres from its
   // end to the stop line]: the straight-on lanes (not the oncoming turn lane) and, before a split, the lane's first part
@@ -79,8 +80,8 @@ function _laneAt(lane, d, out) {
 const _cpf = {}, _cpr = {};
 function _pathAt(L, car, d, out) {
   const lane = L.lanes[car.lane];
-  if (d < 0) {                                   // behind the lane's start: along its first piece
-    const P = lane.pts, du = P[1][0] - P[0][0], dv = P[1][1] - P[0][1], s = Math.hypot(du, dv) || 1;
+  if (d < 0) {                                   // behind the lane's start: along its first piece (a turn lane's: along the street)
+    const P = lane.pts, D = lane.pocket ? _DIRV[lane.dir] : null, du = D ? D[0] : P[1][0] - P[0][0], dv = D ? D[1] : P[1][1] - P[0][1], s = Math.hypot(du, dv) || 1;
     out.u = P[0][0] + du / s * d; out.v = P[0][1] + dv / s * d; return out;
   }
   if (d > lane.len) {
@@ -121,6 +122,23 @@ function _inJunction(L, X, cars, car, n, otherAxisOf) {
   return cars.some(o => o !== car && !o.hidden && turns.includes(o.lane) && (!otherAxisOf || L.lanes[o.lane].turn === 'right' || L.lanes[o.lane].dir[0] !== otherAxisOf));
 }
 
+// Oncoming traffic for a right turn from in-lane `inId` at junction n: a car coming the other way that will cross
+// (not turning right itself) within tNeed seconds of its line, or waiting near it, or already crossing the junction.
+function _oncoming(L, X, cars, car, inId, n, tNeed, t) {
+  const opp = X.opp.get(inId) || [], dir = L.lanes[inId].dir, green = signalState(L.nodes[n], dir[0], t) === 'green';   // the oncoming way's light is ours
+  return cars.some(o => {
+    if (o === car || o.hidden) return false;
+    const ol = L.lanes[o.lane];
+    if (ol.turn) return ol.turn !== 'right' && ol.node0 === n && X.src.get(o.lane) === OPP_DIR[dir];
+    const e = opp.find(x => x[0] === o.lane); if (!e) return false;
+    const on = o.next != null ? L.lanes[o.next] : null; if (on && (on.turn === 'right' || on.pocket)) return false;
+    const rem = ol.len - o.d - o.len / 2 + e[1];
+    return (green && rem < 15) || (rem < 90 && o.v > 1 && rem / o.v < tNeed);   // waiting at a red line: not coming
+  });
+}
+// How far into its lane a car that went the other way at a split still overhangs the lane beside: a turn lane's slant
+// takes 6 m to clear it; a turn in a junction, 3 m.
+function _tail(L, o) { return L.lanes[o.lane].pocket ? 6 : 3; }
 function townCarsStep(L, cars, dt, t, boxes, rand) {
   const X = _townIndex(L);
   for (const car of cars) {
@@ -133,6 +151,8 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
       let g = Infinity;
       if (o.lane === car.lane && o.d > car.d) g = o.d - car.d - (o.len + car.len) / 2;
       else if (nx && o.lane === nx.id) g = lane.len - car.d + o.d - (o.len + car.len) / 2;
+      else if (lane.next.includes(o.lane) && o.d - o.len / 2 < _tail(L, o)) g = lane.len - car.d + o.d - (o.len + car.len) / 2;   // just gone the other way at a split, its tail still here
+      else if (o.d > car.d && o.d - o.len / 2 < _tail(L, o) && (X.sib.get(car.lane) || []).includes(o.lane)) g = o.d - car.d - (o.len + car.len) / 2;   // gone the other way just ahead
       if (g < gap) { gap = g; vl = o.v; }
     }
     const bx = _boxAhead(L, car, boxes);
@@ -149,7 +169,10 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
           // someone crossing in the junction: stop for them unless moving and too close to stop even hard (a car
           // waiting at the line waits until the junction is clear)
           if (_inJunction(L, X, cars, car, node.id, lane.dir[0])) go = car.v > 2 && dist < car.v * car.v / (2 * 7) + 1;
-        } else go = car.commit === lane.id;
+        } else {
+          go = car.commit === lane.id && car.v > 2;   // on yellow or red only a car already moving goes on (one held at the line waits)
+          if (!go) car.turnOk = false;               // and a right turn it had begun must look again at the next green
+        }
       } else if (node.stop) {
         if (car.v < 0.3 && dist <= 4) car.stopT += dt;
         const cl = X.claim.get(node.id), held = cl && !cl.hidden && cars.includes(cl);   // a claimant no longer driving here does not count
@@ -159,17 +182,24 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
       if (go && nx && nx.turn === 'right' && !car.turnOk) {
         // give way to traffic coming the other way (a turn across a wide junction from the line takes about 6 s), at
         // most 10 s, then go when the junction is clear; and to oncoming cars already crossing it
-        const opp = X.opp.get(lane.id) || [], tNeed = car.wait > 10 ? 4.5 : 6.5;   // seconds until the oncoming car reaches its line
-        const coming = cars.some(o => { if (o === car || o.hidden) return false; const e = opp.find(x => x[0] === o.lane); if (!e) return false; const rem = L.lanes[o.lane].len - o.d + e[1]; return rem < 90 && rem / Math.max(o.v, 1) < tNeed; });
-        const crossing = cars.some(o => { if (o === car || o.hidden) return false; const ol = L.lanes[o.lane]; return !!ol.turn && ol.turn !== 'right' && ol.node0 === node.id && X.src.get(o.lane) === OPP_DIR[lane.dir]; });
+        // (an oncoming car waiting near its line goes when the light lets it, so it counts; one turning right does not cross)
+        const tNeed = car.wait > 10 ? 4.5 : 6.5;   // seconds until the oncoming car reaches its line
         if (car.v < 0.5 && dist <= 4) car.wait += dt;
-        if (coming || crossing || _inJunction(L, X, cars, car, node.id, lane.dir[0])) go = false;
+        if (_oncoming(L, X, cars, car, lane.id, node.id, tNeed, t) || _inJunction(L, X, cars, car, node.id, lane.dir[0])) go = false;
         else if (dist < 1) car.turnOk = true;   // committed to the turn
       }
       if (go && car.commit !== lane.id && nx && bx < dist + nx.len + 6) go = false;   // do not drive into a junction the truck is blocking
       if (!go) { const g = dist - 0.5; if (g < gap) { gap = g; vl = 0; } }
     }
-    const acc = townIdm(car.v, car.v0, gap, car.v - vl);
+    // a right turn already begun waits in the junction (8 m in) while oncoming traffic crosses or is about to
+    if (lane.turn === 'right' && car.d + car.len / 2 < 8 && X.from.has(lane.id) && _oncoming(L, X, cars, car, X.from.get(lane.id), lane.node0, 2.5, t)) {
+      const g = 8 - (car.d + car.len / 2); if (g < gap) { gap = Math.max(0, g); vl = 0; }
+    }
+    // slow down for a turn: about 20 km/h at the line, 30 km/h in the turn
+    let v0 = car.v0;
+    if (nx && (nx.turn === 'left' || nx.turn === 'right') && lane.stopD != null) v0 = Math.min(v0, 5.5 + Math.max(0, lane.stopD - car.d - car.len / 2) * 0.2);
+    if (lane.turn === 'left' || lane.turn === 'right') v0 = Math.min(v0, 8.5);
+    const acc = townIdm(car.v, v0, gap, car.v - vl);
     car.v = Math.max(0, car.v + clamp(acc, -8, 2) * dt);
     car.d += car.v * dt;
     // into the next lane, or off the town's edge (and back in at another)
@@ -184,7 +214,7 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
     if (car.hidden) _respawn(L, X, cars, car, rand, boxes);
   }
 }
-const _rsp = {};
+const _rsp = {}, _rsq = {};
 function _respawn(L, X, cars, car, rand, boxes = []) {
   for (const [n, o] of X.claim) if (o === car) X.claim.delete(n);
   for (let tries = 0; tries < 4; tries++) {
@@ -192,9 +222,12 @@ function _respawn(L, X, cars, car, rand, boxes = []) {
     if (id == null) return;
     if (cars.some(o => o !== car && !o.hidden && o.lane === id && o.d - o.len / 2 < car.len + 15)) continue;   // room to come in behind a queue
     const lane = L.lanes[id];
+    if (lane.len < car.len + 4) continue;   // a stub too short to stand on before its stop line
     _laneAt(lane, car.len / 2, _rsp);
+    // nor on a car just gone on from this lane into the junction (its body still over the lane)
+    if (cars.some(o => o !== car && !o.hidden && lane.next.includes(o.lane) && (townCarPose(L, o, _rsq), Math.hypot(_rsq.u - _rsp.u, _rsq.v - _rsp.v) < (o.len + car.len) / 2 + 6))) continue;
     if (boxes.some(b => Math.hypot(b.u - _rsp.u, b.v - _rsp.v) < b.len / 2 + car.len / 2 + 8)) continue;   // not where the rig stands
-    car.lane = id; car.d = car.len / 2; car.v0 = Math.max(6, (lane.limit - 5 + 8 * rand()) / 3.6); car.v = car.v0 * 0.6;
+    car.lane = id; car.d = car.len / 2; car.v0 = Math.max(6, (lane.limit - 5 + 8 * rand()) / 3.6); car.v = lane.len < 30 ? 0 : car.v0 * 0.6;   // standing on a short stub before a junction
     car.next = _carNext(L, lane, rand); car.stopT = 0; car.wait = 0; car.commit = -1; car.turnOk = false; car.hidden = false;
     return;
   }
