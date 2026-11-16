@@ -35,11 +35,11 @@ test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
     log.coupled = TR.link;
     // out of Tokyo: Main A's kerb lane toward the plaza, through the entrance gate, along the entrance ramp into the travel lane
-    __placeTown(0, 4.875, 80, 0, -1, 10); await __ready();
+    __placeTown(0, 7, 80, 0, -1, 10); await __ready();
     const L0 = TOWNS_LOADED.get(0).layout, en = ENTRIES[0], ramp = [];
     // along the band, easing over into the travel lane before the band closes (from u = 330 to 420)
     for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const u = s - en.s0, p = posAt(s, u < 330 ? entryEdges(u).cx : lerp(entryEdges(330).cx, X_TRV, smooth(330, 420, u)), {}); ramp.push([p.x, p.z]); }
-    __drive([...__town(0, [[4.875, 80], ...L0.plaza.entryPath]), ...ramp.slice(0, 1)], 15, 90, false);
+    __drive([...__town(0, [[7, 80], ...L0.plaza.entryPath]), ...ramp.slice(0, 1)], 15, 90, false);
     log.entryGate = L0.plaza.gates.entry.state; log.tollAfterEntry = GAME.job.toll;
     __clearRoad(en.s0 - 600, en.s1 + 600); __drive(ramp, 60, 120, false);   // merging into a clear gap
     log.merged = [TR.zone, +TR.lat.toFixed(1)];
@@ -48,7 +48,7 @@ test('E1 仕事 1：東京の倉庫で連結 → 入口ゲート → 合流 → 
     for (let s = r2.sDiv + 420; s <= r2.sEnd; s += 5) { const p = posAt(s, rampEdges(s - r2.sDiv).cx, {}); ex.push([p.x, p.z]); }
     placeTruck(r2.sDiv + 420, rampEdges(420).cx, 8, { coupled: true }); await __ready(); __noTownCars(2);   // the driver here does not look at traffic
     const L2 = TOWNS_LOADED.get(2).layout;
-    __drive([...ex, ...__town(2, [...L2.plaza.exitPath.filter(p => p[0] > -24.5), [-4.875, 70]])], 15, 120);
+    __drive([...ex, ...__town(2, [...L2.plaza.exitPath.filter(p => p[0] > -26.5), [-7, 70]])], 15, 120);
     log.exitGate = L2.plaza.gates.exit.state; log.toll = GAME.job.toll;
     // onto a dock of the destination warehouse: lined up 12 m out, then straight back until the tail is at the bumpers
     const w = GAME.job.whB, d = w.docks[2], sp = TRAILERS[TR.trailerKey], site = TOWN_SITES[2], q = {};
@@ -98,10 +98,10 @@ test('T12 違う IC で降りて入口から戻っても、罰金はなく、料
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
     placeTruck(r1.sDiv + 420, rampEdges(420).cx, 8, { coupled: true }); await __ready();
     const L1 = TOWNS_LOADED.get(1).layout;
-    __drive([...ex, ...__town(1, [...L1.plaza.exitPath.filter(p => p[0] > -24.5), [-4.875, 60]])], 15, 120);
+    __drive([...ex, ...__town(1, [...L1.plaza.exitPath.filter(p => p[0] > -26.5), [-7, 60]])], 15, 120);
     const led1 = document.getElementById('ledText').textContent;
-    __placeTown(1, 4.875, 80, 0, -1, 8); await __ready();
-    __drive(__town(1, [[4.875, 80], ...L1.plaza.entryPath]), 15, 90, false);
+    __placeTown(1, 7, 80, 0, -1, 8); await __ready();
+    __drive(__town(1, [[7, 80], ...L1.plaza.entryPath]), 15, 90, false);
     return { exit: L1.plaza.gates.exit.state, entry: L1.plaza.gates.entry.state, fines: GAME.job.fines, toll: GAME.job.toll, to: GAME.job.to, led1, zone: TR.zone };
   });
   assert.deepEqual([r.exit, r.entry, r.fines, r.toll, r.to], ['open', 'open', 0, 0, 2], JSON.stringify(r));

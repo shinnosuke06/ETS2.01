@@ -116,7 +116,8 @@ test('N4 案内：曲がる交差点までの距離と操作、その先、車�
   assert.equal(at(eV.id, 45).kind, 'arrive');
   // Atsugi: from the plaza up Main A to the warehouse gate on the left, in the left lane
   const A = SIM.townLayout(2), ra = SIM.navRoute(A, { plaza: true, start: true }, { gate: A.warehouses[1] }), ga = SIM.navGuide(A, ra, { edge: ra.edges[0], d: 0, off: 0 });
-  assert.deepEqual([ga.kind, Math.round(ga.dist / 10) * 10, ga.lanes.map(l => l.use)], ['gateLeft', 140, [true, false]]);
+  assert.deepEqual([ga.kind, Math.round(ga.dist / 10) * 10, ga.lanes.map(l => l.use)], ['gateLeft', 140, [true, false, false]]);   // a right-turn lane at the junction ahead
+  assert.deepEqual(ga.lanes.map(l => l.arrows), [['left', 'straight'], ['straight'], ['right']]);
 });
 
 // Run navFollow along a list of [u, v, θ] at `dt` a sample; returns the samples at which it rerouted.

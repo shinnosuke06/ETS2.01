@@ -26,12 +26,21 @@ function _townIndex(L) {
   let X = _tflow.get(L);
   if (X) return X;
   const OPP = { 'v+': 'v-', 'v-': 'v+', 'u+': 'u-', 'u-': 'u+' };
-  X = { starts: L.lanes.filter(l => l.edge0 && !l.plaza && !l.turn).map(l => l.id), turns: new Map(), opp: new Map(), claim: new Map() };   // claim: stop-sign junction -> the car crossing it
+  X = { starts: L.lanes.filter(l => l.edge0 && !l.plaza && !l.turn && l.len >= 30).map(l => l.id),   // not the short stubs right before a junction
+    turns: new Map(), opp: new Map(), claim: new Map(), src: new Map() };   // claim: stop-sign junction -> the car crossing it
+  for (const l of L.lanes) if (!l.turn) for (const id of l.next) if (L.lanes[id].turn) X.src.set(id, l.dir);   // src: a turn -> the way it came in
   for (const l of L.lanes) if (l.turn) { if (!X.turns.has(l.node0)) X.turns.set(l.node0, []); X.turns.get(l.node0).push(l.id); }
-  for (const l of L.lanes) if (!l.turn && l.node1 != null) X.opp.set(l.id, L.lanes.filter(o => !o.turn && o.node1 === l.node1 && o.dir === OPP[l.dir]).map(o => o.id));
+  // X.opp: for each lane coming to a junction, the oncoming lanes a right turn gives way to, as [lane, metres from its
+  // end to the stop line]: the straight-on lanes (not the oncoming turn lane) and, before a split, the lane's first part
+  for (const l of L.lanes) if (!l.turn && l.node1 != null) {
+    const fin = L.lanes.filter(o => !o.turn && !o.pocket && o.node1 === l.node1 && o.dir === OPP[l.dir]), opp = fin.map(o => [o.id, 0]);
+    for (const o of fin) for (const pre of L.lanes) if (!pre.turn && pre.next.includes(o.id)) opp.push([pre.id, o.len]);
+    X.opp.set(l.id, opp);
+  }
   _tflow.set(L, X);
   return X;
 }
+const OPP_DIR = { 'v+': 'v-', 'v-': 'v+', 'u+': 'u-', 'u-': 'u+' };
 function _pick(list, rand) { return list.length ? list[Math.floor(rand() * list.length) % list.length] : null; }
 function _carNext(L, lane, rand) { const opts = lane.next.filter(id => !L.lanes[id].plaza); return _pick(opts, rand); }
 
@@ -137,8 +146,9 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
         const st = signalState(node, lane.stopAxis, t);
         if (st === 'green') {
           if (dist < stopDist) car.commit = lane.id;
-          // someone crossing in the junction: stop for them unless too close to stop even hard
-          if (_inJunction(L, X, cars, car, node.id, lane.dir[0])) go = dist < car.v * car.v / (2 * 7) + 1;
+          // someone crossing in the junction: stop for them unless moving and too close to stop even hard (a car
+          // waiting at the line waits until the junction is clear)
+          if (_inJunction(L, X, cars, car, node.id, lane.dir[0])) go = car.v > 2 && dist < car.v * car.v / (2 * 7) + 1;
         } else go = car.commit === lane.id;
       } else if (node.stop) {
         if (car.v < 0.3 && dist <= 4) car.stopT += dt;
@@ -147,11 +157,13 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
         if (go && car.commit !== lane.id) { car.commit = lane.id; X.claim.set(node.id, car); }
       }
       if (go && nx && nx.turn === 'right' && !car.turnOk) {
-        // give way to traffic coming the other way, at most 10 s, then go when the junction is clear
-        const opp = X.opp.get(lane.id) || [], tNeed = car.wait > 10 ? 3.5 : 5;   // seconds until the oncoming car arrives; shorter after 10 s
-        const coming = cars.some(o => { if (o === car || o.hidden || !opp.includes(o.lane)) return false; const rem = L.lanes[o.lane].len - o.d; return rem < 60 && rem / Math.max(o.v, 1) < tNeed; });
+        // give way to traffic coming the other way (a turn across a wide junction from the line takes about 6 s), at
+        // most 10 s, then go when the junction is clear; and to oncoming cars already crossing it
+        const opp = X.opp.get(lane.id) || [], tNeed = car.wait > 10 ? 4.5 : 6.5;   // seconds until the oncoming car reaches its line
+        const coming = cars.some(o => { if (o === car || o.hidden) return false; const e = opp.find(x => x[0] === o.lane); if (!e) return false; const rem = L.lanes[o.lane].len - o.d + e[1]; return rem < 90 && rem / Math.max(o.v, 1) < tNeed; });
+        const crossing = cars.some(o => { if (o === car || o.hidden) return false; const ol = L.lanes[o.lane]; return !!ol.turn && ol.turn !== 'right' && ol.node0 === node.id && X.src.get(o.lane) === OPP_DIR[lane.dir]; });
         if (car.v < 0.5 && dist <= 4) car.wait += dt;
-        if (coming || _inJunction(L, X, cars, car, node.id, lane.dir[0])) go = false;
+        if (coming || crossing || _inJunction(L, X, cars, car, node.id, lane.dir[0])) go = false;
         else if (dist < 1) car.turnOk = true;   // committed to the turn
       }
       if (go && car.commit !== lane.id && nx && bx < dist + nx.len + 6) go = false;   // do not drive into a junction the truck is blocking

@@ -95,7 +95,7 @@ const GAME = {
   job: null, blink: 0, hazard: false, lights: false, wiper: false, wiperPhase: 0, blinkT: 0, blinkOn: false,
   tunnelBlend: 0, lastTB: -1, todT: 0, hudT: 0, dashT: 0, navT: 0, overT: 0, fineCool: 0, eventCool: 0,
   chaseYaw: 0, chaseDist: 20, chaseH: 0, engineOn: false, prevState: 'drive', orbit: 0,
-  assist: lsGet('nlh.assist', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
+  assist: lsGet('nlh.assist', true) !== false, lka: lsGet('nlh.lka', true) !== false, assistCool: { esc: 0, rsc: 0 }, leftT: 0, leftAt: 2,
   redCool: {}, rlPrev: { town: -1, u: 0, v: 0 }, saveT: 0, navDrawT: 0, sleepy: 0, stopKind: null, careMsg: {},   // red lights: seconds before the same junction can fine again; the front's last town point
 };
 
@@ -218,7 +218,7 @@ function led(text, warn = false, dur = 3.6) {
 // ---- actions ------------------------------------------------------------------
 const CAMS = ['cab', 'chase', 'far'];
 function setCam(c) {
-  GAME.cam = c;
+  GAME.cam = c; smirLayout(true);
   $('speedo').hidden = c === 'cab' || GAME.state !== 'drive';
   if (c !== 'cab') GAME.chaseH = TR.h;
   led(c === 'cab' ? '車内視点' : c === 'chase' ? '後方視点' : '遠景視点', false, 1.2);
@@ -251,6 +251,7 @@ function handleActions() {
         break;
       case 'camera': setCam(CAMS[(CAMS.indexOf(GAME.cam) + 1) % CAMS.length]); break;
       case 'cam1': setCam('cab'); break;
+      case 'mirror': smirToggle(); break;
       case 'cam2': setCam('chase'); break;
       case 'cam3': setCam('far'); break;
       case 'lights': GAME.lights = !GAME.lights; break;
@@ -473,6 +474,9 @@ function setAssist(on) {
   syncSeg(['assistSeg'], on ? 'on' : 'off');
 }
 $('assistSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setAssist(b.dataset.v === 'on'); });
+// the lane-keeping help: on or off, kept across visits
+function setLka(on) { GAME.lka = on; LKA.on = on; lsSet('nlh.lka', on); syncSeg(['lkaSeg'], on ? 'on' : 'off'); }
+$('lkaSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setLka(b.dataset.v === 'on'); });
 $('volRange').value = Math.round(AUD.vol * 100);
 $('volRange').addEventListener('input', e => setVolume(e.target.value / 100));
 $('sensRange').value = Math.round(INP.sens * 100);
@@ -533,7 +537,7 @@ function updateHud() {
   $('spdGear').textContent = gearText();
   $('spdLim').textContent = GAME.limit || 90;
   const pr = (id, v) => $(id).setAttribute('aria-pressed', String(!!v));
-  pr('bCruise', TR.cruise); pr('bLights', GAME.lights); pr('bWiper', GAME.wiper); pr('bHazard', GAME.hazard);
+  pr('bMirror', smirShownFor(GAME.cam)); pr('bCruise', TR.cruise); pr('bLights', GAME.lights); pr('bWiper', GAME.wiper); pr('bHazard', GAME.hazard);
   pr('tBlinkL', GAME.blink === -1); pr('tBlinkR', GAME.blink === 1);
   careIcons();
   $('tGear').textContent = TR.dir === -1 ? 'R' : 'D';
@@ -873,7 +877,7 @@ function simTick(dt) {
   pollInput(dt, Math.abs(TR.v));
   const driving = GAME.state === 'drive';
   if (driving) {
-    physicsAdvance(dt, { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: INP.steer });
+    physicsAdvance(dt, { throttle: GAME.engineOn ? INP.throttle : 0, brake: INP.brake, steer: laneAssistSteer(dt, INP.steer, INP.steerActive, GAME.blink !== 0) });
     GAME.clock += dt * TIME_SCALE;
     gameLogic(dt);
     careTick(dt);
@@ -902,12 +906,14 @@ function frame(now) {
   setCabDetail(activeCam === cabCam || !!(window.__camOverride && window.__camOverride.inCab));
   updateLighting(dt);
   nightUpdate();
+  destMarkUpdate(dt);
   updateSkyFollow(activeCam === cabCam ? cabCam.getWorldPosition(_cv) && { position: _cv } : chaseCam);
   audioUpdate({ rpm: TR.rpm, load: TR.load, v: TR.v, ret: TR.ret, inCab: GAME.cam === 'cab', running: GAME.engineOn && TR.fuel > 0, tunnel: GAME.tunnelBlend > 0.5, slip: TR.slip });
 
   if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, activeCam);
   if (GAME.cam === 'cab' && driving) renderMirrors(false);
+  smirRender(dt);   // the mirrors and the back monitor on the screen, over the scene
 
   GAME.dashT -= dt; GAME.navT -= dt; GAME.hudT -= dt;
   if (GAME.dashT <= 0 && GAME.job) {
@@ -917,6 +923,7 @@ function frame(now) {
   if (GAME.navT <= 0 && GAME.job) {   // the card every 0.2 s; the cab screen every 0.2 s in the cab, 0.6 s from outside
     GAME.navT = 0.2; const st = navState();
     if (GAME.state === 'drive') navCardUpdate(st);
+    sigRepUpdate();
     if (GAME.cam === 'cab' || (GAME.navDrawT -= 0.2) <= 0) { GAME.navDrawT = 0.6; drawNav(st); }
   }
   if (GAME.hudT <= 0 && GAME.job) { GAME.hudT = 0.2; updateHud(); }
@@ -979,7 +986,7 @@ $('startBtn').addEventListener('click', startDriving);
 async function boot(data) {
   if (IS_TOUCH) document.body.classList.add('touch');
   for (const seg of ['qualSeg', 'qualSeg2']) for (const b of $(seg).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.q === qualityName));
-  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off'); syncSeg(['trimSeg', 'trimSeg2'], trimName);
+  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off'); setLka(GAME.lka); syncSeg(['trimSeg', 'trimSeg2'], trimName);
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();

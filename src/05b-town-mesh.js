@@ -55,7 +55,7 @@ function* townMeshSteps(i) {
     M.parts[name] = (M.parts[name] || 0) + triCount(geo) * list.length;
     return im;
   };
-  const hc = st => st.lanes * st.laneW, ht = st => st.lanes * st.laneW + st.walkW;
+  const hc = _hc, ht = _ht;
   const along = (st, a, x) => (st.axis === 'v' ? [st.c + x, a] : [a, st.c + x]);   // a point on street st: position a along it, x across
 
   // ---- ground: the town's flat (and sloping front) ground, and a skirt falling away behind and beside it ----
@@ -150,47 +150,79 @@ function* townMeshSteps(i) {
     add('walks', B.geo(), MAT.concrete); }
   yield null;
 
-  // ---- markings: centre and lane lines, kerb lines, stop lines, crossings, 止まれ ----
-  { const B = new _TB(), S = new _TB(), lineQ = (p, q, w, y = 0.04) => {
+  // ---- markings: lane lines, the centre strip (hatched, or the right-turn lanes), kerb lines, stop lines, crossings,
+  // the arrows before the stop lines, 止まれ ----
+  { const B = new _TB(), S = new _TB(), AR = new _TB(), lineQ = (p, q, w, y = 0.04) => {
       const du = q[0] - p[0], dv = q[1] - p[1], s = Math.hypot(du, dv) || 1, nu = -dv / s * w / 2, nv = du / s * w / 2;
       B.quad([p[0] - nu, p[1] - nv, Y(...p) + y], [q[0] - nu, q[1] - nv, Y(...q) + y], [q[0] + nu, q[1] + nv, Y(...q) + y], [p[0] + nu, p[1] + nv, Y(...p) + y]);
     };
     for (const st of L.streets) {
       const here = L.nodes.filter(n => n.streets.includes(st.id)).sort((a, b) => (st.axis === 'v' ? a.v - b.v : a.u - b.u));
-      const pos = n => (st.axis === 'v' ? n.v : n.u), koOf = n => hc(L.streets[n.streets.find(id => id !== st.id)]) + 5;
+      const pos = n => (st.axis === 'v' ? n.v : n.u), koOf = n => hc(L.streets[n.streets.find(id => id !== st.id)]) + 2;   // up to the crossing
       const stations = [{ a: st.a0, ko: 0 }, ...here.map(n => ({ a: pos(n), ko: koOf(n) })), { a: st.a1, ko: 0 }];
+      const at = p => (st.axis === 'v' ? p[1] : p[0]), side = d => (st.axis === 'v' ? -1 : 1) * (d[1] === '+' ? 1 : -1);   // which side of the centre a way's lanes lie
+      // the turn lanes on this street: along the street, the taper [a0, a1] and the lane [a1, a2], and the side
+      const pockets = L.lanes.filter(l => l.pocket && l.street === st.id).map(l => ({ a0: at(l.pts[0]), a1: at(l.pts[1]), a2: at(l.pts[2]), x: side(l.dir) }));
+      const inPocket = (a, x) => pockets.some(p => (x == null || p.x === x) && a >= Math.min(p.a0, p.a2) - 0.01 && a <= Math.max(p.a0, p.a2) + 0.01);
+      const inLane = (a, x) => pockets.some(p => p.x === x && a >= Math.min(p.a1, p.a2) - 0.01 && a <= Math.max(p.a1, p.a2) + 0.01);
+      const med = st.med || 0;
       for (let j = 0; j + 1 < stations.length; j++) {
         const a0 = stations[j].a + stations[j].ko, a1 = stations[j + 1].a - stations[j + 1].ko;
         if (a1 - a0 < 2) continue;
-        if (st.kind === 'main') {
-          lineQ(along(st, a0, -0.1), along(st, a1, -0.1), 0.15); lineQ(along(st, a0, 0.1), along(st, a1, 0.1), 0.15);   // double centre line
-          for (const x of [-st.laneW, st.laneW]) for (let a = a0 + 2; a + 5 < a1; a += 10) lineQ(along(st, a, x), along(st, a + 5, x), 0.15);
-        } else for (let a = a0 + 2; a + 5 < a1; a += 9) lineQ(along(st, a, 0), along(st, a + 5, 0), 0.15);
-        for (const x of [-hc(st) + 0.25, hc(st) - 0.25]) lineQ(along(st, a0, x), along(st, a1, x), 0.15);
+        for (const sx of [-1, 1]) {
+          for (let a = a0 + 2; a + 5 < a1; a += 10) lineQ(along(st, a, sx * (med / 2 + st.laneW)), along(st, a + 5, sx * (med / 2 + st.laneW)), 0.15);   // between the two lanes
+          lineQ(along(st, a0, sx * (hc(st) - 0.25)), along(st, a1, sx * (hc(st) - 0.25)), 0.15);                                                   // by the kerb
+          // the centre strip's edge on this side: solid, but open where this side's turn lane is being entered
+          for (let a = a0; a < a1 - 0.01; a += 1) { const b = Math.min(a1, a + 1), m = (a + b) / 2; if (inPocket(m, sx) && !inLane(m, sx)) continue; lineQ(along(st, a, sx * med / 2), along(st, b, sx * med / 2), 0.15); }
+        }
+        // the hatching across the strip where no turn lane is
+        for (let a = a0 + 1; a + 2.5 < a1; a += 4) if (!inPocket(a, null) && !inPocket(a + 2.5, null)) lineQ(along(st, a, -med / 2 + 0.2), along(st, a + 2.5, med / 2 - 0.2), 0.3);
       }
     }
+    // the arrows: 8 m before each stop line, the ways a lane may go (an atlas of 7 glyphs, one quad each)
+    const GLYPHS = ['l', 's', 'r', 'ls', 'sr', 'lr', 'lsr'];
     for (const l of L.lanes) {
       if (l.stopNode == null || l.turn) continue;
       const P = l.pts[l.pts.length - 1], Q2 = l.pts[l.pts.length - 2], s = Math.hypot(P[0] - Q2[0], P[1] - Q2[1]), du = (P[0] - Q2[0]) / s, dv = (P[1] - Q2[1]) / s, w = L.streets[l.street].laneW / 2;
       lineQ([P[0] - dv * w, P[1] + du * w], [P[0] + dv * w, P[1] - du * w], 0.45);   // stop line across the lane
+      const ways = l.next.map(id => L.lanes[id].turn), key = ['left', 'straight', 'right'].filter(k => ways.includes(k)).map(k => k[0]).join(''), g = GLYPHS.indexOf(key);
+      if (g >= 0 && l.len > 14) {
+        const c = [P[0] - du * 8, P[1] - dv * 8], hw = 0.8, hl = 2.5, y = Y(...c) + 0.045;
+        const e = (k, m) => [c[0] + du * k * hl - dv * m * hw, c[1] + dv * k * hl + du * m * hw, y];   // k along (+ ahead), m across (+ left)
+        const U = x => (g + x) / GLYPHS.length;   // the image's right edge (x = 1) on the lane's right (m = -1)
+        AR.tri(e(-1, -1), e(-1, 1), e(1, 1), [U(1), 0], [U(0), 0], [U(0), 1]); AR.tri(e(-1, -1), e(1, 1), e(1, -1), [U(1), 0], [U(0), 1], [U(1), 1]);
+      }
       if (L.nodes[l.stopNode].stop && l.k === 0) {   // 止まれ, painted before the line
-        const c = [P[0] - du * 4, P[1] - dv * 4], ww = 1.4, ll = 2.8, a = [c[0] - dv * ww + du * ll / 2, c[1] + du * ww + dv * ll / 2];
+        const c = [P[0] - du * 4, P[1] - dv * 4], ww = 1.4, ll = 2.8;
         const y = Y(...c) + 0.045, e = (k, m) => [c[0] + du * k * ll / 2 - dv * m * ww, c[1] + dv * k * ll / 2 + du * m * ww, y];
         S.tri(e(-1, -1), e(-1, 1), e(1, 1), [0, 0], [1, 0], [1, 1]); S.tri(e(-1, -1), e(1, 1), e(1, -1), [0, 0], [1, 1], [0, 1]);
       }
     }
-    for (const nd of L.nodes) {   // crossings across each arm, 0.5 - 4.5 m out from the crossing street's kerb
+    for (const nd of L.nodes) {   // crossings across each arm, 2 - 6 m out from the crossing street's kerb
       const V = L.streets[nd.streets[0]], U = L.streets[nd.streets[1]];
       for (const [arm, st, other] of [['v+', V, U], ['v-', V, U], ['u+', U, V], ['u-', U, V]]) {
         if (!nd.arms[arm]) continue;
-        const sg = arm[1] === '+' ? 1 : -1, base = (st.axis === 'v' ? nd.v : nd.u) + sg * (hc(other) + 0.5);
+        const sg = arm[1] === '+' ? 1 : -1, base = (st.axis === 'v' ? nd.v : nd.u) + sg * (hc(other) + 2);
         for (let x = -hc(st) + 0.5; x + 0.45 <= hc(st) - 0.3; x += 0.9) lineQ(along(st, base, x + 0.22), along(st, base + sg * 4, x + 0.22), 0.45);
       }
     }
     add('markings', B.geo(), MAT.mark);
     const tomare = cachedTex('tomare', 128, 256, (g, w, h) => { g.clearRect(0, 0, w, h); g.fillStyle = '#f2f2ee'; g.font = font(100); g.textAlign = 'center'; g.textBaseline = 'middle'; g.save(); g.translate(w / 2, h / 2); g.fillText('止', 0, -60); g.fillText('ま', 0, 30); g.restore(); g.font = font(70); g.fillText('れ', w / 2, h - 30); });
     if (!tomare.transparent) { tomare.transparent = true; tomare.polygonOffset = true; tomare.polygonOffsetFactor = -4; tomare.polygonOffsetUnits = -8; tomare.depthWrite = false; }
-    add('markings', S.geo(), tomare); }
+    add('markings', S.geo(), tomare);
+    const arrows = cachedTex('laneArrows', 7 * 64, 192, (g, w, h) => {   // white arrows on nothing, pointing up (ahead)
+      g.clearRect(0, 0, w, h); g.fillStyle = '#f2f2ee'; g.strokeStyle = '#f2f2ee'; g.lineWidth = 9; g.lineCap = 'butt';
+      ['l', 's', 'r', 'ls', 'sr', 'lr', 'lsr'].forEach((key, j) => {
+        const cx = j * 64 + 32, base = h - 6, mid = h * 0.52;
+        const head = (x, y, ang) => { g.save(); g.translate(x, y); g.rotate(ang); g.beginPath(); g.moveTo(0, -18); g.lineTo(14, 4); g.lineTo(-14, 4); g.closePath(); g.fill(); g.restore(); };
+        g.beginPath(); g.moveTo(cx, base); g.lineTo(cx, mid); g.stroke();
+        if (key.includes('s')) { g.beginPath(); g.moveTo(cx, mid); g.lineTo(cx, 26); g.stroke(); head(cx, 22, 0); }
+        if (key.includes('l')) { g.beginPath(); g.moveTo(cx, mid); g.quadraticCurveTo(cx, mid - 30, cx - 16, mid - 30); g.stroke(); head(cx - 20, mid - 30, -Math.PI / 2); }
+        if (key.includes('r')) { g.beginPath(); g.moveTo(cx, mid); g.quadraticCurveTo(cx, mid - 30, cx + 16, mid - 30); g.stroke(); head(cx + 20, mid - 30, Math.PI / 2); }
+      });
+    });
+    if (!arrows.transparent) { arrows.transparent = true; arrows.polygonOffset = true; arrows.polygonOffsetFactor = -4; arrows.polygonOffsetUnits = -8; arrows.depthWrite = false; }
+    add('markings', AR.geo(), arrows); }
   yield null;
 
   // ---- buildings (houses, shops, flats, factories), warehouses with their docks, bays and slots ----
@@ -260,30 +292,31 @@ function* townMeshSteps(i) {
     inst('trees', SHARED.post, MAT.black, trunks); }
   yield null;
 
-  // ---- signals: a pole at the kerb of each approach, an arm over the road, three lamps facing the drivers ----
+  // ---- signals: for each approach, a pole on the far side of the junction (on the left corner's pavement), an arm
+  // reaching over the lanes going on, and three lamps facing the drivers (seen from a cab stopped at the line) ----
   { const P = new Parts(), lamps = [], heads = new Map();
     for (const l of L.lanes) {
       if (l.stopNode == null || l.turn || !L.nodes[l.stopNode].signal) continue;
       const key = `${l.stopNode}:${l.dir}`;
       if (heads.has(key)) continue;
-      const st = L.streets[l.street], P0 = l.pts[l.pts.length - 1], Q2 = l.pts[l.pts.length - 2], s = Math.hypot(P0[0] - Q2[0], P0[1] - Q2[1]);
-      const du = (P0[0] - Q2[0]) / s, dv = (P0[1] - Q2[1]) / s, lu = -dv, lv = du;   // travel direction and its left
-      const o = (st.lanes - 0.5 - l.k) * st.laneW;   // the lane centre is o left of the centre line; the pole stands on the left kerb
-      const kerb = [P0[0] + lu * (st.lanes * st.laneW - o + 0.8), P0[1] + lv * (st.lanes * st.laneW - o + 0.8)];
-      const y = Y(...kerb), reach = Math.min(st.lanes * st.laneW, 4.5);
-      P.push(kerb[0], y, -kerb[1]);
-      P.cyl(MAT.steelDark, 0.12, 0.14, 5.6, 8, 0, 2.8, 0);
-      P.pop();
-      const head = [kerb[0] - lu * reach, kerb[1] - lv * reach], ry = Math.atan2(du, dv);   // the face looks back along -dir
-      // in the group's frame a town direction (a, b) is (a, 0, -b); a box's z axis turned by ry points (sin ry, 0, cos ry)
-      P.add(new THREE.BoxGeometry(0.12, 0.12, reach), MAT.steelDark, (kerb[0] + head[0]) / 2, y + 5.3, -(kerb[1] + head[1]) / 2, 0, Math.atan2(-lu, lv), 0);   // the arm, over the road
-      P.add(new THREE.BoxGeometry(1.3, 0.45, 0.35), MAT.steelDark, head[0], y + 5.3, -head[1], 0, Math.atan2(lv, lu), 0);                        // the head, across the road
-      // lamps: green, yellow, red from left to right as the driver sees them
+      const n = L.nodes[l.stopNode], st = L.streets[l.street], cr = L.streets[n.streets.find(id => id !== st.id)];
+      const [du, dv] = _DIRV[l.dir], lu = -dv, lv = du, at = (a, x) => [n.u + du * a + lu * x, n.v + dv * a + lv * x];   // a ahead of the centre, x to the left
+      const R = TOWN_CORNER_R, walk = st.walkW, over = (st.med || 0) / 2 + st.laneW;   // the head hangs over the line between the two lanes
+      let pole;
+      if (!n.arms[l.dir]) pole = at(hc(cr) + cr.walkW / 2, over);                                 // no way on: on the far pavement, under the head
+      else if (n.arms[_TURNS[l.dir].left]) { const k = R - (R - walk / 2) * Math.SQRT1_2; pole = at(hc(cr) + k, hc(st) + k); }   // the rounded corner
+      else pole = at(hc(cr) + 4, hc(st) + walk / 2);                                                // a straight kerb on the left
+      const head = at(Math.max(hc(cr) + 2, (pole[0] - n.u) * du + (pole[1] - n.v) * dv), over), y = Y(...pole), hy = y + 5.4;
+      P.push(pole[0], y, -pole[1]); P.cyl(MAT.steelDark, 0.13, 0.15, 5.8, 8, 0, 2.9, 0); P.pop();
+      const reach = Math.hypot(head[0] - pole[0], head[1] - pole[1]);
+      if (reach > 0.3) P.add(new THREE.BoxGeometry(0.12, 0.12, reach), MAT.steelDark, (pole[0] + head[0]) / 2, hy + 0.3, -(pole[1] + head[1]) / 2, 0, Math.atan2(head[0] - pole[0], -(head[1] - pole[1])), 0);   // the arm
+      P.add(new THREE.BoxGeometry(1.3, 0.45, 0.35), MAT.steelDark, head[0], hy, -head[1], 0, Math.atan2(lv, lu), 0);   // the head, across the road
+      // lamps: green, yellow, red from left to right as the driver sees them, on the face toward the driver
       const idx = [];
       for (const [k, x] of [[0, -0.42], [1, 0], [2, 0.42]]) {   // x: to the driver's right
-        idx.push(lamps.length); lamps.push({ u: head[0] - lu * x - du * 0.19, v: head[1] - lv * x - dv * 0.19, y: y + 5.3, face: Math.atan2(-du, dv), k });
+        idx.push(lamps.length); lamps.push({ u: head[0] - lu * x - du * 0.19, v: head[1] - lv * x - dv * 0.19, y: hy, face: Math.atan2(-du, dv), k });
       }
-      heads.set(key, { node: l.stopNode, axis: l.stopAxis, idx, state: null });
+      heads.set(key, { node: l.stopNode, axis: l.stopAxis, idx, state: null, u: head[0], v: head[1], y: hy });
       M.lampIdx.set(l.stopNode, [...(M.lampIdx.get(l.stopNode) || []), ...idx]);
     }
     if (lamps.length) {
@@ -309,7 +342,7 @@ function* townMeshSteps(i) {
       if (st.kind !== 'main') continue;
       for (let a = st.a0 + 12; a < st.a1 - 6; a += 35) {
         const at = along(st, a, 0);
-        if (L.nodes.some(n => Math.hypot(n.u - at[0], n.v - at[1]) < 16)) continue;   // not in a junction
+        if (L.nodes.some(n => Math.hypot(n.u - at[0], n.v - at[1]) < TOWN_CORNER_R + 12)) continue;   // not in a junction or on its rounded corners
         for (const side of [-1, 1]) { const f = along(st, a, side * (hc(st) + st.walkW - 0.5)), h = along(st, a, side * (hc(st) - 1.0)); lamp(f[0], f[1], h[0], h[1], 8, 12); }
       }
     }
@@ -324,11 +357,11 @@ function* townMeshSteps(i) {
 
   // ---- the toll plaza: one canopy over both gates, booths on the islands, a bar for each gate ----
   { const P = new Parts(), y = Y(0, 30);
-    P.box(MAT.white, 24, 0.7, 14, 0, y + 5.9, -31);
-    P.box(MAT.steel, 24.2, 0.25, 14.2, 0, y + 5.5, -31);
-    for (const u of [-11, -1.5, 1.5, 11]) for (const v of [25, 37]) P.box(MAT.white, 0.6, 5.5, 0.6, u, y + 2.75, -v);
-    for (const [u0, u1] of [[-1.2, 1.2], [-9.5, -7.5], [7.5, 9.5]]) { P.box(MAT.concrete, u1 - u0, 0.3, 14, (u0 + u1) / 2, y + 0.15, -31); P.box(MAT.drum, u1 - u0 + 0.02, 0.32, 0.6, (u0 + u1) / 2, y + 0.16, -24.2); P.box(MAT.drum, u1 - u0 + 0.02, 0.32, 0.6, (u0 + u1) / 2, y + 0.16, -37.8); }
-    for (const u of [-8.5, 8.5]) { P.box(MAT.white, 1.05, 2.4, 2.4, u, y + 1.5, -31); P.box(MAT.black, 1.07, 0.9, 2.0, u, y + 1.9, -31); }
+    P.box(MAT.white, 28, 0.7, 14, 0, y + 5.9, -31);
+    P.box(MAT.steel, 28.2, 0.25, 14.2, 0, y + 5.5, -31);
+    for (const u of [-13, -1.5, 1.5, 13]) for (const v of [25, 37]) P.box(MAT.white, 0.6, 5.5, 0.6, u, y + 2.75, -v);
+    for (const [u0, u1] of PLAZA_ISLANDS) { P.box(MAT.concrete, u1 - u0, 0.3, 14, (u0 + u1) / 2, y + 0.15, -31); P.box(MAT.drum, u1 - u0 + 0.02, 0.32, 0.6, (u0 + u1) / 2, y + 0.16, -24.2); P.box(MAT.drum, u1 - u0 + 0.02, 0.32, 0.6, (u0 + u1) / 2, y + 0.16, -37.8); }
+    for (const u of [-PLAZA_LU - 3.5, PLAZA_LU + 3.5]) { P.box(MAT.white, 1.05, 2.4, 2.4, u, y + 1.5, -31); P.box(MAT.black, 1.07, 0.9, 2.0, u, y + 1.9, -31); }
     P.build(grp);
     const etc = cachedTex('etcSign', 256, 128, (c, w, h) => {
       c.fillStyle = '#5a2d8c'; c.fillRect(0, 0, w, h); c.strokeStyle = '#fff'; c.lineWidth = 5; roundRect(c, 7, 7, w - 14, h - 14, 10); c.stroke();
@@ -346,8 +379,8 @@ function* townMeshSteps(i) {
       const ts = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), tsign); ts.position.set(gate.u * 1.6, y + 7.3, face - (gate.dir > 0 ? 0.02 : -0.02)); ts.rotation.y = rot; grp.add(ts);
       // the bar pivots on the island to the gate lane's right and swings up
       const pivot = new THREE.Group(), side = gate.dir > 0 ? 1 : -1;
-      pivot.position.set(gate.u + side * 2.4, y + 1.05, -gate.v); pivot.rotation.y = gate.dir > 0 ? 0 : Math.PI;
-      pivot.add(new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.09, 0.09).translate(-1.8, 0, 0), MAT.bar)); grp.add(pivot);
+      pivot.position.set(gate.u + side * 4.4, y + 1.05, -gate.v);   // by the middle island pivot.rotation.y = gate.dir > 0 ? 0 : Math.PI;
+      pivot.add(new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.09, 0.09).translate(-2.8, 0, 0), MAT.bar)); grp.add(pivot);
       M.gates[key] = pivot; tolls++;
     }
     M.parts.toll = tolls; }

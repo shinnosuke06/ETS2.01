@@ -7,12 +7,17 @@
 // ---------------------------------------------------------------------------
 const TOWN_CELL = 0.5, TOWN_U0 = -300, TOWN_V0 = -8, TOWN_NU = 1200, TOWN_NV = 826;
 const TCELL = { OUT: 0, ROAD: 1, WALK: 2, YARD: 3, WALL: 4 };
-const TOWN_CORNER_R = 12;          // kerb radius at the junction corners
+const TOWN_CORNER_R = 15;          // kerb radius at the junction corners
 const TOWN_CLEAR = 42.8 + 15;      // town things stay this far left of the road centre (ramp edge + 15 m)
+// Every street: two 3.5 m lanes each way either side of a 3.5 m centre strip (hatched, or a right-turn lane before a
+// junction), 3.5 m pavements. Main streets and side streets differ only in their limit (and the navigation's liking).
 const TOWN_STREET = {
-  main: { lanes: 2, laneW: 3.25, walkW: 3.5, limit: 50 },
-  side: { lanes: 1, laneW: 3.0, walkW: 2.5, limit: 40 },
+  main: { lanes: 2, laneW: 3.5, med: 3.5, walkW: 3.5, limit: 50 },
+  side: { lanes: 2, laneW: 3.5, med: 3.5, walkW: 3.5, limit: 40 },
 };
+const TOWN_STOP_BACK = 16;   // stop lines stand this far before the crossing street's kerb line (waiting cars clear of the corner)
+const TOWN_OUT = 6;          // lanes leaving a junction start this far past it (beyond the crossing, 2 - 6 m out)
+const TOWN_POCKET = 22, TOWN_TAPER = 10;   // the right-turn lane before a junction, and the stretch where it opens
 const TOWN_WH_NAMES = ['物流センター', '配送センター', '倉庫'];
 
 function townSite(i) {
@@ -50,9 +55,9 @@ function townClearV(site, u) {
   return v;
 }
 
-const _hc = st => st.lanes * st.laneW, _ht = st => st.lanes * st.laneW + st.walkW;
-// lane k's distance from the centre line (k = 0: the left-most lane, by the kerb)
-const _lo = (st, k) => (st.lanes - 0.5 - k) * st.laneW;
+const _hc = st => (st.med || 0) / 2 + st.lanes * st.laneW, _ht = st => _hc(st) + st.walkW;
+// lane k's distance from the centre line (k = 0: the left-most lane, by the kerb; k = lanes: the right-turn lane, on it)
+const _lo = (st, k) => (k >= st.lanes ? 0 : (st.med || 0) / 2 + (st.lanes - 0.5 - k) * st.laneW);
 // a point on street st at position a along it, for travel direction dir and lane k (left-hand traffic)
 function _lanePt(st, a, dir, k) {
   const o = _lo(st, k);
@@ -97,18 +102,20 @@ function _roundWall(pts, kerbs) {
 // expressway at once), so a rig keeps to the same line across the seam; the bends join them to Main A. The ramp's
 // guardrails stop 15 m short of the bends (|u| = 40), where the plaza road is still 12 m wide for a trailer swinging in.
 const PLAZA_BAND_U = 40;   // |u| beyond which a plaza road is just the ramp's or the band's 5 m
+const PLAZA_LU = 7;       // the plaza roads meet Main A's kerb lanes, 7 m either side of its centre line
+const PLAZA_ISLANDS = [[-1.2, 1.2], [-PLAZA_LU - 4.5, -PLAZA_LU - 2.5], [PLAZA_LU + 2.5, PLAZA_LU + 4.5]];   // the toll booths' islands (u)
 function _plazaPaths(site) {
   const q = {}, at = (s, lat) => { const p = posAt(s, lat, {}); townUV(site, p.x, p.z, q); return [q.u, q.v]; };
   const out = { exitPath: null, entryPath: null };
   if (site.exit) {
     const r = RAMPS.find(x => x.ic === site.ic), band = [];
     for (let u = -65; u < -26; u += 5) band.push(at(site.s + u, rampCx(site.s + u - r.sDiv)));
-    out.exitPath = [...band, ..._arc(-25, 20, 20, -Math.PI / 2, 0), [-5, 45]];
+    out.exitPath = [...band, ..._arc(-PLAZA_LU - 20, 20, 20, -Math.PI / 2, 0), [-PLAZA_LU, 45]];
   }
   if (site.entry) {
     const e = ENTRIES.find(x => x.ic === site.ic), band = [];
     for (let u = 30; u <= 65; u += 5) band.push(at(site.s + u, entryCx(site.s + u - e.s0)));
-    out.entryPath = [[5, 45], ..._arc(25, 20, 20, Math.PI, 1.5 * Math.PI), ...band];
+    out.entryPath = [[PLAZA_LU, 45], ..._arc(PLAZA_LU + 20, 20, 20, Math.PI, 1.5 * Math.PI), ...band];
   }
   return out;
 }
@@ -118,76 +125,117 @@ function townLayout(i) {
   const addStreet = (kind, axis, c, a0, a1) => { const st = { id: streets.length, kind, axis, c, a0, a1, ...TOWN_STREET[kind] }; streets.push(st); return st; };
 
   // ---- streets ----
-  const v1 = 115 + 15 * R(), v2 = v1 + 118 + 10 * R(), v3 = v2 + 105 + 10 * R();
+  // junctions 110 m or more apart, so a right-turn lane fits before each end of a street piece
+  const v1 = 115 + 15 * R(), v2 = v1 + 124 + 8 * R(), v3 = v2 + 110 + 6 * R();
   const pm = R(), pk = Math.floor(R() * 3);
   const A = addStreet('main', 'v', 0, 45, v3);
   const cross = [v1, v2, v3].map((c, k) => addStreet(k === pk && pm < 0.6 ? 'main' : 'side', 'u', c, -292, 292));
-  for (const sgn of [-1, 1]) addStreet('side', 'v', sgn * (135 + (R() - 0.5) * 20), v1, v3);
-  for (const sgn of [-1, 1]) { const p = R(), off = 255 + (R() - 0.5) * 20; if (p < 0.5) addStreet('side', 'v', sgn * off, v1, v3); }
+  for (const sgn of [-1, 1]) addStreet('side', 'v', sgn * (130 + (R() - 0.5) * 12), v1, v3);
+  for (const sgn of [-1, 1]) { const p = R(), off = 255 + (R() - 0.5) * 12; if (p < 0.5) addStreet('side', 'v', sgn * off, v1, v3); }
   const vStreets = streets.filter(s => s.axis === 'v');
 
   // ---- junctions ----
   for (const V of vStreets) for (const U of cross) {
     if (U.c < V.a0 - 0.01 || U.c > V.a1 + 0.01 || V.c < U.a0 || V.c > U.a1) continue;
-    const signal = V.kind === 'main' || U.kind === 'main';
-    nodes.push({ id: nodes.length, u: V.c, v: U.c, streets: [V.id, U.id], signal, stop: !signal, phase: Math.floor(R() * 70),
+    nodes.push({ id: nodes.length, u: V.c, v: U.c, streets: [V.id, U.id], signal: true, stop: false, phase: Math.floor(R() * 70),
       arms: { 'v+': V.a1 > U.c + 0.01, 'v-': V.a0 < U.c - 0.01, 'u+': U.a1 > V.c, 'u-': U.a0 < V.c } });
   }
 
   // ---- lanes along the streets, junction to junction ----
-  const addLane = o => { const l = { id: lanes.length, next: [], turn: null, stopD: null, stopNode: null, stopAxis: null, edge0: false, edge1: false, plaza: false, node0: null, node1: null, ...o }; l.len = _len(l.pts); lanes.push(l); return l; };
+  // Each street piece between two stations (junctions or the street's ends) has two lanes each way. A lane leaving a
+  // junction starts TOWN_OUT past the crossing street's kerb line; one coming to a junction ends at its stop line,
+  // TOWN_STOP_BACK before it. Before a junction with a way off to the right, the inner lane splits where the right-turn
+  // lane opens (TOWN_TAPER, then TOWN_POCKET along the centre strip) unless the piece is too short for both ways' turn
+  // lanes. Lane kinds: k 0 (kerb), k 1 (inner; split: its first part, then the part going on), k 2 (the turn lane).
+  const addLane = o => { const l = { id: lanes.length, next: [], turn: null, stopD: null, stopNode: null, stopAxis: null, edge0: false, edge1: false, plaza: false, pocket: false, node0: null, node1: null, ...o }; l.len = _len(l.pts); lanes.push(l); return l; };
   const outLane = new Map();   // `${node}:${dir}:${k}` → the lane leaving that junction that way
   const inLanes = [];          // lanes that end at a junction
+  const POCKET = TOWN_POCKET + TOWN_TAPER;
   for (const st of streets) {
     const here = nodes.filter(n => n.streets.includes(st.id)).sort((a, b) => (st.axis === 'v' ? a.v - b.v : a.u - b.u));
     const pos = n => (st.axis === 'v' ? n.v : n.u);
     const cross_ = n => streets[n.streets.find(id => id !== st.id)];
     const stations = [];
-    if (!here.length || pos(here[0]) > st.a0 + 0.01) stations.push({ a: st.a0, node: null, ko: st === A ? 0 : 3 });
-    for (const n of here) stations.push({ a: pos(n), node: n, ko: _hc(cross_(n)) + 5 });
-    if (!here.length || pos(here[here.length - 1]) < st.a1 - 0.01) stations.push({ a: st.a1, node: null, ko: st === A ? 0 : 3 });
+    const endKo = st === A ? 0 : 3;
+    if (!here.length || pos(here[0]) > st.a0 + 0.01) stations.push({ a: st.a0, node: null });
+    for (const n of here) stations.push({ a: pos(n), node: n });
+    if (!here.length || pos(here[here.length - 1]) < st.a1 - 0.01) stations.push({ a: st.a1, node: null });
+    const koOut = s => (s.node ? _hc(cross_(s.node)) + TOWN_OUT : endKo), koIn = s => (s.node ? _hc(cross_(s.node)) + TOWN_STOP_BACK : endKo);
     for (let j = 0; j + 1 < stations.length; j++) {
-      const p = stations[j], q = stations[j + 1], a0 = p.a + p.ko, a1 = q.a - q.ko;
-      if (a1 - a0 < 2) continue;
-      for (const dir of [1, -1]) for (let k = 0; k < st.lanes; k++) {
-        const [s0, s1] = dir > 0 ? [p, q] : [q, p], from = dir > 0 ? a0 : a1, to = dir > 0 ? a1 : a0;
-        const d = (st.axis === 'v' ? 'v' : 'u') + (dir > 0 ? '+' : '-');
-        const l = addLane({ pts: [_lanePt(st, from, dir, k), _lanePt(st, to, dir, k)], street: st.id, limit: st.limit, k, dir: d,
-          node0: s0.node ? s0.node.id : null, node1: s1.node ? s1.node.id : null, edge0: !s0.node, edge1: !s1.node });
-        if (s1.node && (s1.node.signal || s1.node.stop)) { l.stopD = l.len; l.stopNode = s1.node.id; l.stopAxis = st.axis; }
-        if (s0.node) outLane.set(`${s0.node.id}:${d}:${k}`, l);
-        if (s1.node) inLanes.push(l);
+      const p = stations[j], q = stations[j + 1];
+      // for each way: [start station, end station, sign along the street, from, to]
+      const ways = [[p, q, 1, p.a + koOut(p), q.a - koIn(q)], [q, p, -1, q.a - koOut(q), p.a + koIn(p)]];
+      // a turn lane wants a junction ahead with a way off to the right, and room for itself before the start
+      const wants = ways.map(([s0, s1, sg, from, to]) => !!s1.node && s1.node.signal && !!s1.node.arms[_TURNS[(st.axis === 'v' ? 'v' : 'u') + (sg > 0 ? '+' : '-')].right] && Math.abs(to - from) >= POCKET + 8);
+      if (wants[0] && wants[1]) {   // both: they share the centre strip, so they must not overlap (4 m apart at least)
+        const a = ways[0], b = ways[1];   // a's turn lane lies in [a.to - POCKET, a.to], b's in [b.to, b.to + POCKET]
+        if (a[4] - POCKET < b[4] + POCKET + 4) wants[0] = wants[1] = false;
       }
+      ways.forEach(([s0, s1, dir, from, to], w) => {
+        if (dir * (to - from) < 2) return;
+        const d = (st.axis === 'v' ? 'v' : 'u') + (dir > 0 ? '+' : '-');
+        const base = { street: st.id, limit: st.limit, dir: d };
+        const ends = (l, last) => {
+          if (last && s1.node && (s1.node.signal || s1.node.stop)) { l.stopD = l.len; l.stopNode = s1.node.id; l.stopAxis = st.axis; }
+          if (last && s1.node) inLanes.push(l);
+        };
+        for (let k = 0; k < st.lanes; k++) {
+          if (k === st.lanes - 1 && wants[w]) {   // the inner lane splits where the turn lane opens
+            const bp = to - dir * POCKET, o = bp + dir * TOWN_TAPER;
+            const first = addLane({ ...base, k, pts: [_lanePt(st, from, dir, k), _lanePt(st, bp, dir, k)], node0: s0.node ? s0.node.id : null, edge0: !s0.node });
+            const on = addLane({ ...base, k, pts: [_lanePt(st, bp, dir, k), _lanePt(st, to, dir, k)], node1: s1.node.id });
+            const turnL = addLane({ ...base, k: st.lanes, pocket: true, pts: [_lanePt(st, bp, dir, k), _lanePt(st, o, dir, st.lanes), _lanePt(st, to, dir, st.lanes)], node1: s1.node.id });
+            first.next.push(on.id, turnL.id);
+            if (s0.node) outLane.set(`${s0.node.id}:${d}:${k}`, first);
+            ends(on, true); ends(turnL, true);
+            continue;
+          }
+          const l = addLane({ ...base, k, pts: [_lanePt(st, from, dir, k), _lanePt(st, to, dir, k)],
+            node0: s0.node ? s0.node.id : null, node1: s1.node ? s1.node.id : null, edge0: !s0.node, edge1: !s1.node });
+          if (s0.node) outLane.set(`${s0.node.id}:${d}:${k}`, l);
+          ends(l, true);
+        }
+      });
     }
   }
-  // ---- turns inside the junctions ----
+  // ---- turns inside the junctions: straight on from the two lanes, left from the kerb lane, right from the turn lane
+  // (or the inner lane where there is none); a turn runs straight on to TOWN_OUT before the junction, then bends ----
   const lineX = (p, d, q, e) => {   // where the line through p along d meets the line through q along e
     const den = d[0] * e[1] - d[1] * e[0];
     if (Math.abs(den) < 1e-9) return null;
     const t = ((q[0] - p[0]) * e[1] - (q[1] - p[1]) * e[0]) / den;
     return [p[0] + d[0] * t, p[1] + d[1] * t];
   };
+  const pocketAt = new Set(inLanes.filter(l => l.pocket).map(l => `${l.node1}:${l.dir}`));
   for (const l of inLanes) {
-    const n = nodes[l.node1], st = streets[l.street];
+    const n = nodes[l.node1], st = streets[l.street], hasPocket = pocketAt.has(`${n.id}:${l.dir}`);
     for (const turn of ['straight', 'left', 'right']) {
       const d = _TURNS[l.dir][turn];
       if (!n.arms[d]) continue;
       const toSt = streets[n.streets.find(id => streets[id].axis === d[0])];
+      if (turn === 'straight' && l.pocket) continue;
       if (turn === 'left' && l.k !== 0) continue;
-      if (turn === 'right' && l.k !== st.lanes - 1) continue;
+      if (turn === 'right' && (hasPocket ? !l.pocket : l.k !== st.lanes - 1)) continue;
       const k2 = turn === 'straight' ? Math.min(l.k, toSt.lanes - 1) : turn === 'left' ? 0 : toSt.lanes - 1;
       const out = outLane.get(`${n.id}:${d}:${k2}`);
       if (!out) continue;
       const p0 = l.pts[l.pts.length - 1], p2 = out.pts[0];
-      const ctl = turn === 'straight' ? null : lineX(p0, _DIRV[l.dir], p2, _DIRV[d]);
-      const pts = ctl ? _bez(p0, ctl, p2) : [p0, p2];
+      let pts;
+      if (turn === 'straight') pts = [p0, p2];
+      else {
+        const di = _DIRV[l.dir], cr = streets[n.streets.find(id => id !== st.id)], back = (cr === toSt ? _hc(toSt) : _hc(cr)) + TOWN_OUT;
+        const at = st.axis === 'v' ? n.v : n.u, a1 = at - (st.axis === 'v' ? di[1] : di[0]) * back;   // TOWN_OUT before the crossing
+        const p1 = st.axis === 'v' ? [p0[0], a1] : [a1, p0[1]];
+        const ctl = lineX(p1, di, p2, _DIRV[d]);
+        pts = ctl ? [p0, ..._bez(p1, ctl, p2, 10)] : [p0, p2];
+      }
       const c = addLane({ pts, street: null, limit: Math.min(st.limit, toSt.limit), k: k2, dir: d, turn, node0: n.id, node1: n.id });
       c.next.push(out.id); l.next.push(c.id);
     }
   }
   // ---- the toll plaza's roads: exit from the ramp end (u = -25, v = 0), entrance to the ramp start (u = 25, v = 0) ----
   const plaza = { exitPath: null, entryPath: null, exitLane: null, entryLane: null,
-    gates: { exit: { u: -5, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: 5, v: 30, dir: -1, state: 'closed', open: 0 } } };
+    gates: { exit: { u: -PLAZA_LU, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: PLAZA_LU, v: 30, dir: -1, state: 'closed', open: 0 } } };
   const aStart = (dir, k) => lanes.find(l => l.street === A.id && l.dir === dir && l.k === k && (dir === 'v+' ? l.edge0 : l.edge1));
   const pp = _plazaPaths(site);
   if (site.exit) {
@@ -267,7 +315,7 @@ function townLayout(i) {
     // can swing across from the gate and run straight in, or pull out and swing back to the gate
     const bay = P(D - 39, W / 2 - 9), park = P(D - 43, -(W / 2 - 11));
     const along = st.axis === 'v' ? g[1] : g[0];
-    const gateLanes = lanes.filter(l => l.street === st.id && !l.turn && Math.min(...l.pts.map(p => (st.axis === 'v' ? p[1] : p[0]))) <= along && Math.max(...l.pts.map(p => (st.axis === 'v' ? p[1] : p[0]))) >= along).map(l => l.id);
+    const gateLanes = lanes.filter(l => l.street === st.id && !l.turn && !l.pocket && Math.min(...l.pts.map(p => (st.axis === 'v' ? p[1] : p[0]))) <= along && Math.max(...l.pts.map(p => (st.axis === 'v' ? p[1] : p[0]))) >= along).map(l => l.id);
     warehouses.push({ id: k, name: site.ic.jp + TOWN_WH_NAMES[k], block: blocks.indexOf(b), street: st.id, gate: { u: g[0], v: g[1], nu: e[0], nv: e[1], w: 14 }, yard, building: bld, docks,
       bay: { u: bay[0], v: bay[1], hu: e[0], hv: e[1] }, park: { u: park[0], v: park[1], hu: -e[0], hv: -e[1] }, gateLanes });
     buildings.push({ u: (bld.u0 + bld.u1) / 2, v: (bld.v0 + bld.v1) / 2, w: bld.u1 - bld.u0, d: bld.v1 - bld.v0, h: 10, rot: 0, kind: 'warehouse', wh: k });
@@ -284,7 +332,7 @@ function townLayout(i) {
   for (const b of blocks) {
     if (b.use === 'warehouse') continue;
     for (const side of ['v0', 'v1', 'u0', 'u1']) {   // hedges along the block's edges, kept clear of the rounded corners
-      const horiz = side[0] === 'v', c = b[side], t0 = (horiz ? b.u0 : b.v0) + 14, t1 = (horiz ? b.u1 : b.v1) - 14;
+      const horiz = side[0] === 'v', c = b[side], t0 = (horiz ? b.u0 : b.v0) + TOWN_CORNER_R + 2, t1 = (horiz ? b.u1 : b.v1) - TOWN_CORNER_R - 2;
       if (t1 - t0 > 2) fences.push(horiz ? { u0: t0, v0: c, u1: t1, v1: c, kind: 'hedge' } : { u0: c, v0: t0, u1: c, v1: t1, kind: 'hedge' });
     }
     if (b.use !== 'houses') continue;
@@ -292,14 +340,14 @@ function townLayout(i) {
       const horiz = side[0] === 'v', st = streetAt(side, b), inward = side.endsWith('0') ? 1 : -1;
       const len = horiz ? b.u1 - b.u0 : b.v1 - b.v0, deep = horiz ? b.v1 - b.v0 : b.u1 - b.u0;
       for (let row = 0; row < (deep >= 60 ? 2 : 1); row++) {
-        let t = 14;
-        while (t < len - 14) {
+        let t = TOWN_CORNER_R + 2;
+        while (t < len - TOWN_CORNER_R - 2) {
           const rk = R(); let lw = 10 + 4 * R(), dd = 8 + 4 * R(), h = 6 + 3 * R(), kind = 'house';
           const sb = 1 + 2 * R(), gap = 1.5 + 1.5 * R();
           if (st && st.kind === 'main' && rk < 0.4) { kind = 'shop'; h = 4 + 2 * R(); }
           else if (town >= 0.6 && rk >= 0.4 && rk < 0.6) { kind = 'apartment'; lw = 14 + 6 * R(); dd = 10 + 4 * R(); h = 12 + 18 * R(); }
           else if (rk > 0.9) { kind = 'factory'; lw = 24 + 12 * R(); dd = 18 + 6 * R(); h = 8 + 4 * R(); }
-          if (t + lw > len - 14) break;
+          if (t + lw > len - TOWN_CORNER_R - 2) break;
           const off = sb + row * 18;          // a second row stands behind the first
           const a0 = (horiz ? b.u0 : b.v0) + t, n0 = b[side] + inward * off, n1 = n0 + inward * dd;
           const B = horiz ? { u0: a0, u1: a0 + lw, v0: Math.min(n0, n1), v1: Math.max(n0, n1) } : { v0: a0, v1: a0 + lw, u0: Math.min(n0, n1), u1: Math.max(n0, n1) };
@@ -402,13 +450,13 @@ function townGroundBlend(s, lat) {
 function townFallbackLayout(i) {
   const site = TOWN_SITES[i], lanes = [];
   const plaza = { exitPath: null, entryPath: null, exitLane: null, entryLane: null,
-    gates: { exit: { u: -5, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: 5, v: 30, dir: -1, state: 'closed', open: 0 } } };
+    gates: { exit: { u: -PLAZA_LU, v: 30, dir: 1, state: 'closed', open: 0 }, entry: { u: PLAZA_LU, v: 30, dir: -1, state: 'closed', open: 0 } } };
   const add = (pts, dir) => { const l = { id: lanes.length, pts, len: _len(pts), next: [], turn: null, stopD: null, stopNode: null, stopAxis: null, edge0: false, edge1: false, plaza: true, node0: null, node1: null, street: null, limit: 20, k: 0, dir }; lanes.push(l); return l; };
   const pp = _plazaPaths(site);
   if (site.exit) { plaza.exitPath = pp.exitPath; plaza.exitLane = add(plaza.exitPath, 'v+').id; }
   if (site.entry) { plaza.entryPath = pp.entryPath; plaza.entryLane = add(plaza.entryPath, 'u+').id; }
   const yard = { u0: -35, u1: 35, v0: 45, v1: 115 }, fences = [];
-  for (const [p, q] of [[[-35, 45], [-7, 45]], [[7, 45], [35, 45]], [[35, 45], [35, 115]], [[35, 115], [-35, 115]], [[-35, 115], [-35, 45]]]) fences.push({ u0: p[0], v0: p[1], u1: q[0], v1: q[1], kind: 'wall' });
+  for (const [p, q] of [[[-35, 45], [-11, 45]], [[11, 45], [35, 45]], [[35, 45], [35, 115]], [[35, 115], [-35, 115]], [[-35, 115], [-35, 45]]]) fences.push({ u0: p[0], v0: p[1], u1: q[0], v1: q[1], kind: 'wall' });
   const wh = { id: 0, name: site.ic.jp + TOWN_WH_NAMES[0], block: -1, street: null, gate: { u: 0, v: 45, nu: 0, nv: 1, w: 14 }, yard, building: null, docks: [],
     bay: { u: -20, v: 80, hu: 0, hv: 1 }, park: { u: 20, v: 76, hu: 0, hv: -1 }, gateLanes: [] };
   return { site, streets: [], nodes: [], blocks: [], warehouses: [wh], buildings: [], fences, lanes, plaza, cornerR: TOWN_CORNER_R, fallback: true };
@@ -469,7 +517,7 @@ function* townGridSteps(L) {
     const a = band ? [path[k - 1][0], path[k - 1][1] + 0.3] : path[k - 1], b = band ? [path[k][0], path[k][1] + 0.3] : path[k], w = band ? 2.5 : 6;
     _gFill(G, Math.min(a[0], b[0]) - w, Math.max(a[0], b[0]) + w, Math.min(a[1], b[1]) - w, Math.max(a[1], b[1]) + w, C.ROAD, (u, v) => townInside(u, v) && _segDist(u, v, a, b) <= w);
   }
-  for (const [u0, u1] of [[-1.2, 1.2], [-9.5, -7.5], [7.5, 9.5]]) _gFill(G, u0, u1, 24, 38, C.WALL);
+  for (const [u0, u1] of PLAZA_ISLANDS) _gFill(G, u0, u1, 24, 38, C.WALL);
   yield null;
   // warehouse yards and their gates, then the fences (1 m thick)
   for (const w of L.warehouses) {

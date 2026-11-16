@@ -17,30 +17,30 @@ function town(i = 2) {
 }
 // a left turn from Main A's kerb lane (heading +v) into the cross street at node v = c, ending in its kerb lane heading -u
 function leftTurn(T, R) {
-  const { L, line, arc } = T, U = L.streets.filter(s => s.axis === 'u')[0], o = (U.lanes - 0.5) * U.laneW, ve = U.c - o, uA = -4.875;
+  const { L, line, arc } = T, U = L.streets.filter(s => s.axis === 'u')[0], o = U.med / 2 + (U.lanes - 0.5) * U.laneW, ve = U.c - o, uA = -7;
   return [...line([uA, ve - R - 50], [uA, ve - R]), ...arc(uA - R, ve - R, R, 0, Math.PI / 2), ...line([uA - R, ve], [-95, ve])];
 }
-// a right turn from Main A's inner lane (heading +v) into the cross street's lane heading +u
+// a right turn from Main A's right-turn lane (heading +v, on the centre line) into the cross street's inner lane heading +u
 function rightTurn(T, R) {
-  const { L, line, arc } = T, U = L.streets.filter(s => s.axis === 'u')[0], ve = U.c + U.laneW / 2, uA = -1.625;
+  const { L, line, arc } = T, U = L.streets.filter(s => s.axis === 'u')[0], ve = U.c + U.med / 2 + U.laneW / 2, uA = 0;
   return [...line([uA, ve - R - 50], [uA, ve - R]), ...arc(uA + R, ve - R, R, Math.PI, Math.PI / 2), ...line([uA + R, ve], [95, ve])];
 }
 
 test('T7 バンとタンクで、広場の出口・入口の曲がりと交差点の左折・右折を壁に当てずに通れる', () => {
   for (const trailer of ['van', 'tank']) {
     const runs = [];
-    { const T = town(); T.start(trailer, -55, 0, 1, 0); runs.push(['exit', followPath(T.sim, T.world([...T.L.plaza.exitPath.slice(1), [-4.875, 95]]), 15)]); }
-    { const T = town(); T.start(trailer, 4.875, 100, 0, -1); runs.push(['entry', followPath(T.sim, T.world([[4.875, 100], ...T.L.plaza.entryPath]), 15)]); }
+    { const T = town(); T.start(trailer, -55, 0, 1, 0); runs.push(['exit', followPath(T.sim, T.world([...T.L.plaza.exitPath.slice(1), [-7, 95]]), 15)]); }
+    { const T = town(); T.start(trailer, 7, 100, 0, -1); runs.push(['entry', followPath(T.sim, T.world([[7, 100], ...T.L.plaza.entryPath]), 15)]); }
     { const T = town(), p = leftTurn(T, LEFT_R); T.start(trailer, p[0][0], p[0][1], 0, 1); runs.push(['left', followPath(T.sim, T.world(p), 15)]); }
     { const T = town(), p = rightTurn(T, RIGHT_R); T.start(trailer, p[0][0], p[0][1], 0, 1); runs.push(['right', followPath(T.sim, T.world(p), 15)]); }
     for (const [name, r] of runs) assert.ok(r.done && r.maxPen < 0.05 && r.rails === 0 && !r.jack, `${trailer} ${name} ${JSON.stringify(r)}`);
   }
 });
-const LEFT_R = 14, RIGHT_R = 16;
+const LEFT_R = 18, RIGHT_R = 16;
 
 test('T7 建物の側の壁に 20 km/h で向かうと 2 m 以内で止まり、rail のできごとが出る', () => {
   const T = town(), { sim } = T;
-  T.start(null, 4, 80, -1, 0, 20);                     // the kerb-side wall is at u = -10, the front 5.5 m ahead of the axle
+  T.start(null, 2.25, 80, -1, 0, 20);                  // the kerb-side wall is at u = -12.25, the front 5.5 m ahead of the axle
   let rails = 0, minU = 0, hit = false;
   const front = () => sim.townUV(T.site, sim.TR.x + Math.sin(sim.TR.h) * sim.RIGP.front, sim.TR.z + Math.cos(sim.TR.h) * sim.RIGP.front, {}).u;
   for (let k = 0; k < 240 * 5; k++) {
@@ -48,12 +48,12 @@ test('T7 建物の側の壁に 20 km/h で向かうと 2 m 以内で止まり、
     for (const e of sim.EVENTS) if (e.t === 'rail') { rails++; hit = true; } sim.EVENTS.length = 0;
     minU = Math.min(minU, front());
   }
-  assert.ok(rails > 0, 'wall contact'); assert.ok(minU > -12, `front reached u = ${minU.toFixed(2)} (wall at -10)`);
-  assert.ok(Math.abs(sim.TR.v) < 0.5 && front() > -10.6 && front() < -7, `v ${sim.TR.v}, front ${front()}`);
+  assert.ok(rails > 0, 'wall contact'); assert.ok(minU > -14.25, `front reached u = ${minU.toFixed(2)} (wall at -12.25)`);
+  assert.ok(Math.abs(sim.TR.v) < 0.5 && front() > -12.85 && front() < -9.25, `v ${sim.TR.v}, front ${front()}`);
 });
 test('T7 歩道に斜めに乗り上げても止まらない（壁の接触なし）', () => {
   const T = town(), { sim } = T, a = 20 * Math.PI / 180;
-  T.start(null, -3.5, 70, -Math.sin(a), Math.cos(a), 15);
+  T.start(null, -5.75, 70, -Math.sin(a), Math.cos(a), 15);   // 3 m from the kerb (u = -8.75)
   let rails = 0, walk = false;
   for (let k = 0; k < 240 * 1.6; k++) {
     sim.stepTruck(1 / 240, { throttle: 0.3, brake: 0, steer: 0 });

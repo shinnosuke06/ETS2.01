@@ -22,7 +22,7 @@ html,body{height:100%}
 body{margin:0;background:#0c120f;color:var(--ink);font-family:var(--f-ui);overflow:hidden;overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 #view{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none;touch-action:none}
 button{font:inherit;color:inherit}
-#hud{position:fixed;inset:0;pointer-events:none;box-sizing:border-box;padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+#hud{position:fixed;inset:0;pointer-events:none;box-sizing:border-box;padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));padding-left:calc(max(16px,env(safe-area-inset-left,0px)) + var(--mir,0px));padding-right:calc(max(16px,env(safe-area-inset-right,0px)) + var(--mir,0px))}
 .hud-inner{position:relative;width:100%;height:100%}
 
 .sign{background:var(--sign);color:#fff;border-radius:10px;box-shadow:inset 0 0 0 3px var(--sign),inset 0 0 0 5px var(--sign-line),0 6px 18px rgba(0,0,0,.35)}
@@ -51,6 +51,13 @@ body.touch .tb.only-touch{display:inline-block}
 /* the navigation card: top right, below the buttons and the message board */
 #navCard{position:absolute;right:0;top:122px;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;background:var(--glass);border:1px solid var(--stroke);max-width:min(46vw,300px);box-sizing:border-box}
 #navCard svg{flex:none;width:44px;height:44px}
+/* the next signal's colour, repeated on the card (lit lamp bright, the others dark) */
+.sigrep{flex:none;display:flex;gap:4px;padding:5px 6px;border-radius:7px;background:#11161b;border:1px solid #2a3540}
+.sigrep i{width:15px;height:15px;border-radius:50%;background:#2a3036;display:block}
+.sigrep.g i.g{background:#2bff8a;box-shadow:0 0 8px #2bff8a}
+.sigrep.y i.y{background:#ffc21c;box-shadow:0 0 8px #ffc21c}
+.sigrep.r i.r{background:#ff2b18;box-shadow:0 0 8px #ff2b18}
+body.mirrors #led{max-width:calc(92% - 2 * var(--mir,0px))}
 #navCard .nc-t{font-weight:700;font-size:15px;line-height:1.2}
 #navCard .nc-d{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
 #navCard .nc-th,#navCard .nc-m{font-size:11px;color:var(--ink-2)}
@@ -163,6 +170,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
 
     <div id="topbar" hidden>
       <button class="tb" id="bCam" type="button" title="視点切替 (V)">視点</button>
+      <button class="tb" id="bMirror" type="button" aria-pressed="false" title="ミラーとバックモニターの表示 (B)">ミラー</button>
       <button class="tb" id="bCruise" type="button" aria-pressed="false" title="クルーズコントロール (C)">クルーズ</button>
       <button class="tb" id="bLights" type="button" aria-pressed="false" title="ライト (L)">ライト</button>
       <button class="tb" id="bWiper" type="button" aria-pressed="false" title="ワイパー (P)">ワイパー</button>
@@ -177,6 +185,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
 
     <div id="navCard" hidden>
       <svg viewBox="-22 -22 44 44" aria-hidden="true"><g id="ncArrow"><path d="M0,-17 L12,3 L4,3 L4,16 L-4,16 L-4,3 L-12,3 Z" fill="#2f9cff"/></g><circle id="ncDot" r="12" fill="#2f9cff" hidden/></svg>
+      <div id="ncSig" class="sigrep" hidden aria-label="次の信号"><i class="g"></i><i class="y"></i><i class="r"></i></div>
       <div><div class="nc-t" id="ncText"></div><div class="nc-d" id="ncDist"></div><div class="nc-l" id="ncLanes"></div><div class="nc-th" id="ncThen"></div><div class="nc-m" id="ncMsg"></div></div>
     </div>
 
@@ -185,6 +194,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
       <div class="gear" id="spdGear">A3</div>
       <div class="lim" id="spdLim">90</div>
       <div id="careIcons">
+        <span class="ic lk" id="icLka" hidden title="車線キープ補助が働いています"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3 L3 21 M18 3 L21 21" stroke="#5be08a" stroke-width="2.4" stroke-linecap="round"/><path d="M12 4v3 M12 10.5v3 M12 17v3" stroke="#5be08a" stroke-width="2" stroke-linecap="round"/></svg></span>
         <span class="ic" id="icFuel" hidden title="燃料が少ない"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h9v18H5z M7 5v5h5V5z M15 8h2l2 2v8a1.5 1.5 0 0 1-3 0v-4h-1" fill="#fff" fill-rule="evenodd"/></svg></span>
         <span class="ic" id="icSleep" hidden title="眠気"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13c3 4 15 4 18 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/><path d="M14 3h6l-6 6h6" stroke="#fff" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg></span>
       </div>
@@ -345,6 +355,13 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
           <button type="button" data-v="normal" aria-pressed="true">ノーマル</button>
           <button type="button" data-v="custom" aria-pressed="false">飾り付き</button>
         </div>
+      </div>
+      <div class="row"><span class="lbl">車線キープ補助</span>
+        <div class="seg" id="lkaSeg" role="group" aria-label="車線キープ補助">
+          <button type="button" data-v="on" aria-pressed="true">オン</button>
+          <button type="button" data-v="off" aria-pressed="false">オフ</button>
+        </div>
+        <span class="lbl">ハンドルから手を離すと、車線の真ん中を走るように少しだけ手伝います。ハンドルを動かすとすぐ止まります</span>
       </div>
       <div class="row"><span class="lbl">安定装置</span>
         <div class="seg" id="assistSeg" role="group" aria-label="安定装置">

@@ -50,11 +50,11 @@ test('町の中ではナビに町の道、目的の倉庫の印、そこまで�
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-    __placeTown(0, 4.875, 120, 0, -1, 0); await __ready();
+    __placeTown(0, 7, 120, 0, -1, 0); await __ready();
     for (let i = 0; i < 10; i++) { INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0;
     const tokyo = navState().guide;
     const gate = GAME.job.whB.gate;
-    __placeTown(2, -4.875, gate.v - 100, 0, 1, 0); await __ready();
+    __placeTown(2, -7, gate.v - 100, 0, 1, 0); await __ready();
     for (let i = 0; i < 10; i++) { INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0;   // a physics step notes that the rig is in the town
     const st = navState(); drawNav(st);
     // the same projection as drawNav's (0.35 px per metre in a town, the truck at (256, 250) facing up)

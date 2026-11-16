@@ -156,7 +156,7 @@ function navRoute(L, from, to) {
 }
 
 // ---- where the rig is, what to do next, and when to look for a new route ----
-const _navHt = st => st.lanes * st.laneW + st.walkW;   // half a street's width with its pavements
+const _navHt = st => _ht(st);   // half a street's width with its pavements
 const _NAV_ANG = { 'u+': 0, 'v+': Math.PI / 2, 'u-': Math.PI, 'v-': -Math.PI / 2 };
 // The street piece under a town point heading θ: { edge, d, off }. In a junction (two streets' widths), off the streets,
 // or heading across the street, the previous answer stands (prev, or null).
@@ -210,9 +210,12 @@ function navGuide(L, route, match) {
   if (last && dist < 8) kind = 'arrive';
   else if (dist > 300) kind = 'straight';
   else if (!last && steps[i + 1].dist - s.dist <= 60) then = { kind: steps[i + 1].kind, dist: steps[i + 1].dist - pos };
-  const st = L.streets[navGraph(L).edges[match.edge].street];
-  const lanes = st.kind === 'main' && st.lanes >= 2
-    ? [{ arrows: ['left', 'straight'], use: !_NAV_RIGHTISH[kind] }, { arrows: ['straight', 'right'], use: !_NAV_LEFTISH[kind] }] : null;
+  const e = navGraph(L).edges[match.edge], st = L.streets[e.street];
+  // the lanes before the junction ahead: with a right-turn lane there, three (left and straight / straight / right)
+  const pocket = (L.lanes || []).some(l => l.pocket && l.node1 === e.to && l.dir === e.dir), turnKind = _NAV_RIGHTISH[kind] ? 'right' : _NAV_LEFTISH[kind] ? 'left' : 'straight';
+  const lanes = st.lanes < 2 ? null : pocket
+    ? [{ arrows: ['left', 'straight'], use: turnKind !== 'right' }, { arrows: ['straight'], use: turnKind === 'straight' }, { arrows: ['right'], use: turnKind === 'right' }]
+    : [{ arrows: ['left', 'straight'], use: !_NAV_RIGHTISH[kind] }, { arrows: ['straight', 'right'], use: !_NAV_LEFTISH[kind] }];
   return { kind, dist, then, lanes };
 }
 // Follow the rig along T.route ({ route, to, match, offT, backD, lastT, t }); 'reroute' when a new route was made from

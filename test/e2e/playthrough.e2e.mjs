@@ -16,11 +16,11 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
     INP.actions.push('couple'); for (let i = 0; i < 150; i++) drive(0, 0, 0);
     log.coupled = TR.link;
     // through Tokyo's entrance gate and onto the entrance ramp
-    __placeTown(0, 4.875, 80, 0, -1, 10); await __ready();
+    __placeTown(0, 7, 80, 0, -1, 10); await __ready();
     const L0 = TOWNS_LOADED.get(0).layout, en = ENTRIES[0], ramp = [];
     // along the band, easing over into the travel lane before the band closes (from u = 330 to 420)
     for (let s = en.s0 + 40; s <= en.s1 + 120; s += 5) { const u = s - en.s0, p = posAt(s, u < 330 ? entryEdges(u).cx : lerp(entryEdges(330).cx, X_TRV, smooth(330, 420, u)), {}); ramp.push([p.x, p.z]); }
-    __drive([...__town(0, [[4.875, 80], ...L0.plaza.entryPath]), ramp[0]], 15, 90, false);
+    __drive([...__town(0, [[7, 80], ...L0.plaza.entryPath]), ramp[0]], 15, 90, false);
     log.entryGate = L0.plaza.gates.entry.state;
     __clearRoad(en.s0 - 600, en.s1 + 600);                                   // a clear gap to merge into
     __drive(ramp, 60, 120, false);                                           // the entrance band, merging into the travel lane
@@ -45,7 +45,7 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
     INP.tGas = INP.tBrake = 0; INP.tWheelHeld = false;
     await __ready(); __noTownCars(2);   // the driver here does not look at traffic
     const L2 = TOWNS_LOADED.get(2).layout;
-    __drive(__town(2, [...L2.plaza.exitPath.slice(2), [-4.875, 70]]), 15, 90);
+    __drive(__town(2, [...L2.plaza.exitPath.slice(2), [-7, 70]]), 15, 90);
     return { ...log, ticks: n, zone: TR.zone, town: TR.town, gate: L2.plaza.gates.exit.state, toll: GAME.job.toll, damage: TR.damage, fines: GAME.job.fines, cruise: [cruiseT, cruiseMin, cruiseMax] };
   });
   assert.equal(r.coupled, 'coupled'); assert.equal(r.entryGate, 'open');
@@ -60,8 +60,8 @@ test('通し：東京の倉庫で連結し、入口から合流して厚木ま�
 test('目的地でない出口のゲートを通ると、罰金なしで「入口から高速に戻れます」と出る', () => withGame({}, async page => {
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
-    __placeTown(1, -5, 14, 0, 1, 10, false); await __ready(); GAME.job.fines = 0;   // 横浜町田: not job 1's destination
-    __drive(__town(1, [[-5, 14], [-5, 50]]), 12, 20);
+    __placeTown(1, -7, 14, 0, 1, 10, false); await __ready(); GAME.job.fines = 0;   // 横浜町田: not job 1's destination
+    __drive(__town(1, [[-7, 14], [-7, 50]]), 12, 20);
     return { fines: GAME.job.fines, gate: TOWNS_LOADED.get(1).layout.plaza.gates.exit.state, led: document.getElementById('ledText').textContent, to: GAME.job.to };
   });
   assert.deepEqual([r.fines, r.gate, r.to], [0, 'open', 2], JSON.stringify(r)); assert.match(r.led, /目的地ではありません。入口から高速に戻れます/);

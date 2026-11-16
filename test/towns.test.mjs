@@ -8,7 +8,7 @@ const corners = r => [[r.u0, r.v0], [r.u1, r.v0], [r.u1, r.v1], [r.u0, r.v1]];
 const boxOf = b => ({ u0: b.u - b.w / 2, u1: b.u + b.w / 2, v0: b.v - b.d / 2, v1: b.v + b.d / 2 });
 const overlap = (a, b, m = 0) => a.u0 < b.u1 - m && b.u0 < a.u1 - m && a.v0 < b.v1 - m && b.v0 < a.v1 - m;
 // the strip a street takes (carriageway and pavements) as a box
-const streetBox = st => { const h = st.lanes * st.laneW + st.walkW;
+const streetBox = st => { const h = st.med / 2 + st.lanes * st.laneW + st.walkW;
   return st.axis === 'v' ? { u0: st.c - h, u1: st.c + h, v0: st.a0, v1: st.a1 } : { u0: st.a0, u1: st.a1, v0: st.c - h, v1: st.c + h }; };
 
 test('T2 前半：13 の町の場所。原点は ic.s + 125・横 −40、東京は入口だけ、名古屋は出口だけ', () => {
@@ -56,7 +56,7 @@ test('T4 13 の町で、広場から全部の倉庫の門まで車線でつな�
   }
 });
 
-test('T5 13 の町で、建物と柵は車道・歩道・構内・広場にはみ出さず、建物どうしも重ならない。角の丸みは 12 m', () => {
+test('T5 13 の町で、建物と柵は車道・歩道・構内・広場にはみ出さず、建物どうしも重ならない。角の丸みは 15 m', () => {
   const plaza = { u0: -50, u1: 50, v0: -8, v1: 45 };
   for (const L of ALL) {
     const boxes = L.buildings.map(boxOf), yards = L.warehouses.map(w => w.yard);
@@ -70,10 +70,10 @@ test('T5 13 の町で、建物と柵は車道・歩道・構内・広場には�
     // fences other than the closures across street ends never cross a carriageway
     for (const f of L.fences) if (f.kind !== 'closure') {
       const F = { u0: Math.min(f.u0, f.u1), u1: Math.max(f.u0, f.u1), v0: Math.min(f.v0, f.v1), v1: Math.max(f.v0, f.v1) };
-      for (const st of L.streets) { const h = st.lanes * st.laneW, C = st.axis === 'v' ? { u0: st.c - h, u1: st.c + h, v0: st.a0, v1: st.a1 } : { u0: st.a0, u1: st.a1, v0: st.c - h, v1: st.c + h };
+      for (const st of L.streets) { const h = st.med / 2 + st.lanes * st.laneW, C = st.axis === 'v' ? { u0: st.c - h, u1: st.c + h, v0: st.a0, v1: st.a1 } : { u0: st.a0, u1: st.a1, v0: st.c - h, v1: st.c + h };
         assert.ok(!(F.u0 <= C.u1 && C.u0 <= F.u1 && F.v0 <= C.v1 && C.v0 <= F.v1), `${L.site.ic.jp} ${f.kind} fence on street ${st.id}`); }
     }
-    assert.equal(L.cornerR, 12);
+    assert.equal(L.cornerR, 15);
   }
 });
 
@@ -90,17 +90,48 @@ test('倉庫は 2〜3 か所、構内は 60 m × 70 m 以上、荷台口は 4〜
   }
 });
 
-test('道の決まり：大通り A は u = 0、片側 2 車線 3.25 m・歩道 3.5 m・制限 50。脇道は 1 車線 3.0 m・歩道 2.5 m・制限 40。両方脇道の交差点は「止まれ」', () => {
+test('道の決まり：どの道も片側 2 車線 3.5 m・中央帯 3.5 m・歩道 3.5 m。大通り A は u = 0・制限 50、脇道は制限 40。交差点は全部信号', () => {
   for (const L of ALL) {
     const A = L.streets[0];
-    assert.deepEqual([A.kind, A.axis, A.c, A.a0, A.lanes, A.laneW, A.walkW, A.limit], ['main', 'v', 0, 45, 2, 3.25, 3.5, 50]);
-    for (const st of L.streets) if (st.kind === 'side') assert.deepEqual([st.lanes, st.laneW, st.walkW, st.limit], [1, 3.0, 2.5, 40]);
+    assert.deepEqual([A.kind, A.axis, A.c, A.a0, A.lanes, A.laneW, A.med, A.walkW, A.limit], ['main', 'v', 0, 45, 2, 3.5, 3.5, 3.5, 50]);
+    for (const st of L.streets) assert.deepEqual([st.lanes, st.laneW, st.med, st.walkW, st.limit], [2, 3.5, 3.5, 3.5, st.kind === 'main' ? 50 : 40]);
     const cross = L.streets.filter(s => s.axis === 'u'); assert.equal(cross.length, 3);
-    for (const n of L.nodes) {
-      const main = n.streets.some(id => L.streets[id].kind === 'main');
-      assert.equal(n.signal, main); assert.equal(n.stop, !main); assert.ok(n.phase >= 0 && n.phase < 70);
+    for (const n of L.nodes) { assert.equal(n.signal, true); assert.equal(n.stop, false); assert.ok(n.phase >= 0 && n.phase < 70); }
+  }
+});
+test('停止線は交わる道の車道の端から 16 m 手前（中心から 24.75 m）。交差点を出る車線は端から 6 m の所から', () => {
+  for (const L of ALL) for (const l of L.lanes) {
+    if (l.turn || l.plaza) continue;
+    const st = L.streets[l.street], at = p => (st.axis === 'v' ? p[1] : p[0]);
+    if (l.stopNode != null) { const n = L.nodes[l.stopNode]; assert.ok(Math.abs(Math.abs(at(l.pts.at(-1)) - at([n.u, n.v])) - 24.75) < 1e-6, `${L.site.ic.jp} lane ${l.id}`); }
+    if (l.node0 != null) { const n = L.nodes[l.node0]; assert.ok(Math.abs(Math.abs(at(l.pts[0]) - at([n.u, n.v])) - 14.75) < 1e-6, `${L.site.ic.jp} lane ${l.id} start`); }
+  }
+});
+test('右折車線：右へ行ける交差点の手前にあり（長さ 22 m ＋寄せ 10 m）、中央線の上。右折は右折車線から、直進は 2 本から、左折は左の車線から。両方向の右折車線は重ならない', () => {
+  let pockets = 0;
+  for (const L of ALL) {
+    for (const l of L.lanes) {
+      if (!l.pocket) continue; pockets++;
+      const st = L.streets[l.street], across = p => (st.axis === 'v' ? p[0] : p[1]) - st.c;
+      assert.ok(Math.abs(across(l.pts.at(-1))) < 1e-9 && Math.abs(across(l.pts[1])) < 1e-9, 'on the centre line');
+      assert.ok(Math.abs(l.len - Math.hypot(10, 3.5) - 22) < 1e-6, `length ${l.len}`);
+      const turns = l.next.map(id => L.lanes[id].turn); assert.deepEqual(turns, ['right'], `${L.site.ic.jp} pocket ${l.id} → ${turns}`);
+      const first = L.lanes.find(x => x.next.includes(l.id)); assert.equal(first.next.length, 2);
+      // the oncoming turn lane on the same piece of street lies 4 m or more away along it
+      const along = p => (st.axis === 'v' ? p[1] : p[0]);
+      for (const o of L.lanes) if (o.pocket && o !== l && o.street === l.street && o.dir !== l.dir) {
+        const a = [along(l.pts[0]), along(l.pts.at(-1))].sort((x, y) => x - y), b = [along(o.pts[0]), along(o.pts.at(-1))].sort((x, y) => x - y);
+        assert.ok(a[1] + 4 <= b[0] || b[1] + 4 <= a[0], `${L.site.ic.jp} pockets ${l.id} ${o.id}`);
+      }
+    }
+    for (const l of L.lanes) if (l.turn) {
+      const from = L.lanes.find(x => x.next.includes(l.id));
+      if (l.turn === 'left') assert.equal(from.k, 0);
+      if (l.turn === 'straight') assert.ok(!from.pocket);
+      if (l.turn === 'right') { const pocket = L.lanes.some(x => x.pocket && x.node1 === from.node1 && x.dir === from.dir); assert.ok(pocket ? from.pocket : from.k === 1, `${L.site.ic.jp} right turn ${l.id}`); }
     }
   }
+  assert.ok(pockets > 13 * 6, `${pockets} turn lanes`);
 });
 
 test('同じ町は何度作っても同じ形', () => {
@@ -135,18 +166,18 @@ test('T6 町の地図は 4 MB 以下。壁の中の点では contact が外へ�
   const g = sim.GROUND.at(q.x, q.z, Math.floor(site.s / sim.DS), {});
   assert.equal(g.zone, 'town'); assert.equal(g.town, 2); assert.ok(Math.abs(g.y - sim.townHeight(site, 0, 80)) < 1e-9);
   // the push points back toward the street: from inside the kerb-side block next to Main A, it points to -u... toward u = 0
-  const w = sim.townXZ(site, 11.5, 80, {}), cw = sim.GROUND.contact(w.x, w.z, 0, {});
+  const w = sim.townXZ(site, 13.5, 80, {}), cw = sim.GROUND.contact(w.x, w.z, 0, {});   // 1.25 m inside the block (12.25 m out)
   assert.ok(cw.pen > 0.5 && cw.pen < 2.5, `pen ${cw.pen}`);
   assert.ok(cw.nx * site.Fx + cw.nz * site.Fz < -0.9, 'pushes toward Main A');
   sim.townUnload(2); assert.equal(sim.GROUND.at(q.x, q.z, Math.floor(site.s / sim.DS), {}).zone, 'road');
 });
-test('町の地図：交差点の角は半径 12 m で丸く車道、歩道は 15 cm 高い、広場の道と出入口の帯の端は車道', () => {
+test('町の地図：交差点の角は半径 15 m で丸く車道、歩道は 15 cm 高い、広場の道と出入口の帯の端は車道', () => {
   const sim = loadSim(); sim.townLoad(2);
   const { layout: L, grid } = sim.TOWNS_LOADED.get(2), site = L.site, C = sim.TCELL;
   const cell = (u, v) => grid.type[Math.floor((v - sim.TOWN_V0) / sim.TOWN_CELL) * sim.TOWN_NU + Math.floor((u - sim.TOWN_U0) / sim.TOWN_CELL)];
   const n = L.nodes.find(x => x.streets.includes(0) && x.arms['v-'] && x.arms['u-']), V = L.streets[n.streets[0]], U = L.streets[n.streets[1]];
-  const cu = n.u - V.lanes * V.laneW, cv = n.v - U.lanes * U.laneW;          // the kerb corner of the south-west quadrant
-  assert.equal(cell(cu - 1.5, cv - 1.5), C.ROAD, 'rounded corner is road');   // 2.1 m from the square corner, inside the 12 m round
+  const cu = n.u - V.med / 2 - V.lanes * V.laneW, cv = n.v - U.med / 2 - U.lanes * U.laneW;          // the kerb corner of the south-west quadrant
+  assert.equal(cell(cu - 1.5, cv - 1.5), C.ROAD, 'rounded corner is road');   // 2.1 m from the square corner, inside the 15 m round
   assert.equal(cell(cu + 1, cv - 20), C.ROAD); assert.equal(cell(cu - 1, cv - 20), C.WALK);
   const q = sim.townXZ(site, -5, 30, {}), r = sim.townXZ(site, cu - 1, cv - 20, {});
   assert.ok(Math.abs(sim.GROUND.at(r.x, r.z, 0, {}).y - sim.townHeight(site, cu - 1, cv - 20) - 0.15) < 1e-9);

@@ -98,6 +98,7 @@ function careLoad() {
 // The small marks beside the speed box: fuel under 25% (red under 15%), sleepiness over 0.5 (red over 0.85).
 let _careKey = '';
 function careIcons() {
+  const K = $('icLka'), lk = !!LKA.active; if (K.hidden === lk) K.hidden = !lk;   // the lane-keeping help at work
   const f = TR.fuel < 0.25 ? (TR.fuel < 0.15 ? 2 : 1) : 0, s = GAME.sleepy > 0.5 ? (GAME.sleepy > 0.85 ? 2 : 1) : 0, key = f + ':' + s;
   if (key === _careKey) return;
   _careKey = key;

@@ -8,7 +8,7 @@ const DRIVER_SRC = `(() => {
   const DIR = { 'u+': [1, 0], 'v+': [0, 1], 'u-': [-1, 0], 'v-': [0, -1] };
   const W = (site, u, v) => { const q = townXZ(site, u, v, {}); return [q.x, q.z]; };
   // the fixed cross coordinate of street st's lane k (0: kerb) for direction d
-  const laneC = (st, d, k) => { const o = (st.lanes - 0.5 - k) * st.laneW; return st.c + (st.axis === 'v' ? -d[1] : d[0]) * o; };
+  const laneC = (st, d, k) => { const o = st.med / 2 + (st.lanes - 0.5 - k) * st.laneW; return st.c + (st.axis === 'v' ? -d[1] : d[0]) * o; };
   const lanePt = (st, d, k, t) => (st.axis === 'v' ? [laneC(st, d, k), t] : [t, laneC(st, d, k)]);
   // a 90-degree corner of radius R at P, coming in along d1 and leaving along d2
   const corner = (P, d1, d2, R, out) => {
@@ -36,7 +36,7 @@ const DRIVER_SRC = `(() => {
       out.push([P[0] - d1[0] * 40, P[1] - d1[1] * 40]); corner(P, d1, n, kind === 'gateRight' ? 16 : 14, out); out.push([P[0] + n[0] * 40, P[1] + n[1] * 40]);
       return out;
     };
-    const plaza = ({ u }) => [[4.875, Math.min(u, 120)], [4.875, 50], ...L.plaza.entryPath];
+    const plaza = ({ u }) => [[7, Math.min(u, 120)], [7, 50], ...L.plaza.entryPath];
     const outOfYard = kind => {   // the start yard, in the gate's frame: straight, an S across to the gate's line, out, round into the street
       const w = GAME.job.whA, g = w.gate, n = [g.nu, g.nv], lf = [-n[1], n[0]], [u, v] = [TR.tu, TR.tv];
       const P = (d, x) => [g.u + d * n[0] + x * lf[0], g.v + d * n[1] + x * lf[1]], d0 = (u - g.u) * n[0] + (v - g.v) * n[1], x0 = (u - g.u) * lf[0] + (v - g.v) * lf[1];
@@ -94,7 +94,7 @@ test('E1 仕事 1：案内だけに従う運転手が、東京の構内から入
     for (let s = r2.sDiv + 420; s <= r2.sEnd; s += 5) { const p = posAt(s, rampEdges(s - r2.sDiv).cx, {}); ex.push([p.x, p.z]); }
     placeTruck(r2.sDiv + 420, rampEdges(420).cx, 8, { coupled: true }); await __ready(); __noCars(2);
     const L2 = TOWNS_LOADED.get(2).layout;
-    __drive([...ex, ...__town(2, [...L2.plaza.exitPath.filter(p => p[0] > -24.5), [-4.875, 60]])], 15, 120);
+    __drive([...ex, ...__town(2, [...L2.plaza.exitPath.filter(p => p[0] > -26.5), [-7, 60]])], 15, 120);
     const atsugi = await __obey(2, 240, () => NAV.leg === 'destYard');
     return { ...out, atsugiSeen: atsugi.seen, leg: NAV.leg, zone: TR.zone, town: TR.town };
   });
@@ -108,7 +108,7 @@ test('E4 わざと違う向きに曲がると、2 秒以内に「ルートを探
   await startJob(page); await driveHelpers(page); await page.evaluate(DRIVER_SRC);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-    __placeTown(2, -4.875, 70, 0, 1, 15); await __ready(); __noCars(2);
+    __placeTown(2, -7, 70, 0, 1, 15); await __ready(); __noCars(2);
     const L = TOWNS_LOADED.get(2).layout, G = navGraph(L);
     let msg = null, tWrong = null, tMsg = null;
     // at the first junction, turn right whatever the guidance says (it says to go on to the gate on the left)
@@ -154,7 +154,7 @@ test('目的地が変わるとルートの終わりも変わる', () => withGame
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-    __placeTown(2, -4.875, 70, 0, 1, 0); await __ready();
+    __placeTown(2, -7, 70, 0, 1, 0); await __ready();
     for (let i = 0; i < 10; i++) simTick(1 / 60);
     const before = { gate: !!NAV.T.to.gate, end: NAV.T.route.steps.at(-1).kind };
     nextDestination('テスト。');
@@ -171,7 +171,7 @@ test('町の中で再開した直後から案内が出る', async () => {
     await startJob(page); await driveHelpers(page);
     await page.evaluate(async () => {
       INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-      __placeTown(2, -4.875, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60); saveDrive();
+      __placeTown(2, -7, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60); saveDrive();
     });
     store = await page.evaluate(() => ({ 'nlh.drive': JSON.parse(localStorage.getItem('nlh.drive')) }));
   });
@@ -188,7 +188,7 @@ test('町の道から外れて道探しができない所では仮の案内（�
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
     // Atsugi as it is: in the yard of the other warehouse (not a street, not the destination)
     const w0 = townLayout(2).warehouses[0], y = w0.yard;
-    __placeTown(2, -4.875, 150, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);   // on Main A first, as if it drove in
+    __placeTown(2, -7, 150, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);   // on Main A first, as if it drove in
     __placeTown(2, (y.u0 + y.u1) / 2, (y.v0 + y.v1) / 2, 0, 1, 0); for (let i = 0; i < 10; i++) simTick(1 / 60);
     let reroutes = 0; for (let i = 0; i < 600; i++) { simTick(1 / 60); if (NAV.msgT > 1.99) reroutes++; }   // 10 s standing there
     const st = navState(), out = { off: { guide: st.guide, maneuver: st.maneuver, leg: NAV.leg, name: GAME.job.whB.name, reroutes } };
@@ -209,7 +209,7 @@ test('drawNav は町の中で 1 回 3 ms 以内（20 回の平均）', () => wit
   await startJob(page); await driveHelpers(page);
   const ms = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-    __placeTown(2, -4.875, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
+    __placeTown(2, -7, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
     const st = navState(); drawNav(st); const t0 = performance.now(); for (let i = 0; i < 20; i++) drawNav(navState()); return (performance.now() - t0) / 20;
   });
   assert.ok(ms <= 3, `${ms.toFixed(2)} ms`);
@@ -221,7 +221,7 @@ test('E2 小さな札：スマホの縦・横で、ボタン・目的地の札�
     const r = await page.evaluate(async () => {
       INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
       const gate = GAME.job.whB.gate;
-      __placeTown(2, -4.875, gate.v - 100, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
+      __placeTown(2, -7, gate.v - 100, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
       led('ルートを探し直しました。その先の交差点を左折してください');
       navCardUpdate(navState()); await __t.frames(2);
       const box = el => { const q = el.getBoundingClientRect(); return { x: q.left, y: q.top, r: q.right, b: q.bottom, w: q.width, h: q.height }; };
@@ -250,7 +250,7 @@ test('E3 全体地図：M で開くと時刻と周りの車が止まり、東名
     await startJob(page); await driveHelpers(page);
     await page.evaluate(async () => {
       INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-      __placeTown(2, -4.875, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
+      __placeTown(2, -7, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
     });
     await page.keyboard.press('KeyM'); await page.waitForTimeout(300);
     const r = await page.evaluate(async () => {
@@ -277,7 +277,7 @@ test('全体地図を開いたときの描画は 1 回 30 ms 以内', () => with
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-    __placeTown(2, -4.875, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
+    __placeTown(2, -7, 70, 0, 1, 0); await __ready(); for (let i = 0; i < 10; i++) simTick(1 / 60);
     const t0 = performance.now(); mapOpen(); const open = performance.now() - t0; mapClose();
     const cv = document.getElementById('mapCanvas'), t1 = performance.now(); for (let i = 0; i < 5; i++) drawMap(cv, navState()); return { open, each: (performance.now() - t1) / 5 };
   });

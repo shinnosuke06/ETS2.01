@@ -69,7 +69,7 @@ test('町の大通りで 63 km/h を超えて 4 秒走ると速度超過（制�
       }
       return { fines: GAME.job.fines, fineAt, led, lim, kmh: TR.v * 3.6 };
     };
-    out.main = run([-4.875, 60], [0, 1], 64);
+    out.main = run([-7, 60], [0, 1], 64);
     const w = GAME.job.whA;
     out.yard = run(__gateP(w, 30, -30), __gateDir(w, 0, 1), 35);
     return out;
@@ -110,7 +110,7 @@ test('E4 町の中で保存して開き直すと、同じ位置・向き・連�
     await startJob(page); await driveHelpers(page);
     const periodic = await page.evaluate(() => {
       INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-      __placeTown(0, -4.875, 60, 0, 1, 0); localStorage.removeItem('nlh.drive'); GAME.saveT = 0;
+      __placeTown(0, -7, 60, 0, 1, 0); localStorage.removeItem('nlh.drive'); GAME.saveT = 0;
       for (let i = 0; i < 60 * 6; i++) { INP.tGas = TR.v < 3 ? 0.4 : 0; INP.tWheelHeld = true; INP.tWheel = i > 120 ? 0.9 : 0; simTick(1 / 60); }   // ahead, then a bend
       for (let i = 0; i < 60 * 5; i++) { INP.tGas = 0; INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0; INP.tWheelHeld = false;
       const at10 = localStorage.getItem('nlh.drive') != null;
@@ -189,7 +189,7 @@ test('E5 町の中で画質を 3 回切り替え、メニューを開いて閉�
       out.push({ label, mesh: TOWN_MESH.has(0), cars: X ? X.cars.length : -1, want: Q.townCars, moved, v: +TR.v.toFixed(2), state: GAME.state });
       for (let i = 0; i < 90; i++) { INP.tBrake = 1; simTick(1 / 60); } INP.tBrake = 0;
     };
-    __placeTown(0, 4.875, 200, 0, -1, 0, false); await __ready();
+    __placeTown(0, 7, 200, 0, -1, 0, false); await __ready();
     for (const q of ['low', 'mid', 'high']) { setQuality(q); await check(q); }
     toggleMenu(); await __t.frames(2); toggleMenu(); await check('menu');
     document.getElementById('restartBtn').click();
@@ -243,9 +243,9 @@ test('目的の町で納品せずに入口から高速へ戻ると、次の IC �
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-    __placeTown(2, 4.875, 80, 0, -1, 10); await __ready();          // Atsugi, job 1's destination: Main A toward the plaza
+    __placeTown(2, 7, 80, 0, -1, 10); await __ready();          // Atsugi, job 1's destination: Main A toward the plaza
     const L2 = TOWNS_LOADED.get(2).layout;
-    __drive(__town(2, [[4.875, 80], ...L2.plaza.entryPath]), 15, 90, false);
+    __drive(__town(2, [[7, 80], ...L2.plaza.entryPath]), 15, 90, false);
     return { to: GAME.job.to, miss: GAME.job.missPen, pay: GAME.job.pay, wh: GAME.job.whB.name, led: document.getElementById('ledText').textContent, gate: L2.plaza.gates.entry.state };
   });
   assert.equal(r.gate, 'open'); assert.equal(r.to, 3, JSON.stringify(r)); assert.equal(r.miss, Math.round(r.pay * 0.15 / 100) * 100);

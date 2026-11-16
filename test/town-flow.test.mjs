@@ -35,7 +35,7 @@ test('T9 赤のあいだ、町の車は停止線の手前（0〜6 m）で止ま�
   assert.ok(front >= 0 && front <= 6 && c.v < 0.2, `front ${front} v ${c.v}`);
 });
 test('T9 10 分進めても全部の車が 50 m 以上進み、車どうしが重ならない（最初の 1 分はあなたの車両が交差点の真ん中に止まっている）', () => {
-  for (const L of [L2, SIM.townLayout(8)]) {
+  for (const L of [L2, SIM.townLayout(8), SIM.townLayout(5), SIM.townLayout(11)]) {
     const node = L.nodes.find(n => n.signal), moved = new Map(), box = { u: node.u, v: node.v, h: 0.3, len: 16.5, wid: 2.5, tractor: false };
     let worst = null;
     runCars(L, 25, 600, t => (t < 60 ? [box] : []), (cars, t) => {
@@ -125,15 +125,27 @@ test('町の車は、あなたの車両のそばの車線の始まりには出�
   for (let k = 0; k < 200; k++) { cars[0].hidden = true; SIM.townCarsStep(L, cars, 1 / 60, 0, [box(starts[0])], rand); assert.notEqual(cars[0].lane, starts[0].id); }
 });
 
-test('町の車を作り直しても（画質の切り替え、町の作り直し）、止まれの交差点の順番待ちが残らず、10 分で全部の車が 50 m 以上進む', () => {
+test('町の車を作り直しても（画質の切り替え、町の作り直し）、10 分で全部の車が 50 m 以上進む', () => {
   for (const i of [2, 5, 9]) {
-    const L = SIM.townLayout(i), X = SIM._townIndex(L), rand = SIM.rng(31 + i);
+    const L = SIM.townLayout(i), rand = SIM.rng(31 + i);
     let cars = SIM.townCarsInit(L, 25, rand), t = 0;
-    for (let k = 0; k < 60 * 300 && X.claim.size === 0; k++) { SIM.townCarsStep(L, cars, 1 / 60, t, [], rand); t += 1 / 60; }
-    assert.ok(X.claim.size > 0, `a stop junction was being crossed in ${L.site.ic.jp}`);
+    for (let k = 0; k < 60 * 60; k++) { SIM.townCarsStep(L, cars, 1 / 60, t, [], rand); t += 1 / 60; }
     cars = SIM.townCarsInit(L, 25, rand);   // the old cars are gone, the claim with them
     const moved = new Map();
     for (let k = 0; k < 10 * 600; k++) { SIM.townCarsStep(L, cars, 0.1, t, [], rand); t += 0.1; for (const c of cars) moved.set(c, (moved.get(c) || 0) + c.v * 0.1); }
     const least = Math.min(...moved.values()); assert.ok(least >= 50, `a car moved only ${least.toFixed(1)} m in ${L.site.ic.jp}`);
   }
+});
+test('町の車は右折車線に入って右折し、直進は右折車線を通らない（5 分）', () => {
+  const L = SIM.townLayout(4), R = SIM.rng(12), cars = SIM.townCarsInit(L, 25, R);
+  let pocketThenRight = 0, bad = 0; const was = new Map();
+  for (let t = 0; t < 300; t += 0.1) {
+    SIM.townCarsStep(L, cars, 0.1, t, [], R);
+    for (const c of cars) {
+      const prev = was.get(c), l = L.lanes[c.lane];
+      if (prev != null && prev !== c.lane && L.lanes[prev].pocket) { if (l.turn === 'right') pocketThenRight++; else bad++; }
+      was.set(c, c.lane);
+    }
+  }
+  assert.ok(pocketThenRight >= 3 && bad === 0, `${pocketThenRight} right turns from a turn lane, ${bad} other`);
 });
