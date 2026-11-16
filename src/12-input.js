@@ -4,7 +4,7 @@
 const INP = {
   keys: new Set(), throttle: 0, brake: 0, steer: 0,
   kbThr: 0, kbBrk: 0, kbSteer: 0,
-  tSteer: 0, tWheel: 0, tWheelHeld: false, tGas: 0, tBrake: 0,
+  tSteer: 0, tWheel: 0, tWheelHeld: false, tGas: 0, tBrake: 0, tMoveAt: 0, tLast: 0,
   lookYaw: 0, lookPitch: -0.2, sens: lsGet('nlh.sens', 1.0),
   actions: [], usingTouch: IS_TOUCH,
 };
@@ -48,7 +48,7 @@ window.addEventListener('blur', () => { INP.keys.clear(); INP.tGas = INP.tBrake 
   const pad = $('wheelPad'), rot = $('wheelRot');
   let id = null, last = 0;
   const ang = e => { const r = pad.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)); };
-  pad.addEventListener('pointerdown', e => { id = e.pointerId; last = ang(e); INP.tWheelHeld = true; try { pad.setPointerCapture(id); } catch (err) { /* */ } e.preventDefault(); });
+  pad.addEventListener('pointerdown', e => { id = e.pointerId; last = ang(e); INP.tWheelHeld = true; INP.tMoveAt = performance.now(); try { pad.setPointerCapture(id); } catch (err) { /* */ } e.preventDefault(); });
   pad.addEventListener('pointermove', e => {
     if (e.pointerId !== id) return;
     const a = ang(e); let d = a - last; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; last = a;
@@ -114,8 +114,13 @@ function pollInput(dt, vAbs) {
 
   INP.throttle = Math.max(INP.kbThr, INP.tGas, gpT);
   INP.brake = Math.max(INP.kbBrk, INP.tBrake, gpB);
-  // the driver is steering: a key or the touch wheel held, the wheel still coming back, or a gamepad stick out
-  INP.steerActive = left || right || INP.tWheelHeld || Math.abs(INP.tSteer) > 0.05 || Math.abs(INP.kbSteer) > 0.05 || Math.abs(gpS) > 0.06;
+  // the driver is steering: a key held, the touch wheel turned or moved in the last 0.6 s (a thumb resting still on it
+  // near the middle is a hand off), the wheel still coming back, or a gamepad stick out
+  const now = performance.now();
+  if (Math.abs(INP.tWheel - INP.tLast) > 0.002) INP.tMoveAt = now;
+  INP.tLast = INP.tWheel;
+  const tHeld = INP.tWheelHeld && (now - INP.tMoveAt < 600 || Math.abs(INP.tSteer) > 0.05);
+  INP.steerActive = left || right || tHeld || Math.abs(INP.tSteer) > 0.05 || Math.abs(INP.kbSteer) > 0.05 || Math.abs(gpS) > 0.06;
   let st = INP.kbSteer;
   if (INP.tWheelHeld || Math.abs(INP.tSteer) > Math.abs(st)) st = INP.tSteer;
   if (Math.abs(gpS) > Math.abs(st)) st = gpS;

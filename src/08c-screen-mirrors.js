@@ -18,7 +18,7 @@ function smirToggle() {
 function _smirMake() {
   SMIR.scene = new THREE.Scene(); SMIR.cam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
   SMIR.backRt = new THREE.WebGLRenderTarget(320, 146, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
-  const cam = new THREE.PerspectiveCamera(62, 320 / 146, 0.3, 400); cam.rotation.order = 'YXZ'; cam.rotation.set(-0.42, Math.PI, 0);   // back and down
+  const cam = new THREE.PerspectiveCamera(62, 320 / 146, 0.3, 250); cam.rotation.order = 'YXZ'; cam.rotation.set(-0.42, Math.PI, 0);   // back and down
   SMIR.backCam = cam;
   // a panel: a dark frame and the picture, mirrored left to right, cropped to the panel's shape
   const panel = (tex, crop) => {
@@ -46,9 +46,14 @@ function smirLayout(force) {
   if (H > W) {   // portrait: one row under the sign, the buttons, the message board and the card: mirror, monitor, mirror
     hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = '';
     const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0);
-    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 330) + 84);
-    const bw = W - 2 * (4 + sw + gap), bh = Math.min(sh, Math.round(bw / SMIR_ASPECT.back));
-    SMIR.lay = { L: { x: 4, y, w: sw, h: sh }, R: { x: W - 4 - sw, y, w: sw, h: sh }, B: { x: 4 + sw + gap, y, w: bw, h: bh } };
+    // under the card (room for its lanes and a following step), above the touch controls; smaller on short screens
+    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 330) + 112);
+    let floor = H - 8;
+    for (const el of document.querySelectorAll('#touch > *')) { const r = el.getBoundingClientRect(); if (r.width && r.height) floor = Math.min(floor, r.top - 8); }
+    const h = Math.min(sh, floor - y);
+    if (h < 48) { SMIR.lay = null; return; }   // no room: none shown
+    const w = Math.round(h * SMIR_ASPECT.side), bw = W - 2 * (4 + w + gap), bh = Math.min(h, Math.round(bw / SMIR_ASPECT.back));
+    SMIR.lay = { L: { x: 4, y, w, h }, R: { x: W - 4 - w, y, w, h }, B: { x: 4 + w + gap, y, w: bw, h: bh } };
     return;
   }
   hud.style.setProperty('--mir', (sw + gap) + 'px');   // the HUD's side padding grows by this
@@ -81,8 +86,8 @@ function smirRender(dt) {
   // the side mirrors' pictures: the cab's own refresh does them in the cab view; outside, they are done here
   if (GAME.cam !== 'cab') renderMirrors(false);
   SMIR.frame = (SMIR.frame || 0) + 1;
-  if (SMIR.frame % Math.max(1, Q.mirrorEvery) === 0) {
-    const fogFar = scene.fog.far; scene.fog.far = Math.min(fogFar, 400);
+  if (SMIR.frame % Math.max(2, Q.mirrorEvery) === 0) {   // every second frame at most, 250 m
+    const fogFar = scene.fog.far; scene.fog.far = Math.min(fogFar, 250);
     renderer.setRenderTarget(SMIR.backRt); renderer.render(scene, SMIR.backCam); renderer.setRenderTarget(null);
     scene.fog.far = fogFar;
   }

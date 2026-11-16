@@ -23,11 +23,12 @@ function _destMarkMake() {
   g.visible = false; scene.add(g);
   DEST_MARK.grp = g; DEST_MARK.arrow = arrow; DEST_MARK.board = board;
 }
-// Is the tractor's body centre inside warehouse w's yard (town i)?
+// Is the tractor's front inside warehouse w's yard (town i), or so near the column that the cab would be in it?
 function _destInYard(i, w) {
-  const f = (RIGP.front - RIGP.back) / 2, q = {};
+  const f = RIGP.front, q = {}, g = w.gate;
   townUV(TOWN_SITES[i], TR.x + Math.sin(TR.h) * f, TR.z + Math.cos(TR.h) * f, q);
-  const y = w.yard; return q.u >= y.u0 && q.u <= y.u1 && q.v >= y.v0 && q.v <= y.v1;
+  const y = w.yard; if (q.u >= y.u0 && q.u <= y.u1 && q.v >= y.v0 && q.v <= y.v1) return true;
+  return Math.hypot(q.u - (g.u + g.nu * 3), q.v - (g.v + g.nv * 3)) < 8;
 }
 function destMarkUpdate(dt) {
   const j = GAME.job, show = (GAME.state === 'drive' || GAME.state === 'stop') && !!j && !!j.whB && TOWNS_LOADED.has(j.to) && !_destInYard(j.to, j.whB);

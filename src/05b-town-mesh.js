@@ -386,7 +386,7 @@ function* townMeshSteps(i) {
       // the bar pivots on the island to the gate lane's right and swings up
       const pivot = new THREE.Group(), side = gate.dir > 0 ? 1 : -1;
       pivot.position.set(gate.u + side * 4.4, y + 1.05, -gate.v); pivot.rotation.y = gate.dir > 0 ? 0 : Math.PI;   // by the middle island
-      pivot.add(new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.09, 0.09).translate(-2.8, 0, 0), MAT.bar)); grp.add(pivot);
+      pivot.add(new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.09, 0.09).translate(-3.1, 0, 0), MAT.bar)); grp.add(pivot);
       M.gates[key] = pivot; tolls++;
     }
     M.parts.toll = tolls; }

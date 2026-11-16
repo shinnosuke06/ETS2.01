@@ -22,7 +22,7 @@ html,body{height:100%}
 body{margin:0;background:#0c120f;color:var(--ink);font-family:var(--f-ui);overflow:hidden;overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 #view{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none;touch-action:none}
 button{font:inherit;color:inherit}
-#hud{position:fixed;inset:0;pointer-events:none;box-sizing:border-box;padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));padding-left:calc(max(16px,env(safe-area-inset-left,0px)) + var(--mir,0px));padding-right:calc(max(16px,env(safe-area-inset-right,0px)) + var(--mir,0px))}
+#hud{position:fixed;inset:0;pointer-events:none;box-sizing:border-box;padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .hud-inner{position:relative;width:100%;height:100%}
 
 .sign{background:var(--sign);color:#fff;border-radius:10px;box-shadow:inset 0 0 0 3px var(--sign),inset 0 0 0 5px var(--sign-line),0 6px 18px rgba(0,0,0,.35)}
@@ -57,7 +57,11 @@ body.touch .tb.only-touch{display:inline-block}
 .sigrep.g i.g{background:#2bff8a;box-shadow:0 0 8px #2bff8a}
 .sigrep.y i.y{background:#ffc21c;box-shadow:0 0 8px #ffc21c}
 .sigrep.r i.r{background:#ff2b18;box-shadow:0 0 8px #ff2b18}
-body.mirrors #led{max-width:calc(92% - 2 * var(--mir,0px))}
+/* the mirrors on the screen's edges: the top cluster (sign, buttons, card) moves in; the touch controls stay put */
+body.mirrors #jobSign{left:var(--mir,0px)}
+body.mirrors #topbar{right:var(--mir,0px)}
+body.mirrors #navCard{right:var(--mir,0px)}
+@media (min-aspect-ratio:1/1){body.touch.mirrors #navCard{right:auto}}
 #navCard .nc-t{font-weight:700;font-size:15px;line-height:1.2}
 #navCard .nc-d{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
 #navCard .nc-th,#navCard .nc-m{font-size:11px;color:var(--ink-2)}
@@ -1071,7 +1075,7 @@ const TOWN_STREET = {
 };
 const TOWN_STOP_BACK = 16;   // stop lines stand this far before the crossing street's kerb line (waiting cars clear of the corner)
 const TOWN_OUT = 6;          // lanes leaving a junction start this far past it (beyond the crossing, 2 - 6 m out)
-const TOWN_POCKET = 22, TOWN_TAPER = 10;   // the right-turn lane before a junction, and the stretch where it opens
+const TOWN_POCKET = 22, TOWN_TAPER = 10, TOWN_POCKET_MIN = 16;   // the right-turn lane before a junction (16 to 22 m: room for a rig), and the stretch where it opens
 const TOWN_WH_NAMES = ['物流センター', '配送センター', '倉庫'];
 
 function townSite(i) {
@@ -1139,7 +1143,7 @@ const _TURNS = { 'v+': { straight: 'v+', left: 'u-', right: 'u+' }, 'v-': { stra
 function _roundWall(pts, kerbs) {
   const out = [pts[0]];
   for (let k = 1; k < pts.length - 1; k++) {
-    const p = pts[k], K = kerbs.find(c => Math.hypot(c.u - p[0], c.v - p[1]) < 15);
+    const p = pts[k], K = kerbs.find(c => Math.hypot(c.u - p[0], c.v - p[1]) < TOWN_CORNER_R + 3);
     if (!K) { out.push(p); continue; }
     const foot = (a, b) => { const du = b[0] - a[0], dv = b[1] - a[1], t = ((K.u - a[0]) * du + (K.v - a[1]) * dv) / (du * du + dv * dv); return [a[0] + du * t, a[1] + dv * t]; };
     const f1 = foot(pts[k - 1], p), f2 = foot(p, pts[k + 1]);
@@ -1220,10 +1224,14 @@ function townLayout(i) {
       // for each way: [start station, end station, sign along the street, from, to]
       const ways = [[p, q, 1, p.a + koOut(p), q.a - koIn(q)], [q, p, -1, q.a - koOut(q), p.a + koIn(p)]];
       // a turn lane wants a junction ahead with a way off to the right, and room for itself before the start
-      const wants = ways.map(([s0, s1, sg, from, to]) => !!s1.node && s1.node.signal && !!s1.node.arms[_TURNS[(st.axis === 'v' ? 'v' : 'u') + (sg > 0 ? '+' : '-')].right] && Math.abs(to - from) >= POCKET + 8);
-      if (wants[0] && wants[1]) {   // both: they share the centre strip, so they must not overlap (4 m apart at least)
-        const a = ways[0], b = ways[1];   // a's turn lane lies in [a.to - POCKET, a.to], b's in [b.to, b.to + POCKET]
-        if (a[4] - POCKET < b[4] + POCKET + 4) wants[0] = wants[1] = false;
+      const MINP = TOWN_POCKET_MIN + TOWN_TAPER, dOf = d => (st.axis === 'v' ? 'v' : 'u') + (d > 0 ? '+' : '-');
+      const wants = ways.map(([s0, s1, sg, from, to]) => !!s1.node && s1.node.signal && !!s1.node.arms[_TURNS[dOf(sg)].right] && !!s1.node.arms[dOf(sg)] && Math.abs(to - from) >= MINP + 8);
+      // each way's turn lane length (with its taper); both: they share the centre strip, so they must lie 4 m apart or
+      // more: shortened alike (to TOWN_POCKET_MIN at the least), or neither is made
+      const plen = [POCKET, POCKET];
+      if (wants[0] && wants[1]) {
+        const a = ways[0], b = ways[1], room = (a[4] - b[4] - 4) / 2;   // a's lane lies in [a.to - len, a.to], b's in [b.to, b.to + len]
+        if (room < MINP) wants[0] = wants[1] = false; else plen[0] = plen[1] = Math.min(POCKET, room);
       }
       ways.forEach(([s0, s1, dir, from, to], w) => {
         if (dir * (to - from) < 2) return;
@@ -1235,7 +1243,7 @@ function townLayout(i) {
         };
         for (let k = 0; k < st.lanes; k++) {
           if (k === st.lanes - 1 && wants[w]) {   // the inner lane splits where the turn lane opens
-            const bp = to - dir * POCKET, o = bp + dir * TOWN_TAPER;
+            const bp = to - dir * plen[w], o = bp + dir * TOWN_TAPER;
             const first = addLane({ ...base, k, pts: [_lanePt(st, from, dir, k), _lanePt(st, bp, dir, k)], node0: s0.node ? s0.node.id : null, edge0: !s0.node });
             const on = addLane({ ...base, k, pts: [_lanePt(st, bp, dir, k), _lanePt(st, to, dir, k)], node1: s1.node.id });
             const turnL = addLane({ ...base, k: st.lanes, pocket: true, pts: [_lanePt(st, bp, dir, k), _lanePt(st, o, dir, st.lanes), _lanePt(st, to, dir, st.lanes)], node1: s1.node.id });
@@ -1793,9 +1801,10 @@ function _townIndex(L) {
   let X = _tflow.get(L);
   if (X) return X;
   const OPP = { 'v+': 'v-', 'v-': 'v+', 'u+': 'u-', 'u-': 'u+' };
-  X = { starts: L.lanes.filter(l => l.edge0 && !l.plaza && !l.turn && l.len >= 30).map(l => l.id),   // not the short stubs right before a junction
-    turns: new Map(), opp: new Map(), claim: new Map(), src: new Map() };   // claim: stop-sign junction -> the car crossing it
-  for (const l of L.lanes) if (!l.turn) for (const id of l.next) if (L.lanes[id].turn) X.src.set(id, l.dir);   // src: a turn -> the way it came in
+  X = { starts: L.lanes.filter(l => l.edge0 && !l.plaza && !l.turn).map(l => l.id), turns: new Map(), opp: new Map(), claim: new Map(), src: new Map() };   // claim: stop-sign junction -> the car crossing it
+  X.from = new Map(); X.sib = new Map();   // sib: lanes that start where this one does (a split, or the turns off one lane)
+  for (const l of L.lanes) if (l.next.length > 1) for (const a of l.next) X.sib.set(a, l.next.filter(b => b !== a));
+  for (const l of L.lanes) if (!l.turn) for (const id of l.next) if (L.lanes[id].turn) { X.src.set(id, l.dir); X.from.set(id, l.id); }   // src: a turn -> the way it came in; from: the lane
   for (const l of L.lanes) if (l.turn) { if (!X.turns.has(l.node0)) X.turns.set(l.node0, []); X.turns.get(l.node0).push(l.id); }
   // X.opp: for each lane coming to a junction, the oncoming lanes a right turn gives way to, as [lane, metres from its
   // end to the stop line]: the straight-on lanes (not the oncoming turn lane) and, before a split, the lane's first part
@@ -1846,8 +1855,8 @@ function _laneAt(lane, d, out) {
 const _cpf = {}, _cpr = {};
 function _pathAt(L, car, d, out) {
   const lane = L.lanes[car.lane];
-  if (d < 0) {                                   // behind the lane's start: along its first piece
-    const P = lane.pts, du = P[1][0] - P[0][0], dv = P[1][1] - P[0][1], s = Math.hypot(du, dv) || 1;
+  if (d < 0) {                                   // behind the lane's start: along its first piece (a turn lane's: along the street)
+    const P = lane.pts, D = lane.pocket ? _DIRV[lane.dir] : null, du = D ? D[0] : P[1][0] - P[0][0], dv = D ? D[1] : P[1][1] - P[0][1], s = Math.hypot(du, dv) || 1;
     out.u = P[0][0] + du / s * d; out.v = P[0][1] + dv / s * d; return out;
   }
   if (d > lane.len) {
@@ -1888,6 +1897,23 @@ function _inJunction(L, X, cars, car, n, otherAxisOf) {
   return cars.some(o => o !== car && !o.hidden && turns.includes(o.lane) && (!otherAxisOf || L.lanes[o.lane].turn === 'right' || L.lanes[o.lane].dir[0] !== otherAxisOf));
 }
 
+// Oncoming traffic for a right turn from in-lane `inId` at junction n: a car coming the other way that will cross
+// (not turning right itself) within tNeed seconds of its line, or waiting near it, or already crossing the junction.
+function _oncoming(L, X, cars, car, inId, n, tNeed, t) {
+  const opp = X.opp.get(inId) || [], dir = L.lanes[inId].dir, green = signalState(L.nodes[n], dir[0], t) === 'green';   // the oncoming way's light is ours
+  return cars.some(o => {
+    if (o === car || o.hidden) return false;
+    const ol = L.lanes[o.lane];
+    if (ol.turn) return ol.turn !== 'right' && ol.node0 === n && X.src.get(o.lane) === OPP_DIR[dir];
+    const e = opp.find(x => x[0] === o.lane); if (!e) return false;
+    const on = o.next != null ? L.lanes[o.next] : null; if (on && (on.turn === 'right' || on.pocket)) return false;
+    const rem = ol.len - o.d - o.len / 2 + e[1];
+    return (green && rem < 15) || (rem < 90 && o.v > 1 && rem / o.v < tNeed);   // waiting at a red line: not coming
+  });
+}
+// How far into its lane a car that went the other way at a split still overhangs the lane beside: a turn lane's slant
+// takes 6 m to clear it; a turn in a junction, 3 m.
+function _tail(L, o) { return L.lanes[o.lane].pocket ? 6 : 3; }
 function townCarsStep(L, cars, dt, t, boxes, rand) {
   const X = _townIndex(L);
   for (const car of cars) {
@@ -1900,6 +1926,8 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
       let g = Infinity;
       if (o.lane === car.lane && o.d > car.d) g = o.d - car.d - (o.len + car.len) / 2;
       else if (nx && o.lane === nx.id) g = lane.len - car.d + o.d - (o.len + car.len) / 2;
+      else if (lane.next.includes(o.lane) && o.d - o.len / 2 < _tail(L, o)) g = lane.len - car.d + o.d - (o.len + car.len) / 2;   // just gone the other way at a split, its tail still here
+      else if (o.d > car.d && o.d - o.len / 2 < _tail(L, o) && (X.sib.get(car.lane) || []).includes(o.lane)) g = o.d - car.d - (o.len + car.len) / 2;   // gone the other way just ahead
       if (g < gap) { gap = g; vl = o.v; }
     }
     const bx = _boxAhead(L, car, boxes);
@@ -1916,7 +1944,10 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
           // someone crossing in the junction: stop for them unless moving and too close to stop even hard (a car
           // waiting at the line waits until the junction is clear)
           if (_inJunction(L, X, cars, car, node.id, lane.dir[0])) go = car.v > 2 && dist < car.v * car.v / (2 * 7) + 1;
-        } else go = car.commit === lane.id;
+        } else {
+          go = car.commit === lane.id && car.v > 2;   // on yellow or red only a car already moving goes on (one held at the line waits)
+          if (!go) car.turnOk = false;               // and a right turn it had begun must look again at the next green
+        }
       } else if (node.stop) {
         if (car.v < 0.3 && dist <= 4) car.stopT += dt;
         const cl = X.claim.get(node.id), held = cl && !cl.hidden && cars.includes(cl);   // a claimant no longer driving here does not count
@@ -1926,17 +1957,24 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
       if (go && nx && nx.turn === 'right' && !car.turnOk) {
         // give way to traffic coming the other way (a turn across a wide junction from the line takes about 6 s), at
         // most 10 s, then go when the junction is clear; and to oncoming cars already crossing it
-        const opp = X.opp.get(lane.id) || [], tNeed = car.wait > 10 ? 4.5 : 6.5;   // seconds until the oncoming car reaches its line
-        const coming = cars.some(o => { if (o === car || o.hidden) return false; const e = opp.find(x => x[0] === o.lane); if (!e) return false; const rem = L.lanes[o.lane].len - o.d + e[1]; return rem < 90 && rem / Math.max(o.v, 1) < tNeed; });
-        const crossing = cars.some(o => { if (o === car || o.hidden) return false; const ol = L.lanes[o.lane]; return !!ol.turn && ol.turn !== 'right' && ol.node0 === node.id && X.src.get(o.lane) === OPP_DIR[lane.dir]; });
+        // (an oncoming car waiting near its line goes when the light lets it, so it counts; one turning right does not cross)
+        const tNeed = car.wait > 10 ? 4.5 : 6.5;   // seconds until the oncoming car reaches its line
         if (car.v < 0.5 && dist <= 4) car.wait += dt;
-        if (coming || crossing || _inJunction(L, X, cars, car, node.id, lane.dir[0])) go = false;
+        if (_oncoming(L, X, cars, car, lane.id, node.id, tNeed, t) || _inJunction(L, X, cars, car, node.id, lane.dir[0])) go = false;
         else if (dist < 1) car.turnOk = true;   // committed to the turn
       }
       if (go && car.commit !== lane.id && nx && bx < dist + nx.len + 6) go = false;   // do not drive into a junction the truck is blocking
       if (!go) { const g = dist - 0.5; if (g < gap) { gap = g; vl = 0; } }
     }
-    const acc = townIdm(car.v, car.v0, gap, car.v - vl);
+    // a right turn already begun waits in the junction (8 m in) while oncoming traffic crosses or is about to
+    if (lane.turn === 'right' && car.d + car.len / 2 < 8 && X.from.has(lane.id) && _oncoming(L, X, cars, car, X.from.get(lane.id), lane.node0, 2.5, t)) {
+      const g = 8 - (car.d + car.len / 2); if (g < gap) { gap = Math.max(0, g); vl = 0; }
+    }
+    // slow down for a turn: about 20 km/h at the line, 30 km/h in the turn
+    let v0 = car.v0;
+    if (nx && (nx.turn === 'left' || nx.turn === 'right') && lane.stopD != null) v0 = Math.min(v0, 5.5 + Math.max(0, lane.stopD - car.d - car.len / 2) * 0.2);
+    if (lane.turn === 'left' || lane.turn === 'right') v0 = Math.min(v0, 8.5);
+    const acc = townIdm(car.v, v0, gap, car.v - vl);
     car.v = Math.max(0, car.v + clamp(acc, -8, 2) * dt);
     car.d += car.v * dt;
     // into the next lane, or off the town's edge (and back in at another)
@@ -1951,7 +1989,7 @@ function townCarsStep(L, cars, dt, t, boxes, rand) {
     if (car.hidden) _respawn(L, X, cars, car, rand, boxes);
   }
 }
-const _rsp = {};
+const _rsp = {}, _rsq = {};
 function _respawn(L, X, cars, car, rand, boxes = []) {
   for (const [n, o] of X.claim) if (o === car) X.claim.delete(n);
   for (let tries = 0; tries < 4; tries++) {
@@ -1959,9 +1997,12 @@ function _respawn(L, X, cars, car, rand, boxes = []) {
     if (id == null) return;
     if (cars.some(o => o !== car && !o.hidden && o.lane === id && o.d - o.len / 2 < car.len + 15)) continue;   // room to come in behind a queue
     const lane = L.lanes[id];
+    if (lane.len < car.len + 4) continue;   // a stub too short to stand on before its stop line
     _laneAt(lane, car.len / 2, _rsp);
+    // nor on a car just gone on from this lane into the junction (its body still over the lane)
+    if (cars.some(o => o !== car && !o.hidden && lane.next.includes(o.lane) && (townCarPose(L, o, _rsq), Math.hypot(_rsq.u - _rsp.u, _rsq.v - _rsp.v) < (o.len + car.len) / 2 + 6))) continue;
     if (boxes.some(b => Math.hypot(b.u - _rsp.u, b.v - _rsp.v) < b.len / 2 + car.len / 2 + 8)) continue;   // not where the rig stands
-    car.lane = id; car.d = car.len / 2; car.v0 = Math.max(6, (lane.limit - 5 + 8 * rand()) / 3.6); car.v = car.v0 * 0.6;
+    car.lane = id; car.d = car.len / 2; car.v0 = Math.max(6, (lane.limit - 5 + 8 * rand()) / 3.6); car.v = lane.len < 30 ? 0 : car.v0 * 0.6;   // standing on a short stub before a junction
     car.next = _carNext(L, lane, rand); car.stopT = 0; car.wait = 0; car.commit = -1; car.turnOk = false; car.hidden = false;
     return;
   }
@@ -2246,11 +2287,18 @@ function navGuide(L, route, match) {
   else if (dist > 300) kind = 'straight';
   else if (!last && steps[i + 1].dist - s.dist <= 60) then = { kind: steps[i + 1].kind, dist: steps[i + 1].dist - pos };
   const e = navGraph(L).edges[match.edge], st = L.streets[e.street];
-  // the lanes before the junction ahead: with a right-turn lane there, three (left and straight / straight / right)
-  const pocket = (L.lanes || []).some(l => l.pocket && l.node1 === e.to && l.dir === e.dir), turnKind = _NAV_RIGHTISH[kind] ? 'right' : _NAV_LEFTISH[kind] ? 'left' : 'straight';
-  const lanes = st.lanes < 2 ? null : pocket
-    ? [{ arrows: ['left', 'straight'], use: turnKind !== 'right' }, { arrows: ['straight'], use: turnKind === 'straight' }, { arrows: ['right'], use: turnKind === 'right' }]
-    : [{ arrows: ['left', 'straight'], use: !_NAV_RIGHTISH[kind] }, { arrows: ['straight', 'right'], use: !_NAV_LEFTISH[kind] }];
+  // the lanes: before a junction where the route turns, by the turn (with a right-turn lane there, three lanes: left and
+  // straight / straight / right); before a gate, the lane on the gate's side; otherwise either lane
+  const atJunction = (kind === 'left' || kind === 'right') && s.edge === match.edge, through = kind === 'straight' || ((kind === 'left' || kind === 'right') && !atJunction);
+  const pocket = (L.lanes || []).some(l => l.pocket && l.node1 === e.to && l.dir === e.dir);
+  let lanes = null;
+  if (st.lanes >= 2 && pocket && (atJunction || through)) {
+    const k = atJunction ? kind : 'straight';
+    lanes = [{ arrows: ['left', 'straight'], use: k !== 'right' }, { arrows: ['straight'], use: k === 'straight' }, { arrows: ['right'], use: k === 'right' }];
+  } else if (st.lanes >= 2) {
+    const left = atJunction ? kind === 'left' : !!_NAV_LEFTISH[kind], right = atJunction ? kind === 'right' : !!_NAV_RIGHTISH[kind];
+    lanes = [{ arrows: ['left', 'straight'], use: !right }, { arrows: ['straight', 'right'], use: !left }];
+  }
   return { kind, dist, then, lanes };
 }
 // Follow the rig along T.route ({ route, to, match, offT, backD, lastT, t }); 'reroute' when a new route was made from
@@ -4341,11 +4389,11 @@ function* townMeshSteps(i) {
       if (!(key === 'exit' ? L.plaza.exitPath : L.plaza.entryPath)) continue;
       const face = gate.dir > 0 ? -24 : -38, rot = gate.dir > 0 ? Math.PI : 0;   // the signs face the traffic coming to the gate
       const sg = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95), etc); sg.position.set(gate.u, y + 4.75, face - (gate.dir > 0 ? 0.02 : -0.02)); sg.rotation.y = rot; grp.add(sg);
-      const ts = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), tsign); ts.position.set(gate.u * 1.6, y + 7.3, face - (gate.dir > 0 ? 0.02 : -0.02)); ts.rotation.y = rot; grp.add(ts);
+      const ts = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), tsign); ts.position.set(gate.u * 1.5, y + 7.3, face - (gate.dir > 0 ? 0.02 : -0.02)); ts.rotation.y = rot; grp.add(ts);
       // the bar pivots on the island to the gate lane's right and swings up
       const pivot = new THREE.Group(), side = gate.dir > 0 ? 1 : -1;
-      pivot.position.set(gate.u + side * 4.4, y + 1.05, -gate.v);   // by the middle island pivot.rotation.y = gate.dir > 0 ? 0 : Math.PI;
-      pivot.add(new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.09, 0.09).translate(-2.8, 0, 0), MAT.bar)); grp.add(pivot);
+      pivot.position.set(gate.u + side * 4.4, y + 1.05, -gate.v); pivot.rotation.y = gate.dir > 0 ? 0 : Math.PI;   // by the middle island
+      pivot.add(new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.09, 0.09).translate(-3.1, 0, 0), MAT.bar)); grp.add(pivot);
       M.gates[key] = pivot; tolls++;
     }
     M.parts.toll = tolls; }
@@ -6618,6 +6666,9 @@ function drawCluster(st) {
   g.fillStyle = st.retarder > 0.05 ? '#ffb020' : '#2a2210'; g.fillText('R', 330, 340);
   g.fillStyle = st.parked ? '#ff3b2f' : '#2a1210'; g.fillText('P', 694, 340);
   g.fillStyle = st.cruise ? '#35e07a' : '#14211a'; g.fillText('CC', 736, 340);
+  { const c = st.lka ? '#35e07a' : '#14211a'; g.strokeStyle = c; g.lineWidth = 3; g.beginPath();   // the lane-keeping help: a lane, green while it works
+    g.moveTo(244, 352); g.lineTo(252, 326); g.moveTo(276, 352); g.lineTo(268, 326); g.stroke();
+    g.beginPath(); g.moveTo(260, 330); g.lineTo(260, 336); g.moveTo(260, 341); g.lineTo(260, 348); g.stroke(); }
   // centre LCD
   g.textAlign = 'left'; g.fillStyle = '#cfe0ee'; g.font = font(24);
   g.fillText(st.clock, 418, 64);
@@ -6990,7 +7041,7 @@ function smirToggle() {
 function _smirMake() {
   SMIR.scene = new THREE.Scene(); SMIR.cam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
   SMIR.backRt = new THREE.WebGLRenderTarget(320, 146, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
-  const cam = new THREE.PerspectiveCamera(62, 320 / 146, 0.3, 400); cam.rotation.order = 'YXZ'; cam.rotation.set(-0.42, Math.PI, 0);   // back and down
+  const cam = new THREE.PerspectiveCamera(62, 320 / 146, 0.3, 250); cam.rotation.order = 'YXZ'; cam.rotation.set(-0.42, Math.PI, 0);   // back and down
   SMIR.backCam = cam;
   // a panel: a dark frame and the picture, mirrored left to right, cropped to the panel's shape
   const panel = (tex, crop) => {
@@ -7018,9 +7069,14 @@ function smirLayout(force) {
   if (H > W) {   // portrait: one row under the sign, the buttons, the message board and the card: mirror, monitor, mirror
     hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = '';
     const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0);
-    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 330) + 84);
-    const bw = W - 2 * (4 + sw + gap), bh = Math.min(sh, Math.round(bw / SMIR_ASPECT.back));
-    SMIR.lay = { L: { x: 4, y, w: sw, h: sh }, R: { x: W - 4 - sw, y, w: sw, h: sh }, B: { x: 4 + sw + gap, y, w: bw, h: bh } };
+    // under the card (room for its lanes and a following step), above the touch controls; smaller on short screens
+    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 330) + 112);
+    let floor = H - 8;
+    for (const el of document.querySelectorAll('#touch > *')) { const r = el.getBoundingClientRect(); if (r.width && r.height) floor = Math.min(floor, r.top - 8); }
+    const h = Math.min(sh, floor - y);
+    if (h < 48) { SMIR.lay = null; return; }   // no room: none shown
+    const w = Math.round(h * SMIR_ASPECT.side), bw = W - 2 * (4 + w + gap), bh = Math.min(h, Math.round(bw / SMIR_ASPECT.back));
+    SMIR.lay = { L: { x: 4, y, w, h }, R: { x: W - 4 - w, y, w, h }, B: { x: 4 + w + gap, y, w: bw, h: bh } };
     return;
   }
   hud.style.setProperty('--mir', (sw + gap) + 'px');   // the HUD's side padding grows by this
@@ -7053,8 +7109,8 @@ function smirRender(dt) {
   // the side mirrors' pictures: the cab's own refresh does them in the cab view; outside, they are done here
   if (GAME.cam !== 'cab') renderMirrors(false);
   SMIR.frame = (SMIR.frame || 0) + 1;
-  if (SMIR.frame % Math.max(1, Q.mirrorEvery) === 0) {
-    const fogFar = scene.fog.far; scene.fog.far = Math.min(fogFar, 400);
+  if (SMIR.frame % Math.max(2, Q.mirrorEvery) === 0) {   // every second frame at most, 250 m
+    const fogFar = scene.fog.far; scene.fog.far = Math.min(fogFar, 250);
     renderer.setRenderTarget(SMIR.backRt); renderer.render(scene, SMIR.backCam); renderer.setRenderTarget(null);
     scene.fog.far = fogFar;
   }
@@ -7935,7 +7991,7 @@ function physicsAdvance(dt, inp) {
 // ---------------------------------------------------------------------------
 // max: the most it adds, as a share of the steering the speed allows; quiet: seconds after the driver lets go before
 // it comes back; ramp: seconds it takes to come back fully; minV: the slowest it works at (m/s)
-const LKA = { on: true, max: 0.25, quiet: 0.6, ramp: 1.0, minV: 15 / 3.6, w: 0, wait: 0, active: false, lane: null };
+const LKA = { on: true, max: 0.25, quiet: 0.6, ramp: 1.0, minV: 15 / 3.6, look: 1.0, lookMax: 30, w: 0, wait: 0, active: false, lane: null };   // look: seconds ahead it aims (lookMax m at most)
 const _lka = {}, _lkb = {}, _lkc = {}, _lkd = {};
 
 // The expressway's lanes at s as functions of s giving the lane centre (lat).
@@ -7956,7 +8012,9 @@ function lkaAim(rx, rz, h, Ld, out) {
     for (const l of _lkaRoadLanes(_lka.s)) { const d = Math.abs(l.f(_lka.s) - _lka.lat); if (d < bd) { bd = d; best = l; } }
     if (!best) return null;
     if (Math.abs(wrapA(h - headingAt(_lka.s))) > 0.5) return null;   // across or against the road
-    const s2 = _lka.s + Ld; posAt(s2, best.f(s2), _lkb);
+    // far off the middle, it aims at most 0.5 m nearer to it each time (a slow way back, no swing past it)
+    const off = _lka.lat - best.f(_lka.s), keep = Math.sign(off) * Math.max(0, Math.abs(off) - 0.5);
+    const s2 = _lka.s + Ld; posAt(s2, best.f(s2) + keep, _lkb);
     out.x = _lkb.x; out.z = _lkb.z; out.lane = best.key; return out;
   }
   if (TR.zone === 'town' && TOWNS_LOADED.has(TR.town)) {
@@ -7994,10 +8052,12 @@ function laneAssistSteer(dt, steer, active, blink) {
   else if (LKA.wait > 0) LKA.wait -= dt;
   else LKA.w = Math.min(1, LKA.w + dt / LKA.ramp);
   LKA.active = false;
-  if (!LKA.on || blink || T.dir !== 1 || T.v < LKA.minV || LKA.w <= 0) return steer;
-  const h = T.h, rx = T.x, rz = T.z, Ld = clamp(T.v * 1.5, 12, 45);   // TR.x, TR.z: the tractor's rear axle
+  // off: the weight stays at 0, so it comes back over `ramp` seconds after (not at full strength at once)
+  if (!LKA.on || blink || T.dir !== 1 || T.v < LKA.minV) { LKA.w = 0; return steer; }
+  if (LKA.w <= 0) return steer;
+  const h = T.h, rx = T.x, rz = T.z, Ld = clamp(T.v * LKA.look, 12, LKA.lookMax);   // TR.x, TR.z: the tractor's rear axle
   const aim = lkaAim(rx, rz, h, Ld, _lkc);
-  if (!aim) { LKA.lane = null; return steer; }
+  if (!aim) { LKA.lane = null; LKA.w = 0; return steer; }
   LKA.lane = aim.lane;
   const dx = aim.x - rx, dz = aim.z - rz, fwd = dx * Math.sin(h) + dz * Math.cos(h), right = -dx * Math.cos(h) + dz * Math.sin(h);
   const alpha = Math.atan2(right, fwd), dist = Math.hypot(dx, dz) || 1;
@@ -8511,7 +8571,7 @@ function setHorn(on) { if (AUD.on) AUD.hornG.gain.setTargetAtTime(on ? 0.28 : 0,
 const INP = {
   keys: new Set(), throttle: 0, brake: 0, steer: 0,
   kbThr: 0, kbBrk: 0, kbSteer: 0,
-  tSteer: 0, tWheel: 0, tWheelHeld: false, tGas: 0, tBrake: 0,
+  tSteer: 0, tWheel: 0, tWheelHeld: false, tGas: 0, tBrake: 0, tMoveAt: 0, tLast: 0,
   lookYaw: 0, lookPitch: -0.2, sens: lsGet('nlh.sens', 1.0),
   actions: [], usingTouch: IS_TOUCH,
 };
@@ -8555,7 +8615,7 @@ window.addEventListener('blur', () => { INP.keys.clear(); INP.tGas = INP.tBrake 
   const pad = $('wheelPad'), rot = $('wheelRot');
   let id = null, last = 0;
   const ang = e => { const r = pad.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)); };
-  pad.addEventListener('pointerdown', e => { id = e.pointerId; last = ang(e); INP.tWheelHeld = true; try { pad.setPointerCapture(id); } catch (err) { /* */ } e.preventDefault(); });
+  pad.addEventListener('pointerdown', e => { id = e.pointerId; last = ang(e); INP.tWheelHeld = true; INP.tMoveAt = performance.now(); try { pad.setPointerCapture(id); } catch (err) { /* */ } e.preventDefault(); });
   pad.addEventListener('pointermove', e => {
     if (e.pointerId !== id) return;
     const a = ang(e); let d = a - last; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; last = a;
@@ -8621,8 +8681,13 @@ function pollInput(dt, vAbs) {
 
   INP.throttle = Math.max(INP.kbThr, INP.tGas, gpT);
   INP.brake = Math.max(INP.kbBrk, INP.tBrake, gpB);
-  // the driver is steering: a key or the touch wheel held, the wheel still coming back, or a gamepad stick out
-  INP.steerActive = left || right || INP.tWheelHeld || Math.abs(INP.tSteer) > 0.05 || Math.abs(INP.kbSteer) > 0.05 || Math.abs(gpS) > 0.06;
+  // the driver is steering: a key held, the touch wheel turned or moved in the last 0.6 s (a thumb resting still on it
+  // near the middle is a hand off), the wheel still coming back, or a gamepad stick out
+  const now = performance.now();
+  if (Math.abs(INP.tWheel - INP.tLast) > 0.002) INP.tMoveAt = now;
+  INP.tLast = INP.tWheel;
+  const tHeld = INP.tWheelHeld && (now - INP.tMoveAt < 600 || Math.abs(INP.tSteer) > 0.05);
+  INP.steerActive = left || right || tHeld || Math.abs(INP.tSteer) > 0.05 || Math.abs(INP.kbSteer) > 0.05 || Math.abs(gpS) > 0.06;
   let st = INP.kbSteer;
   if (INP.tWheelHeld || Math.abs(INP.tSteer) > Math.abs(st)) st = INP.tSteer;
   if (Math.abs(gpS) > Math.abs(st)) st = gpS;
@@ -9184,7 +9249,7 @@ function clusterState() {
   const lamp = on => (!GAME.assist ? 'on' : on ? 'flash' : 'off');
   return {
     kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn && TR.fuel > 0 ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
-    lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
+    lights: GAME.lampsOn, lka: !!LKA.active, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
     clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage, fuelKm: fuelKm(TR.fuel), sleepy: GAME.sleepy,
     gcwText: gcwText(), link: TR.link,
     lamps: { abs: lamp(TR.assist.abs), esc: lamp(TR.assist.esc || TR.assist.rsc), tcs: lamp(TR.assist.tcs) },
@@ -9494,6 +9559,7 @@ function onResize() {
   const asp = w / h;
   cabCam.aspect = asp; cabCam.fov = asp < 1 ? 80 : asp < 1.5 ? 70 : 64; cabCam.updateProjectionMatrix();
   chaseFov = asp < 1 ? 70 : 55; chaseCam.aspect = asp; chaseCam.fov = chaseFov; chaseCam.updateProjectionMatrix();
+  smirLayout(true);   // the mirrors' places follow the screen at once (a turned phone)
 }
 window.addEventListener('resize', onResize);
 document.addEventListener('visibilitychange', () => {
@@ -9779,11 +9845,12 @@ function _destMarkMake() {
   g.visible = false; scene.add(g);
   DEST_MARK.grp = g; DEST_MARK.arrow = arrow; DEST_MARK.board = board;
 }
-// Is the tractor's body centre inside warehouse w's yard (town i)?
+// Is the tractor's front inside warehouse w's yard (town i), or so near the column that the cab would be in it?
 function _destInYard(i, w) {
-  const f = (RIGP.front - RIGP.back) / 2, q = {};
+  const f = RIGP.front, q = {}, g = w.gate;
   townUV(TOWN_SITES[i], TR.x + Math.sin(TR.h) * f, TR.z + Math.cos(TR.h) * f, q);
-  const y = w.yard; return q.u >= y.u0 && q.u <= y.u1 && q.v >= y.v0 && q.v <= y.v1;
+  const y = w.yard; if (q.u >= y.u0 && q.u <= y.u1 && q.v >= y.v0 && q.v <= y.v1) return true;
+  return Math.hypot(q.u - (g.u + g.nu * 3), q.v - (g.v + g.nv * 3)) < 8;
 }
 function destMarkUpdate(dt) {
   const j = GAME.job, show = (GAME.state === 'drive' || GAME.state === 'stop') && !!j && !!j.whB && TOWNS_LOADED.has(j.to) && !_destInYard(j.to, j.whB);

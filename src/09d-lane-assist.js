@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 // max: the most it adds, as a share of the steering the speed allows; quiet: seconds after the driver lets go before
 // it comes back; ramp: seconds it takes to come back fully; minV: the slowest it works at (m/s)
-const LKA = { on: true, max: 0.25, quiet: 0.6, ramp: 1.0, minV: 15 / 3.6, w: 0, wait: 0, active: false, lane: null };
+const LKA = { on: true, max: 0.25, quiet: 0.6, ramp: 1.0, minV: 15 / 3.6, look: 1.0, lookMax: 30, w: 0, wait: 0, active: false, lane: null };   // look: seconds ahead it aims (lookMax m at most)
 const _lka = {}, _lkb = {}, _lkc = {}, _lkd = {};
 
 // The expressway's lanes at s as functions of s giving the lane centre (lat).
@@ -28,7 +28,9 @@ function lkaAim(rx, rz, h, Ld, out) {
     for (const l of _lkaRoadLanes(_lka.s)) { const d = Math.abs(l.f(_lka.s) - _lka.lat); if (d < bd) { bd = d; best = l; } }
     if (!best) return null;
     if (Math.abs(wrapA(h - headingAt(_lka.s))) > 0.5) return null;   // across or against the road
-    const s2 = _lka.s + Ld; posAt(s2, best.f(s2), _lkb);
+    // far off the middle, it aims at most 0.5 m nearer to it each time (a slow way back, no swing past it)
+    const off = _lka.lat - best.f(_lka.s), keep = Math.sign(off) * Math.max(0, Math.abs(off) - 0.5);
+    const s2 = _lka.s + Ld; posAt(s2, best.f(s2) + keep, _lkb);
     out.x = _lkb.x; out.z = _lkb.z; out.lane = best.key; return out;
   }
   if (TR.zone === 'town' && TOWNS_LOADED.has(TR.town)) {
@@ -66,10 +68,12 @@ function laneAssistSteer(dt, steer, active, blink) {
   else if (LKA.wait > 0) LKA.wait -= dt;
   else LKA.w = Math.min(1, LKA.w + dt / LKA.ramp);
   LKA.active = false;
-  if (!LKA.on || blink || T.dir !== 1 || T.v < LKA.minV || LKA.w <= 0) return steer;
-  const h = T.h, rx = T.x, rz = T.z, Ld = clamp(T.v * 1.5, 12, 45);   // TR.x, TR.z: the tractor's rear axle
+  // off: the weight stays at 0, so it comes back over `ramp` seconds after (not at full strength at once)
+  if (!LKA.on || blink || T.dir !== 1 || T.v < LKA.minV) { LKA.w = 0; return steer; }
+  if (LKA.w <= 0) return steer;
+  const h = T.h, rx = T.x, rz = T.z, Ld = clamp(T.v * LKA.look, 12, LKA.lookMax);   // TR.x, TR.z: the tractor's rear axle
   const aim = lkaAim(rx, rz, h, Ld, _lkc);
-  if (!aim) { LKA.lane = null; return steer; }
+  if (!aim) { LKA.lane = null; LKA.w = 0; return steer; }
   LKA.lane = aim.lane;
   const dx = aim.x - rx, dz = aim.z - rz, fwd = dx * Math.sin(h) + dz * Math.cos(h), right = -dx * Math.cos(h) + dz * Math.sin(h);
   const alpha = Math.atan2(right, fwd), dist = Math.hypot(dx, dz) || 1;

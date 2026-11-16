@@ -72,6 +72,9 @@ function drawCluster(st) {
   g.fillStyle = st.retarder > 0.05 ? '#ffb020' : '#2a2210'; g.fillText('R', 330, 340);
   g.fillStyle = st.parked ? '#ff3b2f' : '#2a1210'; g.fillText('P', 694, 340);
   g.fillStyle = st.cruise ? '#35e07a' : '#14211a'; g.fillText('CC', 736, 340);
+  { const c = st.lka ? '#35e07a' : '#14211a'; g.strokeStyle = c; g.lineWidth = 3; g.beginPath();   // the lane-keeping help: a lane, green while it works
+    g.moveTo(244, 352); g.lineTo(252, 326); g.moveTo(276, 352); g.lineTo(268, 326); g.stroke();
+    g.beginPath(); g.moveTo(260, 330); g.lineTo(260, 336); g.moveTo(260, 341); g.lineTo(260, 348); g.stroke(); }
   // centre LCD
   g.textAlign = 'left'; g.fillStyle = '#cfe0ee'; g.font = font(24);
   g.fillText(st.clock, 418, 64);

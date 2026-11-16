@@ -29,7 +29,7 @@ const LAYOUT = () => {
 const hits = (a, b) => a.x < b.r - 1 && b.x < a.r - 1 && a.y < b.b - 1 && b.y < a.b - 1;
 
 test('ミラーとバックモニター：車内視点では初めから出て、ボタンや札と重ならず画面の中。「ミラー」で消え、覚えている', async () => {
-  for (const [w, h, touch] of [[1280, 720, false], [844, 390, true], [390, 844, true]]) {
+  for (const [w, h, touch] of [[1280, 720, false], [844, 390, true], [667, 375, true], [390, 844, true], [375, 667, true]]) {
     let store;
     await withGame({ width: w, height: h, touch }, async (page, errors) => {
       await startJob(page); await driveHelpers(page);
@@ -45,8 +45,13 @@ test('ミラーとバックモニター：車内視点では初めから出て�
         assert.ok(p.x >= 0 && p.y >= 0 && p.r <= r.W && p.b <= r.H, `${tag} ${p.name} off screen ${JSON.stringify(p)}`);
         for (const b of r.hud) assert.ok(!hits(p, b), `${tag} ${p.name} over ${b.name} ${JSON.stringify([p, b])}`);
       }
-      const off = await page.evaluate(async () => { document.getElementById('bMirror').click(); for (let i = 0; i < 3; i++) simTick(1 / 60); await __t.frames(2); return { shown: SMIR.shown, saved: JSON.parse(localStorage.getItem('nlh.mirrors')), pad: getComputedStyle(document.getElementById('hud')).getPropertyValue('--mir') }; });
+      const off = await page.evaluate(async () => {
+        const pads = () => [...document.querySelectorAll('#touch > *')].map(e => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; });
+        const before = pads(); document.getElementById('bMirror').click(); for (let i = 0; i < 3; i++) simTick(1 / 60); await __t.frames(2);
+        return { shown: SMIR.shown, saved: JSON.parse(localStorage.getItem('nlh.mirrors')), pad: getComputedStyle(document.getElementById('hud')).getPropertyValue('--mir'), before, after: pads() };
+      });
       assert.equal(off.shown, false, tag); assert.equal(off.saved.cab, false); assert.equal(off.pad.trim(), '');
+      assert.deepEqual(off.after, off.before, `${tag}: the touch controls moved with the mirrors`);
       store = { 'nlh.mirrors': off.saved };
       assert.deepEqual(errors, []);
     });
@@ -116,5 +121,27 @@ test('車線キープ補助：ハンドルを離して走ると車線の中心�
   });
   assert.ok(r.help.off < 0.35 && r.help.icon, JSON.stringify(r));
   assert.ok(r.blink.off > 0.6 && r.off.off > 0.6, JSON.stringify(r));
+  assert.deepEqual(errors, []);
+}));
+
+test('料金所の遮断機は、閉じているとき自分のゲートの車線をふさぐ（出口・入口とも）', () => withGame({}, async (page, errors) => {
+  await startJob(page);
+  const r = await page.evaluate(async () => {
+    const out = [];
+    for (const i of [1, 2]) {
+      if (!TOWNS_LOADED.has(i)) townLoad(i);
+      if (!TOWN_MESH.has(i)) { const it = townMeshSteps(i); while (!it.next().done); }
+      const M = TOWN_MESH.get(i), L = TOWNS_LOADED.get(i).layout, site = L.site, p = new THREE.Vector3(), q = {};
+      for (const key of ['exit', 'entry']) {
+        const pv = M.gates[key], g = L.plaza.gates[key]; if (!pv) continue;
+        pv.rotation.z = 0; pv.updateWorldMatrix(true, false);   // with its parents (the town's group may not have been drawn yet)
+        const ends = [0, -6.2].map(x => { pv.localToWorld(p.set(x, 0, 0)); townUV(site, p.x, p.z, q); return [q.u, q.v]; });
+        out.push({ town: i, key, gu: g.u, lo: Math.min(ends[0][0], ends[1][0]), hi: Math.max(ends[0][0], ends[1][0]), dv: Math.abs(ends[0][1] - g.v) });
+      }
+    }
+    return out;
+  });
+  for (const b of r) assert.ok(b.lo <= b.gu - 1.3 && b.hi >= b.gu + 1.3 && b.dv < 0.5, JSON.stringify(b));
+  assert.equal(r.length, 4);
   assert.deepEqual(errors, []);
 }));

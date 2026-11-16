@@ -211,11 +211,18 @@ function navGuide(L, route, match) {
   else if (dist > 300) kind = 'straight';
   else if (!last && steps[i + 1].dist - s.dist <= 60) then = { kind: steps[i + 1].kind, dist: steps[i + 1].dist - pos };
   const e = navGraph(L).edges[match.edge], st = L.streets[e.street];
-  // the lanes before the junction ahead: with a right-turn lane there, three (left and straight / straight / right)
-  const pocket = (L.lanes || []).some(l => l.pocket && l.node1 === e.to && l.dir === e.dir), turnKind = _NAV_RIGHTISH[kind] ? 'right' : _NAV_LEFTISH[kind] ? 'left' : 'straight';
-  const lanes = st.lanes < 2 ? null : pocket
-    ? [{ arrows: ['left', 'straight'], use: turnKind !== 'right' }, { arrows: ['straight'], use: turnKind === 'straight' }, { arrows: ['right'], use: turnKind === 'right' }]
-    : [{ arrows: ['left', 'straight'], use: !_NAV_RIGHTISH[kind] }, { arrows: ['straight', 'right'], use: !_NAV_LEFTISH[kind] }];
+  // the lanes: before a junction where the route turns, by the turn (with a right-turn lane there, three lanes: left and
+  // straight / straight / right); before a gate, the lane on the gate's side; otherwise either lane
+  const atJunction = (kind === 'left' || kind === 'right') && s.edge === match.edge, through = kind === 'straight' || ((kind === 'left' || kind === 'right') && !atJunction);
+  const pocket = (L.lanes || []).some(l => l.pocket && l.node1 === e.to && l.dir === e.dir);
+  let lanes = null;
+  if (st.lanes >= 2 && pocket && (atJunction || through)) {
+    const k = atJunction ? kind : 'straight';
+    lanes = [{ arrows: ['left', 'straight'], use: k !== 'right' }, { arrows: ['straight'], use: k === 'straight' }, { arrows: ['right'], use: k === 'right' }];
+  } else if (st.lanes >= 2) {
+    const left = atJunction ? kind === 'left' : !!_NAV_LEFTISH[kind], right = atJunction ? kind === 'right' : !!_NAV_RIGHTISH[kind];
+    lanes = [{ arrows: ['left', 'straight'], use: !right }, { arrows: ['straight', 'right'], use: !left }];
+  }
   return { kind, dist, then, lanes };
 }
 // Follow the rig along T.route ({ route, to, match, offT, backD, lastT, t }); 'reroute' when a new route was made from

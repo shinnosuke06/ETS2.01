@@ -552,7 +552,7 @@ function clusterState() {
   const lamp = on => (!GAME.assist ? 'on' : on ? 'flash' : 'off');
   return {
     kmh: Math.abs(TR.v) * 3.6, rpm: GAME.engineOn && TR.fuel > 0 ? TR.rpm : 0, blink: GAME.blink, hazard: GAME.hazard, blinkPhase: GAME.blinkOn,
-    lights: GAME.lampsOn, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
+    lights: GAME.lampsOn, lka: !!LKA.active, retarder: TR.ret, parked: Math.abs(TR.v) < 0.05 && INP.throttle < 0.05, cruise: TR.cruise, cruiseKmh: TR.cruiseV * 3.6,
     clock: fmtClock(GAME.clock), temp: GAME.tunnelBlend > 0.5 ? 16 : 14, gearTxt: gearText(), dir: TR.dir, fuel: TR.fuel, odo: TR.odo, damage: TR.damage, fuelKm: fuelKm(TR.fuel), sleepy: GAME.sleepy,
     gcwText: gcwText(), link: TR.link,
     lamps: { abs: lamp(TR.assist.abs), esc: lamp(TR.assist.esc || TR.assist.rsc), tcs: lamp(TR.assist.tcs) },
@@ -862,6 +862,7 @@ function onResize() {
   const asp = w / h;
   cabCam.aspect = asp; cabCam.fov = asp < 1 ? 80 : asp < 1.5 ? 70 : 64; cabCam.updateProjectionMatrix();
   chaseFov = asp < 1 ? 70 : 55; chaseCam.aspect = asp; chaseCam.fov = chaseFov; chaseCam.updateProjectionMatrix();
+  smirLayout(true);   // the mirrors' places follow the screen at once (a turned phone)
 }
 window.addEventListener('resize', onResize);
 document.addEventListener('visibilitychange', () => {

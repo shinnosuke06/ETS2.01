@@ -224,14 +224,14 @@ test('出口の帯は ic.s + 100 で終わり、行き止まりの壁はない�
   assert.equal(sim.entryAt(e.s0 + 10), e); assert.equal(sim.entryAt(e.s1 + 10), null);
 });
 
-test('T5 交差点の丸い角（半径 12 m）の車道と歩道には、どの町でも壁がない（倉庫の塀も角では丸く曲がる）', () => {
+test('T5 交差点の丸い角（半径 15 m）の車道と歩道には、どの町でも壁がない（倉庫の塀も角では丸く曲がる）', () => {
   const sim = loadSim();
   for (let i = 0; i < sim.TOWN_SITES.length; i++) {
     sim.townLoad(i);
-    const T = sim.TOWNS_LOADED.get(i), L = T.layout, r = 12, bad = [];
+    const T = sim.TOWNS_LOADED.get(i), L = T.layout, r = L.cornerR, bad = [];
     for (const n of L.nodes) {
       const V = L.streets[n.streets[0]], U = L.streets[n.streets[1]], walk = Math.min(V.walkW, U.walkW);
-      const hc = st => st.lanes * st.laneW;   // half the carriageway
+      const hc = st => st.med / 2 + st.lanes * st.laneW;   // half the carriageway
       for (const [su, sv] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
         if (!n.arms[sv > 0 ? 'v+' : 'v-'] || !n.arms[su > 0 ? 'u+' : 'u-']) continue;
         const ku = n.u + su * hc(V), kv = n.v + sv * hc(U), cu = ku + su * r, cv = kv + sv * r;

@@ -23,16 +23,18 @@ test('高速の本線：車線の中心から 0.9 m ずれて手を離すと、1
   drive(sim, 25, 80, t => { if (t > 15) late = Math.max(late, Math.abs(sim.TR.lat - sim.X_TRV)); });
   assert.ok(late < 0.4, `${late.toFixed(2)} m`);
 });
-test('高速のいちばんきついカーブ（トンネルの外）でも、手を離したまま 80 km/h で車線の中心から 0.6 m 以内', () => {
+test('高速のいちばんきついカーブ（トンネルの外）でも、手を離したまま 80 km/h と 90 km/h（上限）で車線の中心から 0.6 m 以内', () => {
   const sim0 = loadSim(); let worst = null, k = 0;
   for (let s = sim0.S0 + 2000; s < sim0.ROUTE_END - 2000; s += 50) {
     if (sim0.rampAt(s) || sim0.entryAt(s) || sim0.saAt(s) || sim0.tunnelAt(s, 200)) continue;
     const c = Math.abs(sim0.wrapA(sim0.headingAt(s + 40) - sim0.headingAt(s - 40))) / 80;
     if (c > k) { k = c; worst = s; }
   }
-  const sim = onRoad(worst - 300, sim0.X_TRV, 80); let max = 0;
-  drive(sim, 25, 80, t => { if (t > 3) max = Math.max(max, Math.abs(sim.TR.lat - sim.X_TRV)); });
-  assert.ok(max < 0.6, `radius ${(1 / k).toFixed(0)} m: ${max.toFixed(2)} m off the middle`);
+  for (const v of [80, 90]) {
+    const sim = onRoad(worst - 300, sim0.X_TRV, v); let max = 0;
+    drive(sim, 25, v, t => { if (t > 3) max = Math.max(max, Math.abs(sim.TR.lat - sim.X_TRV)); });
+    assert.ok(max < 0.6, `${v} km/h, radius ${(1 / k).toFixed(0)} m: ${max.toFixed(2)} m off the middle`);
+  }
 });
 test('ハンドルを操作している間は何も足さず、離して 0.6 秒は待ち、そのあと 1 秒かけて戻る', () => {
   const sim = onRoad(3500, -7.65 + 1.2, 80);
@@ -64,4 +66,15 @@ test('町の大通り：左の車線で 0.8 m ずれて手を離すと、8 秒�
   const n = L.nodes.find(x => x.streets.includes(0));
   sim.townXZ(site, n.u - 7, n.v, q); sim.placeTruckAt(q.x, q.z, site.hu + Math.PI / 2, 30 / 3.6, { coupled: true }); sim.LKA.w = 1; sim.LKA.wait = 0;
   assert.equal(sim.laneAssistSteer(H, 0, false, 0), 0);
+});
+test('90 km/h で 1.7 m ずれて手を離すと、行き過ぎは 0.6 m まで、10 秒で 0.2 m 以内に落ち着く（ふらつかない）', () => {
+  const sim = onRoad(3500, -7.65 + 1.7, 90); let over = 0, late = 0;
+  drive(sim, 14, 90, t => { const o = sim.TR.lat - sim.X_TRV; if (o < 0) over = Math.max(over, -o); if (t > 10) late = Math.max(late, Math.abs(o)); });
+  assert.ok(over < 0.6 && late < 0.2, JSON.stringify({ over, late }));
+});
+test('補助が止まっていた（ウインカー）あとは、すぐ強くは効かず 1 秒かけて戻る', () => {
+  const sim = onRoad(3500, -7.65 + 1.2, 80);
+  sim.laneAssistSteer(0.05, 0, false, 1);
+  assert.equal(sim.LKA.w, 0);
+  sim.laneAssistSteer(0.05, 0, false, 0); assert.ok(sim.LKA.w > 0 && sim.LKA.w <= 0.06, `${sim.LKA.w}`);
 });

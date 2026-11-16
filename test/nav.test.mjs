@@ -75,7 +75,7 @@ test('案内の文：曲がりと門と高速の文', () => {
 });
 
 const ANG = { 'u+': 0, 'v+': Math.PI / 2, 'u-': Math.PI, 'v-': -Math.PI / 2 };
-const ht = st => st.lanes * st.laneW + st.walkW;
+const ht = st => (st.med || 0) / 2 + st.lanes * st.laneW + st.walkW;
 const inStreets = (L, u, v) => L.streets.filter(st => (st.axis === 'v' ? Math.abs(u - st.c) <= ht(st) && v >= st.a0 && v <= st.a1 : Math.abs(v - st.c) <= ht(st) && u >= st.a0 && u <= st.a1)).length;
 
 test('N3 位置合わせ：13 の町の、すべての道の両向きで、道の真ん中の点は正しい道と向き。交差点の中は直前のまま', () => {
@@ -116,8 +116,20 @@ test('N4 案内：曲がる交差点までの距離と操作、その先、車�
   assert.equal(at(eV.id, 45).kind, 'arrive');
   // Atsugi: from the plaza up Main A to the warehouse gate on the left, in the left lane
   const A = SIM.townLayout(2), ra = SIM.navRoute(A, { plaza: true, start: true }, { gate: A.warehouses[1] }), ga = SIM.navGuide(A, ra, { edge: ra.edges[0], d: 0, off: 0 });
-  assert.deepEqual([ga.kind, Math.round(ga.dist / 10) * 10, ga.lanes.map(l => l.use)], ['gateLeft', 140, [true, false, false]]);   // a right-turn lane at the junction ahead
-  assert.deepEqual(ga.lanes.map(l => l.arrows), [['left', 'straight'], ['straight'], ['right']]);
+  assert.deepEqual([ga.kind, Math.round(ga.dist / 10) * 10, ga.lanes.map(l => l.use)], ['gateLeft', 140, [true, false]]);   // the gate before the junction: its side's lane
+  // in every town, a route's guidance before a gate on the right shows the inner lane, never the turn lane; before a
+  // right turn at a junction with a turn lane, only the turn lane
+  for (let i = 0; i < 13; i++) {
+    const T = SIM.townLayout(i);
+    for (const w of T.warehouses) {
+      const r = SIM.navRoute(T, { plaza: true, start: true }, { gate: w }); if (!r) continue;
+      for (const [k, e] of r.edges.entries()) for (const d of [5, 40, 80]) {
+        const g = SIM.navGuide(T, r, { edge: e, d: Math.min(d, SIM.navGraph(T).edges[e].len - 1), off: 0 }); if (!g || !g.lanes) continue;
+        if (g.kind === 'gateRight') assert.deepEqual(g.lanes.map(l => l.use), [false, true], `${T.site.ic.jp} ${w.name}`);
+        if (g.lanes.length === 3 && g.kind === 'right') assert.deepEqual(g.lanes.map(l => l.use), [false, false, true]);
+      }
+    }
+  }
 });
 
 // Run navFollow along a list of [u, v, θ] at `dt` a sample; returns the samples at which it rerouted.
