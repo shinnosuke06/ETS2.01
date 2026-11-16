@@ -87,6 +87,7 @@ test('信号の色：町で信号のある交差点に近づくと、案内カ�
     for (const t of [5, 31, 40]) {   // green, yellow, red for the v approaches (phase shifted per junction)
       GAME.clock = (Math.ceil(GAME.clock / TIME_SCALE / 70) * 70 + t - n.phase + 700) * TIME_SCALE;
       for (let k = 0; k < 15; k++) simTick(1 / 60);
+      await __t.frames(2);   // the card is redrawn by the frame loop (every 0.2 s)
       const el = document.getElementById('ncSig');
       out.push({ hidden: el.hidden, cls: el.className, want: signalState(n, 'v', GAME.clock / TIME_SCALE) });
     }
