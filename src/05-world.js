@@ -904,7 +904,7 @@ function buildSigns(ctx) {
       }
       case 'saNose': {   // at the nose where the lane leaves for the service area
         const e = saExitEdges(sg.s - sg.sa.sDiv);
-        placeAt(grp, O, sg.s, (e.xr + X_EDGE) / 2 - 0.4, 0);
+        placeAt(grp, O, sg.s, (e.xr + X_PAVE) / 2, 0);   // in the middle of the gore, between the two pavements
         postsFor(P, [0], 3.4, 0.09); P.build(grp);
         const mat = cachedTex('saNose', 384, 256, (g, w, h) => {
           greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';

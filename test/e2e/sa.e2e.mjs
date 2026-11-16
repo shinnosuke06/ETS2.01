@@ -168,11 +168,18 @@ test('分かれ目の 160 m 手前を過ぎても、その SA の「SA 入口　
   assert.deepEqual(errors, []);
 }));
 
-test('通り過ぎると次の SA（足柄）の案内になる', () => withGame({}, async (page, errors) => {
+test('案内中の中井を本線のまま通り過ぎると、車線の終わりまで中井、その先で次の SA（足柄）の案内になる', () => withGame({}, async (page, errors) => {
   await startJob(page); await driveHelpers(page);
-  await job2At(page, 0, 200, 0, 0.1, 0);
-  const r = await page.evaluate(() => navState().maneuver && navState().maneuver.text);
-  assert.equal(r, '足柄SA で給油を');
+  await job2At(page, 0, -400, 0, 0.1, 0);
+  const r = await page.evaluate(() => {
+    const a = SAS[0], out = [];
+    for (const d of [-300, -100, 50, a.uSep - 10, a.uSep + 40]) {   // along the travel lane, on past the area
+      placeTruck(a.sDiv + d, X_TRV, 0, { coupled: true }); for (let n = 0; n < 5; n++) simTick(1 / 60);
+      out.push(NAV.sug && NAV.sug.sa.jp);
+    }
+    return { sug: out, text: navState().maneuver && navState().maneuver.text };
+  });
+  assert.deepEqual(r.sug, ['中井', '中井', '中井', '中井', '足柄'], JSON.stringify(r)); assert.equal(r.text, '足柄SA で給油を');
   assert.deepEqual(errors, []);
 }));
 
@@ -187,12 +194,13 @@ test('E7 合流：加速車線にいるとき、後ろから来る走行車線�
       const free = CARS.filter(c => c.hidden), car = free[0], other = free[1];
       setCarType(car, 'sedan'); car.dir = 1; car.lane = 0; car.lc = null; car.s = TR.s - 70; car.x = laneX(1, 0); car.v = car.v0 = 27; car.hidden = false; car.grp.visible = true;
       if (blocked) { setCarType(other, 'truck'); other.dir = 1; other.lane = 1; other.lc = null; other.s = TR.s - 75; other.x = laneX(1, 1); other.v = other.v0 = 27; other.hidden = false; other.grp.visible = true; }
-      EVENTS.length = 0; let minGap = Infinity, contacts = 0;
+      let minGap = Infinity; const dmg0 = TR.damage, fines0 = GAME.job.fines;
       for (let n = 0; n < 60 * 4; n++) {
         INP.tGas = TR.v * 3.6 < 70 ? 0.6 : 0; INP.tWheelHeld = false; simTick(1 / 60);
         if (car.lane === 0 && !car.lc) minGap = Math.min(minGap, (TR.tr.s - 12) - (car.s + car.len / 2));
-        contacts += EVENTS.filter(x => x.t === 'car').length; EVENTS.length = 0;
       }
+      // a touch shows as damage or a fine (simTick's event handling empties EVENTS before a test could count them)
+      const contacts = (TR.damage - dmg0 > 0.01 ? 1 : 0) + (GAME.job.fines - fines0 > 0 ? 1 : 0);
       out[blocked ? 'blocked' : 'free'] = { lane: car.lane, lc: !!car.lc, minGap, contacts, v: car.v };
     }
     return out;

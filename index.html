@@ -865,7 +865,7 @@ function drivable(s, out) {
 // ---- signs ----------------------------------------------------------------
 const SIGNS = [];
 (function placeSigns() {
-  const free = (s, m = 60) => !RAMPS.some(r => s > r.sDiv - m && s < r.sEnd + m) && !TUNNELS.some(t => s > t.s0 - m - 40 && s < t.s1 + m);
+  const free = (s, m = 60) => !RAMPS.some(r => (s > r.sDiv - m && s < r.sEnd + m) || [700, 400, 160].some(d => Math.abs(s - (r.sDiv - d)) < 40)) && !TUNNELS.some(t => s > t.s0 - m - 40 && s < t.s1 + m);
   for (let s = S0 + 100; s < ROUTE_END - 50; s += 100) {
     if (!tunnelAt(s, 4)) SIGNS.push({ s, t: 'kp', kp: Math.round(sToKp(s)) });
   }
@@ -920,7 +920,8 @@ const SIGNS = [];
   // the service areas' own signs: 2km, 1km, 500m and the next service areas before (on gantries, whose left post
   // stands beyond an entrance band), the nose, the merge warning. One that falls on an exit ramp or by a tunnel moves 20 m at a time toward the service area, or is left out
   // if that would bring it within 100 m of the next sign.
-  const busy = s => RAMPS.some(r => s > r.sDiv - 40 && s < r.sEnd + 40) || TUNNELS.some(t => s > t.s0 - 40 && s < t.s1 + 40);
+  const busy = s => RAMPS.some(r => s > r.sDiv - 40 && s < r.sEnd + 40) || TUNNELS.some(t => s > t.s0 - 40 && s < t.s1 + 40)
+    || SIGNS.some(g => (g.t === 'led' || g.t === 'exitAdv') && Math.abs(g.s - s) < 40);   // nor on another gantry
   for (const a of SAS) {
     const plan = [[a.sDiv - 1000, { t: 'saNext', sa: a }], [a.sDiv - 700, { t: 'saAdv', sa: a, d: '2km' }], [a.sDiv - 400, { t: 'saAdv', sa: a, d: '1km' }], [a.sDiv - 160, { t: 'saAdv', sa: a, d: '500m' }]];
     plan.forEach(([s0, g], k) => {
@@ -928,7 +929,7 @@ const SIGNS = [];
       let ss = s0; while (busy(ss) && ss <= limit) ss += 20;
       if (ss <= limit) SIGNS.push({ ...g, s: ss });
     });
-    SIGNS.push({ s: a.sDiv + a.uSep - 30, t: 'saNose', sa: a });
+    SIGNS.push({ s: a.sDiv + a.uSep + 20, t: 'saNose', sa: a });   // where the gore is over 4 m wide (the 2.3 m board clears both lanes)
     SIGNS.push({ s: a.sLot1 + 60, t: 'saMerge', sa: a });
   }
   // nothing roadside inside the bores
@@ -942,6 +943,7 @@ function soundWallAt(s, side) {
   if (p.wall < 0.3 || tunnelAt(s, 30)) return false;
   if (side < 0 && (rampAt(s - 30) || rampAt(s + 30))) return false;
   if (side < 0 && (entryAt(s - 30) || entryAt(s) || entryAt(s + 30))) return false;   // nor along an entrance band
+  if (side < 0 && (saAt(s - 30) || saAt(s) || saAt(s + 30))) return false;            // nor along a service area's lanes
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
 
@@ -1013,7 +1015,8 @@ function lampsIn(s0, s1) {
       if (u < u0 || u > u1) continue;
       const s = base + u; if (!clear(s)) continue;
       const e = edges(u, {}); drivable(s, _lmp); const lo = Math.min(..._lmp.map(iv => iv[0]));
-      if (lo < e.xl - 0.5) continue;   // the mainline's own left lamp already stands beyond this lane
+      const g = Math.round(s / 40) * 40;
+      if ((Math.abs(s - g) < 3 && zone(g) && clear(g)) || lo < e.xl - 0.5) continue;   // a mainline lamp stands here (40 m grid) or beyond this lane
       out.push({ s, lat: e.xl - 1.2, side: -1, kind, armLat: e.cx });
     }
   };
@@ -2400,11 +2403,17 @@ function saGroundBlend(s, lat) {
 // the driver tires, what a refuel costs, when the eyes close for a moment, and
 // which service area the navigation suggests.
 // ---------------------------------------------------------------------------
-// burn: how much faster the tank empties than the engine's own work alone would empty it, so a full tank lasts
-// about rangeKm (true km) with 15 t at 90 km/h on the flat
-const CARE = { fuelL: 120, price: 140, rangeKm: 220, rescueYen: 30000, rescueL: 20, burn: 10.2 };
-// fraction of a tank used per second (game time) at drive power `drive` (N) and speed v (m/s)
-function fuelRate(drive, v) { return (Math.max(0, drive * v) / (0.42 * 36e6) + 0.0004) * SCALE / 600 * CARE.burn; }
+// The tank: a full one lasts about rangeKm (km on the map) with 15 t at 90 km/h on the flat. The road is drawn 1:10, so
+// the work against rolling and air drag counts ten times over (SCALE); the work of speeding up and climbing is not
+// shortened by the map and counts once, at `extra` of its weight (a standing start then costs about what the distance
+// it covers would cost at a steady speed; before, it cost 12% of a tank).
+// plan: the share of rangeKm the navigation counts on; marginKm: what it keeps in hand.
+const CARE = { fuelL: 120, price: 140, rangeKm: 220, rescueYen: 30000, rescueMinL: 20, rescueMaxL: 60, burn: 1.17e-9, extra: 0.5, idle: 6.8e-5, plan: 0.8, marginKm: 10 };
+// fraction of a tank used per second (game time) at drive force `drive` (N), speed v (m/s), rig mass m (kg)
+function fuelRate(drive, v, m = 29600) {
+  const P = Math.max(0, drive * v), res = (0.0055 * m * 9.81 + 3.672 * v * v) * Math.abs(v);
+  return (Math.min(P, res) * SCALE + Math.max(0, P - res) * CARE.extra) * CARE.burn + CARE.idle;
+}
 // sleepiness gained per second of the game clock: 1 in 6 hours, half as fast again from 22:00 to 5:00
 function sleepyRate(clockSec) {
   const h = (clockSec / 3600) % 24;
@@ -2419,16 +2428,33 @@ function blinkGap(sleepy, r) {
 function refuel(fuel) { const liters = Math.round((1 - clamp(fuel, 0, 1)) * CARE.fuelL); return { liters, yen: liters * CARE.price }; }
 // roughly how far the fuel goes, in true km, to the nearest 10
 function fuelKm(fuel) { return Math.round(clamp(fuel, 0, 1) * CARE.rangeKm / 10) * 10; }
-// The service area the navigation suggests from s: with under 15% fuel ('fuel') or sleepiness 0.7 and over ('sleep'),
-// the nearest one whose divergence is still 160 m or more ahead; none when the destination's exit (destSDiv, at
-// kp destKp) comes first and the fuel goes 1.2 times as far as that.
-function saSuggest(s, fuel, sleepy, destSDiv, destKp) {
-  const why = fuel < 0.15 ? 'fuel' : sleepy >= 0.7 ? 'sleep' : null;
-  if (!why) return null;
-  const sa = SAS.find(a => a.sDiv - s >= 160);
+// How far (map km) the navigation counts on `fuel` going.
+function fuelReach(fuel) { return clamp(fuel, 0, 1) * CARE.rangeKm * CARE.plan; }
+// Map km from s to the pump after service area `sa`: the next area, or (after the last one) round the lap to the first.
+function _pumpAfterKm(s, sa) {
+  const nx = SAS[sa.i + 1];
+  return nx ? sToKp(nx.sDiv) - sToKp(s) : sToKp(RAMPS[RAMPS.length - 1].sDiv) - sToKp(s) + SAS[0].kp;
+}
+// The service area the navigation suggests from s, or null: 'fuel' when the fuel would not reach the pump after that
+// area with marginKm in hand, else 'sleep' at sleepiness 0.7 and over. The area is the nearest one whose divergence
+// is still 160 m or more ahead, or `keep` (the one suggested before) until its lane is passed, while no other area
+// lies before it. None when the destination's exit (destSDiv, at kp destKp) comes first and the fuel goes 1.2 times
+// as far as that.
+function saSuggest(s, fuel, sleepy, destSDiv, destKp, keep = null) {
+  const first = SAS.find(a => a.sDiv + a.uSep >= s);
+  const sa = keep && keep === first && s <= keep.sDiv + keep.uSep ? keep : SAS.find(a => a.sDiv - s >= 160);
   if (!sa) return null;
-  if (destSDiv < sa.sDiv && fuel * CARE.rangeKm >= 1.2 * (destKp - sToKp(s))) return null;
+  const why = fuelReach(fuel) < _pumpAfterKm(s, sa) + CARE.marginKm ? 'fuel' : sleepy >= 0.7 ? 'sleep' : null;
+  if (!why) return null;
+  if (destSDiv < sa.sDiv && fuelReach(fuel) >= 1.2 * (destKp - sToKp(s))) return null;
   return { sa, why };
+}
+// Litres the rescue brings at s: enough to reach the next service area with marginKm in hand (in steps of 5 L).
+function rescueLiters(s) {
+  const sa = SAS.find(a => a.sDiv - s >= 160);
+  const km = sa ? sToKp(sa.sDiv) - sToKp(s) : sToKp(RAMPS[RAMPS.length - 1].sDiv) - sToKp(s) + SAS[0].kp;
+  const L = Math.ceil((Math.max(0, km) + CARE.marginKm) / (CARE.rangeKm * CARE.plan) * CARE.fuelL / 5) * 5;
+  return clamp(L, CARE.rescueMinL, CARE.rescueMaxL);
 }
 
 // ==== 03-gfx.js ====
@@ -3822,7 +3848,7 @@ function buildSigns(ctx) {
       }
       case 'saNose': {   // at the nose where the lane leaves for the service area
         const e = saExitEdges(sg.s - sg.sa.sDiv);
-        placeAt(grp, O, sg.s, (e.xr + X_EDGE) / 2 - 0.4, 0);
+        placeAt(grp, O, sg.s, (e.xr + X_PAVE) / 2, 0);   // in the middle of the gore, between the two pavements
         postsFor(P, [0], 3.4, 0.09); P.build(grp);
         const mat = cachedTex('saNose', 384, 256, (g, w, h) => {
           greenSignBase(g, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -6444,8 +6470,8 @@ function drawClusterBG() {
   drawDial(g, DASH.L, 125, 5, 10, 20, v => String(v), 'km/h', [{ a: 85, b: 90, c: 'rgba(255,170,30,.55)' }]);
   drawDial(g, DASH.R, 30, 1, 5, 5, v => String(v), '×100 r/min', [{ a: 10, b: 15, c: 'rgba(60,200,110,.8)' }, { a: 23, b: 30, c: 'rgba(230,50,40,.85)' }]);
   // centre display frame
-  g.fillStyle = '#0a1016'; roundRect(g, 398, 34, 228, 312, 16); g.fill();
-  g.strokeStyle = '#1f2830'; g.lineWidth = 3; roundRect(g, 398, 34, 228, 312, 16); g.stroke();
+  g.fillStyle = '#0a1016'; roundRect(g, 398, 34, 228, 342, 16); g.fill();   // down to the sleepiness row
+  g.strokeStyle = '#1f2830'; g.lineWidth = 3; roundRect(g, 398, 34, 228, 342, 16); g.stroke();
 }
 function arrow(g, x, y, dir, on) {
   g.fillStyle = on ? '#35e07a' : '#16251c';
@@ -6504,11 +6530,12 @@ function drawCluster(st) {
   // fuel bar
   g.fillStyle = '#1d262e'; g.fillRect(430, 314, 164, 10);
   g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 314, 164 * st.fuel, 10);
-  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText(`燃料　残り 約 ${st.fuelKm} km`, 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
+  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText(`燃料　残り 約 ${st.fuelKm} km`, 430, 336);
   // sleepiness bar
   g.fillStyle = '#1d262e'; g.fillRect(430, 346, 164, 8);
   g.fillStyle = st.sleepy > 0.85 ? '#ff5a1f' : st.sleepy > 0.7 ? '#ffb020' : '#7fa7c9'; g.fillRect(430, 346, 164 * st.sleepy, 8);
   g.fillStyle = '#9fb3c4'; g.textAlign = 'left'; g.fillText('眠気', 430, 368);
+  g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 368);   // the odometer, on the row with room
   if (st.damage > 1) { g.fillStyle = st.damage > 25 ? '#ff5a1f' : '#ffb020'; g.textAlign = 'center'; g.font = font(18); g.fillText('損傷 ' + Math.round(st.damage) + '%', 512, 96); }
   DASH.tex.needsUpdate = true;
 }
@@ -7609,6 +7636,7 @@ const finite = v => (Number.isFinite(v) ? v : 0);
 // inp: { throttle 0..1, brake 0..1, steer -1..1 (right positive) }
 function stepTruck(dt, inp) {
   const T = TR, vPrev = T.v;
+  if (T.fuel <= 0 && T.cruise) { T.cruise = false; EVENTS.push({ t: 'cruiseOff' }); }   // an empty tank: the cruise control lets go
   const pt = powertrainStep(dt, T.fuel > 0 ? finite(inp.throttle) : 0, finite(inp.brake));   // an empty tank: no drive
   const lim = rigSteerLimit(T.v);
   const target = clamp(clamp(finite(inp.steer), -1, 1) * steerLock(T.v), -lim, lim);
@@ -7640,7 +7668,7 @@ function stepTruck(dt, inp) {
   T.latAcc = damp(T.latAcc, T.v * T.yawRate, 8, dt);
   T.spin += T.v / RW * dt;
   T.odo += Math.abs(T.v) * dt * SCALE / 1000;
-  T.fuel = Math.max(0, T.fuel - fuelRate(pt.drive, T.v) * dt);
+  T.fuel = Math.max(0, T.fuel - fuelRate(pt.drive, T.v, T.mass) * dt);
   const c = T.cab;
   const bump = (vnoise(T.s * 0.35, 0, 3) - 0.5) * Math.min(1, Math.abs(T.v) / 15);
   c.pv += ((clamp(T.accel * 0.006, -0.045, 0.035) + T.surge * 0.25 - c.p) * 70 - c.pv * 9) * dt; c.p += c.pv * dt;   // liquid cargo rocks the cab
@@ -8380,9 +8408,12 @@ const GAME = {
 };
 
 // ---- jobs -------------------------------------------------------------------
-function setupJob(idx) {
+// again: the job's start (fuel and sleepiness as they were then) when it is started over
+function setupJob(idx, again = null) {
   const j = jobInfo(JOBS[idx]);
-  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, fuelCost: 0, fuelN: 0, rescue: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
+  if (again) { TR.fuel = again.fuel0; GAME.sleepy = again.sleepy0; }
+  NAV.sug = null;
+  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, fuelCost: 0, fuelN: 0, rescue: 0, fuel0: TR.fuel, sleepy0: GAME.sleepy, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
   setRigTrailer(j.trailer, j.mass * 1000);
   RIG.assistOn = GAME.assist;
   TRL = TRAILER_MODELS[j.trailer];
@@ -8519,7 +8550,7 @@ function handleActions() {
         break;
       case 'cruise':
         if (!TR.cruise) {
-          if (TR.v * 3.6 >= 30 && TR.dir === 1) { TR.cruise = true; TR.cruiseV = Math.min(TR.v, VMAX); TR.cruiseI = 0; led('クルーズ ' + Math.round(TR.cruiseV * 3.6) + ' km/h'); }
+          if (TR.v * 3.6 >= 30 && TR.dir === 1 && TR.fuel > 0) { TR.cruise = true; TR.cruiseV = Math.min(TR.v, VMAX); TR.cruiseI = 0; led('クルーズ ' + Math.round(TR.cruiseV * 3.6) + ' km/h'); }
           else led('クルーズは30km/h以上で使えます');
         } else { TR.cruise = false; led('クルーズ解除'); }
         break;
@@ -8738,8 +8769,9 @@ function toggleMenu() {
 $('resumeBtn').addEventListener('click', toggleMenu);
 $('restartBtn').addEventListener('click', async () => {
   $('menuOv').hidden = true;
-  GAME.clock = GAME.job.startClock; lsSet('nlh.drive', null);
-  setupJob(GAME.jobIdx);
+  const j0 = GAME.job, unit = x => Number.isFinite(x) && x >= 0 && x <= 1;
+  GAME.clock = j0.startClock; lsSet('nlh.drive', null);
+  setupJob(GAME.jobIdx, unit(j0.fuel0) && unit(j0.sleepy0) ? j0 : null);   // the fuel and sleepiness the job began with
   GAME.state = 'loading';
   await preloadAround('やり直し');
   GAME.state = 'drive'; showHud(true);
@@ -8868,7 +8900,7 @@ function saTarget(p) {
   if (fuel && saPumpAt(L, p.u, p.v, p.hu, p.hv)) return { kind: 'stopFuel', u: p.u, v: p.v };
   if (nap) { const st = L.stalls.filter(x => !x.taken && x.u - 20 > p.u).sort((x, y) => x.u - y.u)[0]; if (st) return { kind: 'toStall', u: st.u, v: st.v, id: st.id }; }
   if (fuel) { const pp = L.pumps.filter(x => x.u + 11 > p.u).sort((x, y) => Math.abs(x.v - p.v) - Math.abs(y.v - p.v))[0]; if (pp) return { kind: 'toPump', u: pp.u, v: pp.v, id: pp.id }; }
-  return { kind: 'toOut', u: 460, v: 22 };
+  return { kind: 'toOut', u: 520, v: -saEntryEdges(520 - SA_LOT1).cx };   // on the merge lane, past where the area's zone ends (u 500)
 }
 function saManeuver() {
   const p = saPos(); if (!p) return null;
@@ -8884,8 +8916,7 @@ function saManeuver() {
 function navUpdate(dt) {
   try {
     if (TR.zone !== 'sa') {   // a suggestion stands until its service area's lane is passed (the 160 m rule is for choosing one)
-      const g = NAV.sug, keep = g && TR.s <= g.sa.sDiv + g.sa.uSep && (TR.fuel < 0.15 || GAME.sleepy >= 0.7);
-      if (!keep) NAV.sug = saSuggest(TR.s, TR.fuel, GAME.sleepy, destRamp().sDiv, ICS[GAME.job.to].kp);
+      NAV.sug = saSuggest(TR.s, TR.fuel, GAME.sleepy, destRamp().sDiv, ICS[GAME.job.to].kp, NAV.sug && NAV.sug.sa);
     }
     if (NAV.leg !== 'sa') NAV.saTarget = null;
     NAV.msgT = Math.max(0, NAV.msgT - dt);
@@ -9206,7 +9237,8 @@ function driveState() {
   const j = GAME.job;
   return { job: GAME.jobIdx, x: TR.x, z: TR.z, h: TR.h, v: TR.v, link: TR.link, trailer: { x: TR.tr.kx, z: TR.tr.kz, h: TR.tr.h },
     clock: GAME.clock, money: GAME.money, damage: TR.damage, fuel: TR.fuel, sleepy: GAME.sleepy,
-    jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock, fuelCost: j.fuelCost, fuelN: j.fuelN, rescue: j.rescue } };
+    saVis: [...SA_LOADED].map(([k, A]) => [k, A.layout.visit]),   // the loaded service areas are made the same way again
+    jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock, fuelCost: j.fuelCost, fuelN: j.fuelN, rescue: j.rescue, fuel0: j.fuel0, sleepy0: j.sleepy0 } };
 }
 function saveDrive() { if (GAME.state === 'drive' && GAME.job) lsSet('nlh.drive', driveState()); }
 function driveSaveOk(d) {
@@ -9222,6 +9254,8 @@ function loadDrive(d) {
   const unit = x => Number.isFinite(x) && x >= 0 && x <= 1;
   if (unit(d.fuel)) TR.fuel = d.fuel;
   if (unit(d.sleepy)) GAME.sleepy = d.sleepy;
+  if (!unit(j.fuel0)) j.fuel0 = TR.fuel; if (!unit(j.sleepy0)) j.sleepy0 = GAME.sleepy;
+  if (Array.isArray(d.saVis)) for (const e of d.saVis) if (Array.isArray(e) && Number.isInteger(e[0]) && e[0] >= 0 && e[0] < SAS.length && Number.isInteger(e[1]) && e[1] >= 0) SA_VISITS[e[0]] = e[1];
   placeTruckAt(d.x, d.z, d.h, 0, { coupled: false });
   parkTrailerAt(d.trailer.x, d.trailer.z, d.trailer.h);
   if (!free) { rigCouple(); TR.link = 'coupled'; syncTR(); }   // coupled at the angle it was saved at
@@ -9298,11 +9332,11 @@ function saRigAt() {
 // What the place button offers now (standing still while driving), or null.
 function stopKindNow() {
   if (GAME.state !== 'drive' || Math.abs(TR.v) * 3.6 >= 1) return null;
-  if (TR.fuel <= 0) return 'rescue';
   const r = saRigAt();
+  if (r && TR.fuel < 0.98 && saPumpAt(r.L, r.u, r.v, r.hu, r.hv)) return 'fuel';   // at the pump, even on an empty tank
+  if (TR.fuel <= 0) return 'rescue';
   if (!r) return null;
-  if (TR.fuel < 0.98 && saPumpAt(r.L, r.u, r.v, r.hu, r.hv)) return 'fuel';
-  if (saStallAt(r.L, r.u, r.v, r.hu, r.hv)) return 'nap';
+  if (GAME.sleepy >= 0.05 && saStallAt(r.L, r.u, r.v, r.hu, r.hv)) return 'nap';   // not again straight after a nap
   return null;
 }
 const STOP_LABEL = { fuel: '給油', nap: '仮眠', rescue: '救援を呼ぶ' }, STOP_WAIT = { fuel: '給油中…', nap: '仮眠中…', rescue: '救援を待っています…' };
@@ -9316,6 +9350,14 @@ const _wait = ms => new Promise(r => setTimeout(r, ms));
 async function stopRun(kind) {
   if (STOP.busy || GAME.state !== 'drive' || !kind || kind !== stopKindNow()) return;
   STOP.busy = true; GAME.state = 'stop';
+  try { await _stopSteps(kind); }
+  catch (e) { console.warn('stop: ' + (e && e.message)); }
+  finally {   // whatever happened, the screen comes back and the game goes on
+    const ov = $('fadeOv'); ov.classList.remove('on'); ov.hidden = true;
+    GAME.state = 'drive'; STOP.busy = false; GAME.stopKind = null; stopUpdate();
+  }
+}
+async function _stopSteps(kind) {
   scaleSpeed(0); TR.cruise = false; setHorn(false); INP.tGas = INP.tBrake = 0;
   const ov = $('fadeOv'); $('fadeText').textContent = STOP_WAIT[kind];
   ov.hidden = false; await _wait(20); ov.classList.add('on'); await _wait(650);
@@ -9328,13 +9370,13 @@ async function stopRun(kind) {
     GAME.clock += 1800; GAME.sleepy = 0;
     led('30 分の仮眠をとりました', false, 4);
   } else {
-    GAME.clock += 3600; TR.fuel = CARE.rescueL / CARE.fuelL; j.rescue += CARE.rescueYen;
-    led('救援が来ました　燃料 20 L', false, 4);
+    const L = rescueLiters(TR.s);
+    GAME.clock += 3600; TR.fuel = L / CARE.fuelL; j.rescue += CARE.rescueYen;
+    led(`救援が来ました　燃料 ${L} L`, false, 4);
   }
   GAME.todT = 0; careSave();
   await _wait(700);
-  ov.classList.remove('on'); await _wait(650); ov.hidden = true;
-  GAME.state = 'drive'; STOP.busy = false; GAME.stopKind = null; stopUpdate();
+  ov.classList.remove('on'); await _wait(650);
 }
 // Sleepiness grows with the clock while driving; the notices come once each time a level is crossed.
 function careTick(dt) {

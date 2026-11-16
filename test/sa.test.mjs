@@ -155,3 +155,14 @@ test('SA の標識：6 か所それぞれに 500m の案内・「SA 入口」・
     for (const g of SIM.SIGNS) if (['dist', 'speed', 'gap', 'kp', 'led'].includes(g.t)) assert.ok(g.s < a.sDiv - 20 || g.s > a.sEnd + 20, `${g.t} at ${g.s} in ${a.jp}`);
   }
 });
+test('SA の車線には防音壁がない（6 か所とも、分かれ目から合流の終わりまで）', () => {
+  for (const a of SIM.SAS) for (let s = a.sDiv - 30; s <= a.sEnd + 30; s += 5) assert.ok(!SIM.soundWallAt(s, -1), `${a.jp} ${s - a.sDiv}`);
+});
+test('SA の入口の標識（ノーズ）の板（幅 2.3 m）は、本線からも SA の車線からも 0.5 m 以上離れている', () => {
+  const iv = [];
+  for (const g of SIM.SIGNS.filter(x => x.t === 'saNose')) {
+    const e = SIM.saExitEdges(g.s - g.sa.sDiv), c = (e.xr - 12.2) / 2;   // as 05-world.js places it
+    SIM.drivable(g.s, iv);
+    for (const [lo, hi] of iv) assert.ok(c + 1.15 < lo - 0.5 || c - 1.15 > hi + 0.5, `${g.sa.jp}: board ${(c - 1.15).toFixed(2)}..${(c + 1.15).toFixed(2)} in [${lo.toFixed(2)}, ${hi.toFixed(2)}]`);
+  }
+});

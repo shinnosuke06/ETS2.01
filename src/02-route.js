@@ -284,7 +284,7 @@ function drivable(s, out) {
 // ---- signs ----------------------------------------------------------------
 const SIGNS = [];
 (function placeSigns() {
-  const free = (s, m = 60) => !RAMPS.some(r => s > r.sDiv - m && s < r.sEnd + m) && !TUNNELS.some(t => s > t.s0 - m - 40 && s < t.s1 + m);
+  const free = (s, m = 60) => !RAMPS.some(r => (s > r.sDiv - m && s < r.sEnd + m) || [700, 400, 160].some(d => Math.abs(s - (r.sDiv - d)) < 40)) && !TUNNELS.some(t => s > t.s0 - m - 40 && s < t.s1 + m);
   for (let s = S0 + 100; s < ROUTE_END - 50; s += 100) {
     if (!tunnelAt(s, 4)) SIGNS.push({ s, t: 'kp', kp: Math.round(sToKp(s)) });
   }
@@ -339,7 +339,8 @@ const SIGNS = [];
   // the service areas' own signs: 2km, 1km, 500m and the next service areas before (on gantries, whose left post
   // stands beyond an entrance band), the nose, the merge warning. One that falls on an exit ramp or by a tunnel moves 20 m at a time toward the service area, or is left out
   // if that would bring it within 100 m of the next sign.
-  const busy = s => RAMPS.some(r => s > r.sDiv - 40 && s < r.sEnd + 40) || TUNNELS.some(t => s > t.s0 - 40 && s < t.s1 + 40);
+  const busy = s => RAMPS.some(r => s > r.sDiv - 40 && s < r.sEnd + 40) || TUNNELS.some(t => s > t.s0 - 40 && s < t.s1 + 40)
+    || SIGNS.some(g => (g.t === 'led' || g.t === 'exitAdv') && Math.abs(g.s - s) < 40);   // nor on another gantry
   for (const a of SAS) {
     const plan = [[a.sDiv - 1000, { t: 'saNext', sa: a }], [a.sDiv - 700, { t: 'saAdv', sa: a, d: '2km' }], [a.sDiv - 400, { t: 'saAdv', sa: a, d: '1km' }], [a.sDiv - 160, { t: 'saAdv', sa: a, d: '500m' }]];
     plan.forEach(([s0, g], k) => {
@@ -347,7 +348,7 @@ const SIGNS = [];
       let ss = s0; while (busy(ss) && ss <= limit) ss += 20;
       if (ss <= limit) SIGNS.push({ ...g, s: ss });
     });
-    SIGNS.push({ s: a.sDiv + a.uSep - 30, t: 'saNose', sa: a });
+    SIGNS.push({ s: a.sDiv + a.uSep + 20, t: 'saNose', sa: a });   // where the gore is over 4 m wide (the 2.3 m board clears both lanes)
     SIGNS.push({ s: a.sLot1 + 60, t: 'saMerge', sa: a });
   }
   // nothing roadside inside the bores
@@ -361,6 +362,7 @@ function soundWallAt(s, side) {
   if (p.wall < 0.3 || tunnelAt(s, 30)) return false;
   if (side < 0 && (rampAt(s - 30) || rampAt(s + 30))) return false;
   if (side < 0 && (entryAt(s - 30) || entryAt(s) || entryAt(s + 30))) return false;   // nor along an entrance band
+  if (side < 0 && (saAt(s - 30) || saAt(s) || saAt(s + 30))) return false;            // nor along a service area's lanes
   return hash2(Math.floor(s / 100), side, 77) < p.wall * 0.8;
 }
 
@@ -432,7 +434,8 @@ function lampsIn(s0, s1) {
       if (u < u0 || u > u1) continue;
       const s = base + u; if (!clear(s)) continue;
       const e = edges(u, {}); drivable(s, _lmp); const lo = Math.min(..._lmp.map(iv => iv[0]));
-      if (lo < e.xl - 0.5) continue;   // the mainline's own left lamp already stands beyond this lane
+      const g = Math.round(s / 40) * 40;
+      if ((Math.abs(s - g) < 3 && zone(g) && clear(g)) || lo < e.xl - 0.5) continue;   // a mainline lamp stands here (40 m grid) or beyond this lane
       out.push({ s, lat: e.xl - 1.2, side: -1, kind, armLat: e.cx });
     }
   };

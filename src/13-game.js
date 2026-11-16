@@ -100,9 +100,12 @@ const GAME = {
 };
 
 // ---- jobs -------------------------------------------------------------------
-function setupJob(idx) {
+// again: the job's start (fuel and sleepiness as they were then) when it is started over
+function setupJob(idx, again = null) {
   const j = jobInfo(JOBS[idx]);
-  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, fuelCost: 0, fuelN: 0, rescue: 0, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
+  if (again) { TR.fuel = again.fuel0; GAME.sleepy = again.sleepy0; }
+  NAV.sug = null;
+  GAME.job = { ...j, fines: 0, toll: 0, missPen: 0, fuelCost: 0, fuelN: 0, rescue: 0, fuel0: TR.fuel, sleepy0: GAME.sleepy, startClock: GAME.clock, due: GAME.clock + j.km / 70 * 3600 + j.townKm / 20 * 3600 * TIME_SCALE };
   setRigTrailer(j.trailer, j.mass * 1000);
   RIG.assistOn = GAME.assist;
   TRL = TRAILER_MODELS[j.trailer];
@@ -239,7 +242,7 @@ function handleActions() {
         break;
       case 'cruise':
         if (!TR.cruise) {
-          if (TR.v * 3.6 >= 30 && TR.dir === 1) { TR.cruise = true; TR.cruiseV = Math.min(TR.v, VMAX); TR.cruiseI = 0; led('クルーズ ' + Math.round(TR.cruiseV * 3.6) + ' km/h'); }
+          if (TR.v * 3.6 >= 30 && TR.dir === 1 && TR.fuel > 0) { TR.cruise = true; TR.cruiseV = Math.min(TR.v, VMAX); TR.cruiseI = 0; led('クルーズ ' + Math.round(TR.cruiseV * 3.6) + ' km/h'); }
           else led('クルーズは30km/h以上で使えます');
         } else { TR.cruise = false; led('クルーズ解除'); }
         break;
@@ -458,8 +461,9 @@ function toggleMenu() {
 $('resumeBtn').addEventListener('click', toggleMenu);
 $('restartBtn').addEventListener('click', async () => {
   $('menuOv').hidden = true;
-  GAME.clock = GAME.job.startClock; lsSet('nlh.drive', null);
-  setupJob(GAME.jobIdx);
+  const j0 = GAME.job, unit = x => Number.isFinite(x) && x >= 0 && x <= 1;
+  GAME.clock = j0.startClock; lsSet('nlh.drive', null);
+  setupJob(GAME.jobIdx, unit(j0.fuel0) && unit(j0.sleepy0) ? j0 : null);   // the fuel and sleepiness the job began with
   GAME.state = 'loading';
   await preloadAround('やり直し');
   GAME.state = 'drive'; showHud(true);
@@ -588,7 +592,7 @@ function saTarget(p) {
   if (fuel && saPumpAt(L, p.u, p.v, p.hu, p.hv)) return { kind: 'stopFuel', u: p.u, v: p.v };
   if (nap) { const st = L.stalls.filter(x => !x.taken && x.u - 20 > p.u).sort((x, y) => x.u - y.u)[0]; if (st) return { kind: 'toStall', u: st.u, v: st.v, id: st.id }; }
   if (fuel) { const pp = L.pumps.filter(x => x.u + 11 > p.u).sort((x, y) => Math.abs(x.v - p.v) - Math.abs(y.v - p.v))[0]; if (pp) return { kind: 'toPump', u: pp.u, v: pp.v, id: pp.id }; }
-  return { kind: 'toOut', u: 460, v: 22 };
+  return { kind: 'toOut', u: 520, v: -saEntryEdges(520 - SA_LOT1).cx };   // on the merge lane, past where the area's zone ends (u 500)
 }
 function saManeuver() {
   const p = saPos(); if (!p) return null;
@@ -604,8 +608,7 @@ function saManeuver() {
 function navUpdate(dt) {
   try {
     if (TR.zone !== 'sa') {   // a suggestion stands until its service area's lane is passed (the 160 m rule is for choosing one)
-      const g = NAV.sug, keep = g && TR.s <= g.sa.sDiv + g.sa.uSep && (TR.fuel < 0.15 || GAME.sleepy >= 0.7);
-      if (!keep) NAV.sug = saSuggest(TR.s, TR.fuel, GAME.sleepy, destRamp().sDiv, ICS[GAME.job.to].kp);
+      NAV.sug = saSuggest(TR.s, TR.fuel, GAME.sleepy, destRamp().sDiv, ICS[GAME.job.to].kp, NAV.sug && NAV.sug.sa);
     }
     if (NAV.leg !== 'sa') NAV.saTarget = null;
     NAV.msgT = Math.max(0, NAV.msgT - dt);
@@ -926,7 +929,8 @@ function driveState() {
   const j = GAME.job;
   return { job: GAME.jobIdx, x: TR.x, z: TR.z, h: TR.h, v: TR.v, link: TR.link, trailer: { x: TR.tr.kx, z: TR.tr.kz, h: TR.tr.h },
     clock: GAME.clock, money: GAME.money, damage: TR.damage, fuel: TR.fuel, sleepy: GAME.sleepy,
-    jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock, fuelCost: j.fuelCost, fuelN: j.fuelN, rescue: j.rescue } };
+    saVis: [...SA_LOADED].map(([k, A]) => [k, A.layout.visit]),   // the loaded service areas are made the same way again
+    jp: { to: j.to, fines: j.fines, toll: j.toll, missPen: j.missPen, due: j.due, startClock: j.startClock, fuelCost: j.fuelCost, fuelN: j.fuelN, rescue: j.rescue, fuel0: j.fuel0, sleepy0: j.sleepy0 } };
 }
 function saveDrive() { if (GAME.state === 'drive' && GAME.job) lsSet('nlh.drive', driveState()); }
 function driveSaveOk(d) {
@@ -942,6 +946,8 @@ function loadDrive(d) {
   const unit = x => Number.isFinite(x) && x >= 0 && x <= 1;
   if (unit(d.fuel)) TR.fuel = d.fuel;
   if (unit(d.sleepy)) GAME.sleepy = d.sleepy;
+  if (!unit(j.fuel0)) j.fuel0 = TR.fuel; if (!unit(j.sleepy0)) j.sleepy0 = GAME.sleepy;
+  if (Array.isArray(d.saVis)) for (const e of d.saVis) if (Array.isArray(e) && Number.isInteger(e[0]) && e[0] >= 0 && e[0] < SAS.length && Number.isInteger(e[1]) && e[1] >= 0) SA_VISITS[e[0]] = e[1];
   placeTruckAt(d.x, d.z, d.h, 0, { coupled: false });
   parkTrailerAt(d.trailer.x, d.trailer.z, d.trailer.h);
   if (!free) { rigCouple(); TR.link = 'coupled'; syncTR(); }   // coupled at the angle it was saved at

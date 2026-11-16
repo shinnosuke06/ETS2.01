@@ -43,8 +43,8 @@ function drawClusterBG() {
   drawDial(g, DASH.L, 125, 5, 10, 20, v => String(v), 'km/h', [{ a: 85, b: 90, c: 'rgba(255,170,30,.55)' }]);
   drawDial(g, DASH.R, 30, 1, 5, 5, v => String(v), '×100 r/min', [{ a: 10, b: 15, c: 'rgba(60,200,110,.8)' }, { a: 23, b: 30, c: 'rgba(230,50,40,.85)' }]);
   // centre display frame
-  g.fillStyle = '#0a1016'; roundRect(g, 398, 34, 228, 312, 16); g.fill();
-  g.strokeStyle = '#1f2830'; g.lineWidth = 3; roundRect(g, 398, 34, 228, 312, 16); g.stroke();
+  g.fillStyle = '#0a1016'; roundRect(g, 398, 34, 228, 342, 16); g.fill();   // down to the sleepiness row
+  g.strokeStyle = '#1f2830'; g.lineWidth = 3; roundRect(g, 398, 34, 228, 342, 16); g.stroke();
 }
 function arrow(g, x, y, dir, on) {
   g.fillStyle = on ? '#35e07a' : '#16251c';
@@ -103,11 +103,12 @@ function drawCluster(st) {
   // fuel bar
   g.fillStyle = '#1d262e'; g.fillRect(430, 314, 164, 10);
   g.fillStyle = st.fuel < 0.15 ? '#ff5a1f' : '#e8eef2'; g.fillRect(430, 314, 164 * st.fuel, 10);
-  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText(`燃料　残り 約 ${st.fuelKm} km`, 430, 336); g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 336);
+  g.fillStyle = '#9fb3c4'; g.font = font(15, 400); g.textAlign = 'left'; g.fillText(`燃料　残り 約 ${st.fuelKm} km`, 430, 336);
   // sleepiness bar
   g.fillStyle = '#1d262e'; g.fillRect(430, 346, 164, 8);
   g.fillStyle = st.sleepy > 0.85 ? '#ff5a1f' : st.sleepy > 0.7 ? '#ffb020' : '#7fa7c9'; g.fillRect(430, 346, 164 * st.sleepy, 8);
   g.fillStyle = '#9fb3c4'; g.textAlign = 'left'; g.fillText('眠気', 430, 368);
+  g.textAlign = 'right'; g.fillText(Math.round(st.odo).toLocaleString('ja-JP') + ' km', 594, 368);   // the odometer, on the row with room
   if (st.damage > 1) { g.fillStyle = st.damage > 25 ? '#ff5a1f' : '#ffb020'; g.textAlign = 'center'; g.font = font(18); g.fillText('損傷 ' + Math.round(st.damage) + '%', 512, 96); }
   DASH.tex.needsUpdate = true;
 }

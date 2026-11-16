@@ -25,7 +25,7 @@ test('空いている大型車の枠で止まると「仮眠」が出て、押�
   assert.deepEqual(errors, []);
 }));
 
-test('E2 燃料切れ：本線で燃料 0 → アクセルが効かず止まる → 「救援を呼ぶ」→ 燃料 20 L、時計 +60 分、結果の画面に「救援　-¥30,000」', () => withGame({}, async (page, errors) => {
+test('E2 燃料切れ：本線で燃料 0 → アクセルが効かず止まる → 「救援を呼ぶ」→ 次の SA まで届く燃料、時計 +60 分、結果の画面に「救援　-¥30,000」', () => withGame({}, async (page, errors) => {
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
@@ -37,15 +37,15 @@ test('E2 燃料切れ：本線で燃料 0 → アクセルが効かず止まる 
     return { v0, vmax, led: document.getElementById('ledText').textContent, hazard: GAME.hazard, shown: !document.getElementById('bStop').hidden, text: document.getElementById('bStop').textContent };
   });
   assert.ok(r.vmax <= r.v0 + 0.01, JSON.stringify(r)); assert.equal(r.shown, true); assert.equal(r.text, '救援を呼ぶ'); assert.equal(r.hazard, true);
-  const c0 = await page.evaluate(() => GAME.clock), p = await pressStop(page);
+  const c0 = await page.evaluate(() => GAME.clock), L = await page.evaluate(() => rescueLiters(TR.s)), p = await pressStop(page);
   const after = await page.evaluate(() => { const o = { fuel: TR.fuel, rescue: GAME.job.rescue, clock: GAME.clock }; completeJob({}); o.rows = document.getElementById('resRows').textContent; return o; });
-  assert.equal(p.led, '救援が来ました　燃料 20 L');
-  assert.ok(Math.abs(after.fuel - 20 / 120) < 1e-4, `${after.fuel}`); assert.equal(after.rescue, 30000); assert.ok(Math.abs(after.clock - c0 - 3600) < 3);
+  assert.ok(L >= 20 && L <= 60, `${L}`); assert.equal(p.led, `救援が来ました　燃料 ${L} L`);
+  assert.ok(Math.abs(after.fuel - L / 120) < 1e-4, `${after.fuel}`); assert.equal(after.rescue, 30000); assert.ok(Math.abs(after.clock - c0 - 3600) < 3);
   assert.match(after.rows, /救援-¥30,000/);
   assert.deepEqual(errors, []);
 }));
 
-test('燃料切れでも、ブレーキで止まっていられ、救援のあと走り出せる（上り坂と加速車線の上）', () => withGame({}, async (page, errors) => {
+test('燃料切れで止まると、ペダルを踏まなくても坂で下がらず、救援のあと走り出せる（上り坂と加速車線の上）', () => withGame({}, async (page, errors) => {
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
     INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
@@ -84,5 +84,34 @@ test('暗転の間のボタンとキーは効かない（給油を 2 回押し�
   });
   assert.deepEqual({ n: r.n, cost: r.cost, state: r.state, menu: r.menu, map: r.map }, { n: 1, cost: 13440, state: 'drive', menu: false, map: false });
   assert.equal(r.camNow, r.cam);
+  assert.deepEqual(errors, []);
+}));
+
+test('燃料 0 で給油の枠に入ったときは、救援ではなく「給油」が出る', () => withGame({}, async (page, errors) => {
+  await atLane(page, 0, 100, 0);
+  await page.evaluate(() => { TR.fuel = 0; });
+  assert.deepEqual(await inSlot(page, 'pump'), { shown: true, text: '給油', kind: 'fuel' });
+  assert.deepEqual(errors, []);
+}));
+
+test('仮眠のすぐあとは、同じ枠でもう一度「仮眠」は出ない', () => withGame({}, async (page, errors) => {
+  await atLane(page, 0, 100, 0);
+  await page.evaluate(() => { GAME.sleepy = 0.8; });
+  await inSlot(page, 'stall'); await pressStop(page);
+  const r = await page.evaluate(() => { for (let n = 0; n < 30; n++) simTick(1 / 60); return { shown: !document.getElementById('bStop').hidden, kind: GAME.stopKind }; });
+  assert.deepEqual(r, { shown: false, kind: null });
+  assert.deepEqual(errors, []);
+}));
+
+test('やり直しで、燃料と眠気が仕事を始めたときの値に戻り、寄り道の案内も消える', () => withGame({}, async (page, errors) => {
+  await startJob(page); await driveHelpers(page);
+  const r = await page.evaluate(async () => {
+    const f0 = GAME.job.fuel0, s0 = GAME.job.sleepy0;   // as the job began
+    TR.fuel = 0.05; GAME.sleepy = 0.9; NAV.sug = { sa: SAS[3], why: 'fuel' };
+    document.getElementById('restartBtn').click();
+    const t0 = performance.now(); while (GAME.state !== 'drive' && performance.now() - t0 < 30000) await __t.frames(1);
+    return { f0, s0, fuel: TR.fuel, sleepy: GAME.sleepy, sug: NAV.sug };
+  });
+  assert.ok(r.f0 > 0.5 && Math.abs(r.fuel - r.f0) < 2e-3 && Math.abs(r.sleepy - r.s0) < 2e-3, JSON.stringify(r)); assert.equal(r.sug, null);   // a few frames run after it
   assert.deepEqual(errors, []);
 }));

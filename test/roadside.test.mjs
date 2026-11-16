@@ -89,3 +89,11 @@ test('S9 同じ所の照明灯は、どの範囲で聞いても同じ（チャ�
   const parts = []; for (let s = 0; s < SIM.ROUTE_LEN; s += 200) parts.push(...SIM.lampsIn(s, s + 200).map(l => `${l.s}:${l.lat}`));
   assert.deepEqual(parts.sort(), all);
 });
+test('門型の標識（出口・SA の予告と電光板）どうしは 30 m 以上離れている', () => {
+  const g = SIM.SIGNS.filter(x => ['led', 'exitAdv', 'saAdv', 'saNext'].includes(x.t)).sort((a, b) => a.s - b.s);
+  for (let i = 1; i < g.length; i++) assert.ok(g[i].s - g[i - 1].s >= 30, `${g[i - 1].t} ${g[i - 1].s} / ${g[i].t} ${g[i].s}`);
+});
+test('左の照明灯が 3 m 以内に 2 本並ぶことはない', () => {
+  const L = SIM.lampsIn(0, SIM.ROUTE_LEN).filter(l => l.side < 0).sort((a, b) => a.s - b.s);
+  for (let i = 1; i < L.length; i++) assert.ok(L[i].s - L[i - 1].s >= 3, `${L[i - 1].s} / ${L[i].s}`);
+});

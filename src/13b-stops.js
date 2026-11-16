@@ -16,11 +16,11 @@ function saRigAt() {
 // What the place button offers now (standing still while driving), or null.
 function stopKindNow() {
   if (GAME.state !== 'drive' || Math.abs(TR.v) * 3.6 >= 1) return null;
-  if (TR.fuel <= 0) return 'rescue';
   const r = saRigAt();
+  if (r && TR.fuel < 0.98 && saPumpAt(r.L, r.u, r.v, r.hu, r.hv)) return 'fuel';   // at the pump, even on an empty tank
+  if (TR.fuel <= 0) return 'rescue';
   if (!r) return null;
-  if (TR.fuel < 0.98 && saPumpAt(r.L, r.u, r.v, r.hu, r.hv)) return 'fuel';
-  if (saStallAt(r.L, r.u, r.v, r.hu, r.hv)) return 'nap';
+  if (GAME.sleepy >= 0.05 && saStallAt(r.L, r.u, r.v, r.hu, r.hv)) return 'nap';   // not again straight after a nap
   return null;
 }
 const STOP_LABEL = { fuel: '給油', nap: '仮眠', rescue: '救援を呼ぶ' }, STOP_WAIT = { fuel: '給油中…', nap: '仮眠中…', rescue: '救援を待っています…' };
@@ -34,6 +34,14 @@ const _wait = ms => new Promise(r => setTimeout(r, ms));
 async function stopRun(kind) {
   if (STOP.busy || GAME.state !== 'drive' || !kind || kind !== stopKindNow()) return;
   STOP.busy = true; GAME.state = 'stop';
+  try { await _stopSteps(kind); }
+  catch (e) { console.warn('stop: ' + (e && e.message)); }
+  finally {   // whatever happened, the screen comes back and the game goes on
+    const ov = $('fadeOv'); ov.classList.remove('on'); ov.hidden = true;
+    GAME.state = 'drive'; STOP.busy = false; GAME.stopKind = null; stopUpdate();
+  }
+}
+async function _stopSteps(kind) {
   scaleSpeed(0); TR.cruise = false; setHorn(false); INP.tGas = INP.tBrake = 0;
   const ov = $('fadeOv'); $('fadeText').textContent = STOP_WAIT[kind];
   ov.hidden = false; await _wait(20); ov.classList.add('on'); await _wait(650);
@@ -46,13 +54,13 @@ async function stopRun(kind) {
     GAME.clock += 1800; GAME.sleepy = 0;
     led('30 分の仮眠をとりました', false, 4);
   } else {
-    GAME.clock += 3600; TR.fuel = CARE.rescueL / CARE.fuelL; j.rescue += CARE.rescueYen;
-    led('救援が来ました　燃料 20 L', false, 4);
+    const L = rescueLiters(TR.s);
+    GAME.clock += 3600; TR.fuel = L / CARE.fuelL; j.rescue += CARE.rescueYen;
+    led(`救援が来ました　燃料 ${L} L`, false, 4);
   }
   GAME.todT = 0; careSave();
   await _wait(700);
-  ov.classList.remove('on'); await _wait(650); ov.hidden = true;
-  GAME.state = 'drive'; STOP.busy = false; GAME.stopKind = null; stopUpdate();
+  ov.classList.remove('on'); await _wait(650);
 }
 // Sleepiness grows with the clock while driving; the notices come once each time a level is crossed.
 function careTick(dt) {

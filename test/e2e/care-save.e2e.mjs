@@ -17,6 +17,32 @@ test('E3 開き直し：燃料と眠気が保存した値に戻る', async () =>
   });
 });
 
+test('同じページで 2 度目に作られた SA の、そのときだけ空いていた大型車の枠で開き直しても、止まっているトラックに重ならない', async () => {
+  let store, slot;
+  await withGame({}, async page => {
+    await atLane(page, 0, 100, 0);
+    ({ store, slot } = await page.evaluate(async () => {
+      // 中井 made again (as after やり直し or the second lap): visit 1; a stall free then but taken on visit 0
+      saDrop(0); SA_VISITS[0] = 1; await __ready();
+      const v0 = saLayout(0, 0).stalls, L = SA_LOADED.get(0).layout, st = L.stalls.find(x => !x.taken && v0[x.id].taken);
+      __placeSa(0, st.u, st.v, st.hu, st.hv, 0); for (let n = 0; n < 10; n++) simTick(1 / 60); saveDrive(); careSave();
+      return { slot: { id: st.id, visit: L.visit }, store: Object.fromEntries(['nlh.care', 'nlh.drive'].map(k => [k, JSON.parse(localStorage.getItem(k))])) };
+    }));
+  });
+  assert.equal(slot.visit, 1);
+  await withGame({ storage: store }, async (page, errors) => {
+    await startJob(page);
+    const r = await page.evaluate(() => {
+      const d0 = TR.damage; for (let n = 0; n < 120; n++) simTick(1 / 60);
+      const L = SA_LOADED.get(0).layout, c = {}; let pen = 0;
+      for (const [f, w] of [[5, 1.2], [5, -1.2], [-1, 1.2], [-1, -1.2]]) { GROUND.contact(TR.x + Math.sin(TR.h) * f + Math.cos(TR.h) * w, TR.z + Math.cos(TR.h) * f - Math.sin(TR.h) * w, TR.idx, c); pen = Math.max(pen, c.pen); }
+      return { visit: L.visit, pen, damage: TR.damage - d0 };
+    });
+    assert.ok(r.visit === 1 && r.pen <= 0 && r.damage < 0.1, JSON.stringify({ r, slot }));
+    assert.deepEqual(errors, []);
+  });
+});
+
 test('サービスエリアの中で開き直しても、そこから走れる（地面の上、壁の外）', async () => {
   let store;
   await withGame({}, async page => {

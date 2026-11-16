@@ -8,7 +8,7 @@ const NAMES = ['TAU', 'clamp', 'lerp', 'damp', 'wrapA', 'rng', 'S0', 'DS', 'X_TR
   'townLoad', 'townUnload', 'TOWNS_LOADED', 'townCellAt', 'townGrid', 'townGridSteps', 'townFallbackLayout', 'TOWN_U0', 'TOWN_V0', 'TOWN_CELL', 'TOWN_NU', 'TOWN_NV', 'placeTruckAt', 'parkTrailerAt', 'routeHint',
   'signalState', 'townIdm', 'townCarsInit', 'townCarsStep', 'townCarPose', 'townPlayerBoxes', 'townRedLight', 'dockCheck', 'bayCheck', 'resolveBoxContact', 'townNearestLane', '_townIndex', 'navGraph', 'navRoute', 'navText', 'NAV_TURN', 'NAV_SIDE', 'navMatch', 'navGuide', 'navFollow', 'navRoutePoly',
   'SAS', 'saExitEdges', 'saEntryEdges', 'saAt', 'saExitAt', 'saEntryAt', 'signKm', 'waterAt', 'saLayout', 'saPath', 'saGrid', 'saGridSteps', 'saLoad', 'saUnload', 'saAdd',
-  'CARE', 'fuelRate', 'sleepyRate', 'blinkGap', 'refuel', 'fuelKm', 'saSuggest',
+  'CARE', 'fuelRate', 'sleepyRate', 'blinkGap', 'refuel', 'fuelKm', 'saSuggest', 'fuelReach', 'rescueLiters',
   'OVERPASSES', 'overpassPiers', 'fenceAt', 'LAMP_ZONES', 'lampsIn', 'ROUTE_LEN', 'regionAt', 'townKeepOut', 'tunnelAt', 'S0',
   'SA_LOADED', 'saStallAt', 'saPumpAt', 'saFallbackLayout', 'saInside', 'saKeepOut', 'saGroundBlend', 'SA_GRID',
   'EVENTS', 'GEARS', 'VMAX', 'engineTorque', 'startGear', 'powertrainStep',
