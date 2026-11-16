@@ -46,7 +46,7 @@ function smirLayout(force) {
   if (H > W) {   // portrait: one row under the sign, the buttons, the message board and the card: mirror, monitor, mirror
     hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = '';
     const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0);
-    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 290) + 84);
+    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 330) + 84);
     const bw = W - 2 * (4 + sw + gap), bh = Math.min(sh, Math.round(bw / SMIR_ASPECT.back));
     SMIR.lay = { L: { x: 4, y, w: sw, h: sh }, R: { x: W - 4 - sw, y, w: sw, h: sh }, B: { x: 4 + sw + gap, y, w: bw, h: bh } };
     return;
