@@ -76,8 +76,8 @@ body.mirrors #led{max-width:calc(92% - 2 * var(--mir,0px))}
 @media (max-aspect-ratio:1/1){
   #topbar{top:132px;left:0;right:0;max-width:none;justify-content:flex-start}
   #topbar .tb{height:32px;font-size:11px;padding:0 8px;min-width:40px}
-  #led{top:212px;left:0;right:0;margin:0 auto;transform:none;width:fit-content;max-width:100%;box-sizing:border-box;white-space:normal;text-align:center;font-size:14px;letter-spacing:.08em;padding:6px 10px 7px}
-  #navCard{top:290px;max-width:70vw}
+  #led{top:252px;left:0;right:0;margin:0 auto;transform:none;width:fit-content;max-width:100%;box-sizing:border-box;white-space:normal;text-align:center;font-size:14px;letter-spacing:.08em;padding:6px 10px 7px}
+  #navCard{top:330px;max-width:70vw}
   #mapCanvas{aspect-ratio:3/4}
 }
 
@@ -4301,7 +4301,7 @@ function* townMeshSteps(i) {
       if (st.kind !== 'main') continue;
       for (let a = st.a0 + 12; a < st.a1 - 6; a += 35) {
         const at = along(st, a, 0);
-        if (L.nodes.some(n => Math.hypot(n.u - at[0], n.v - at[1]) < 16)) continue;   // not in a junction
+        if (L.nodes.some(n => Math.hypot(n.u - at[0], n.v - at[1]) < TOWN_CORNER_R + 12)) continue;   // not in a junction or on its rounded corners
         for (const side of [-1, 1]) { const f = along(st, a, side * (hc(st) + st.walkW - 0.5)), h = along(st, a, side * (hc(st) - 1.0)); lamp(f[0], f[1], h[0], h[1], 8, 12); }
       }
     }
@@ -7009,6 +7009,14 @@ function smirLayout(force) {
   document.body.classList.toggle('mirrors', show);
   if (!show) { hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = ''; SMIR.lay = null; return; }
   const sw = Math.round(clamp(Math.min(W, H * 1.6) * 0.085, 56, 120)), sh = Math.round(sw / SMIR_ASPECT.side), gap = 8;
+  if (H > W) {   // portrait: one row under the sign, the buttons, the message board and the card: mirror, monitor, mirror
+    hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = '';
+    const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0);
+    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 330) + 84);
+    const bw = W - 2 * (4 + sw + gap), bh = Math.min(sh, Math.round(bw / SMIR_ASPECT.back));
+    SMIR.lay = { L: { x: 4, y, w: sw, h: sh }, R: { x: W - 4 - sw, y, w: sw, h: sh }, B: { x: 4 + sw + gap, y, w: bw, h: bh } };
+    return;
+  }
   hud.style.setProperty('--mir', (sw + gap) + 'px');   // the HUD's side padding grows by this
   const top = Math.max(8, parseFloat(getComputedStyle(hud).paddingTop) || 10);
   // the back monitor: on the right, under the buttons (the middle of the screen stays clear: the junction's signals
