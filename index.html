@@ -7057,6 +7057,13 @@ function _smirMake() {
   SMIR.panels.R = panel(MIRROR.rts.R.texture, [0.1, 0.9, 0.08, 1]);
   SMIR.panels.B = panel(SMIR.backRt.texture, [0, 1, 0, 1]);
 }
+// The screen's safe-area insets (a notch, rounded corners), in CSS pixels.
+let _smirProbe = null;
+function _smirSafe() {
+  if (!_smirProbe) { _smirProbe = document.createElement('div'); _smirProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)'; document.body.appendChild(_smirProbe); }
+  const cs = getComputedStyle(_smirProbe), n = v => parseFloat(v) || 0;
+  return { t: n(cs.paddingTop), r: n(cs.paddingRight), b: n(cs.paddingBottom), l: n(cs.paddingLeft) };
+}
 // Where the panels go (CSS pixels from the top left), and the HUD moved to make room. force: work it out now.
 function smirLayout(force) {
   const show = GAME.state === 'drive' && smirShownFor(GAME.cam);
@@ -7066,17 +7073,23 @@ function smirLayout(force) {
   document.body.classList.toggle('mirrors', show);
   if (!show) { hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = ''; SMIR.lay = null; return; }
   const sw = Math.round(clamp(Math.min(W, H * 1.6) * 0.085, 56, 120)), sh = Math.round(sw / SMIR_ASPECT.side), gap = 8;
-  if (H > W) {   // portrait: one row under the sign, the buttons, the message board and the card: mirror, monitor, mirror
+  const safe = _smirSafe();
+  if (H > W) {   // portrait: one row right under the buttons (mirror, monitor, mirror); the board and the card move below it
     hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = '';
     const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0);
-    // under the card (room for its lanes and a following step), above the touch controls; smaller on short screens
-    const y = Math.round(hudTop + (parseFloat(getComputedStyle($('navCard')).top) || 330) + 112);
-    let floor = H - 8;
+    let y = Math.round(safe.t + 8);
+    for (const id of ['jobSign', 'topbar']) {
+      const el = $(id); if (!el || el.hidden) continue;
+      for (const b of (id === 'topbar' ? [...el.children].filter(c => !c.hidden) : [el])) { const r = b.getBoundingClientRect(); if (r.width) y = Math.max(y, Math.round(r.bottom) + 6); }
+    }
+    // as tall as fits with the board and a card under it above the touch controls, 52 px at the least (always shown)
+    let floor = H - 8 - safe.b;
     for (const el of document.querySelectorAll('#touch > *')) { const r = el.getBoundingClientRect(); if (r.width && r.height) floor = Math.min(floor, r.top - 8); }
-    const h = Math.min(sh, floor - y);
-    if (h < 48) { SMIR.lay = null; return; }   // no room: none shown
-    const w = Math.round(h * SMIR_ASPECT.side), bw = W - 2 * (4 + w + gap), bh = Math.min(h, Math.round(bw / SMIR_ASPECT.back));
-    SMIR.lay = { L: { x: 4, y, w, h }, R: { x: W - 4 - w, y, w, h }, B: { x: 4 + w + gap, y, w: bw, h: bh } };
+    const h = Math.round(clamp(floor - y - 170, 52, sh)), w = Math.round(h * SMIR_ASPECT.side);
+    const x0 = 4 + safe.l, x1 = W - 4 - safe.r, bw = x1 - x0 - 2 * (w + gap), bh = Math.min(h, Math.round(bw / SMIR_ASPECT.back));
+    SMIR.lay = { L: { x: x0, y, w, h }, R: { x: x1 - w, y, w, h }, B: { x: x0 + w + gap, y, w: bw, h: bh } };
+    const below = y + h + 8 - hudTop;
+    $('led').style.top = below + 'px'; $('navCard').style.top = (below + 84) + 'px';   // room for a board of three lines
     return;
   }
   hud.style.setProperty('--mir', (sw + gap) + 'px');   // the HUD's side padding grows by this
@@ -7088,7 +7101,11 @@ function smirLayout(force) {
   const bw = Math.round(clamp(W * 0.25, 160, 340)), bh = Math.round(bw / SMIR_ASPECT.back), bx = Math.round(barR - bw);
   let by = top;
   for (const b of btns) { const r = b.getBoundingClientRect(); if (r.right > bx - 4 && r.left < bx + bw + 4) by = Math.max(by, Math.round(r.bottom) + 6); }
-  SMIR.lay = { L: { x: 4, y: top, w: sw, h: sh }, R: { x: W - 4 - sw, y: top, w: sw, h: sh }, B: { x: bx, y: by, w: bw, h: bh } };
+  // on a low screen, smaller so it ends above the touch buttons under it (kept on the right)
+  let floor = H - 8;
+  for (const el of document.querySelectorAll('#touch button, #touch > *')) { const r = el.getBoundingClientRect(); if (r.width && r.height && r.right > bx && r.left < bx + bw && r.top > by) floor = Math.min(floor, r.top - 6); }
+  const mh = Math.max(40, Math.min(bh, floor - by)), mw = Math.round(mh * SMIR_ASPECT.back);
+  SMIR.lay = { L: { x: 4 + safe.l, y: top, w: sw, h: sh }, R: { x: W - 4 - safe.r - sw, y: top, w: sw, h: sh }, B: { x: bx + bw - mw, y: by, w: mw, h: mh } };
   // the navigation card goes below the monitor when it would be under it
   const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0), below = by + bh + 8 - hudTop;
   const card = $('navCard'); card.style.top = ''; $('led').style.top = '';
