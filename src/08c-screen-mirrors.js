@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Mirrors on the screen: the two side mirrors as slim panels at the screen's
-// left and right edges (the HUD moves in to make room) and a back monitor at
-// the top, below the buttons. Each view (cab, chase, far) remembers whether
+// left and right edges and a back monitor (at the top in portrait, at the
+// bottom in the middle in landscape). Each view (cab, chase, far) remembers whether
 // they are shown: in the cab at first, outside not. The side pictures are the
 // live mirrors' own (08-dash.js); the back monitor has a camera of its own at
 // the rear of the trailer (of the tractor when no trailer is on). All are
@@ -42,52 +42,62 @@ function _smirSafe() {
   return { t: n(cs.paddingTop), r: n(cs.paddingRight), b: n(cs.paddingBottom), l: n(cs.paddingLeft) };
 }
 // Where the panels go (CSS pixels from the top left), and the HUD moved to make room. force: work it out now.
+// Portrait: one row at the very top (mirror, back monitor, mirror), the HUD below it, the middle of the screen clear.
+// Landscape: the side mirrors in the top corners (the sign, buttons and card move in), the back monitor at the bottom
+// in the middle, under the instrument cluster (above the speed box outside the cab), between the touch controls.
 function smirLayout(force) {
   const show = GAME.state === 'drive' && smirShownFor(GAME.cam);
   if (!force && show === SMIR.shown && SMIR.layT > 0) return;
-  SMIR.layT = 0.5; SMIR.shown = show;
-  const hud = $('hud'), W = window.innerWidth, H = window.innerHeight;
-  document.body.classList.toggle('mirrors', show);
-  if (!show) { hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = ''; SMIR.lay = null; return; }
-  const sw = Math.round(clamp(Math.min(W, H * 1.6) * 0.085, 56, 120)), sh = Math.round(sw / SMIR_ASPECT.side), gap = 8;
-  const safe = _smirSafe();
-  if (H > W) {   // portrait: one row right under the buttons (mirror, monitor, mirror); the board and the card move below it
-    hud.style.removeProperty('--mir'); $('led').style.top = ''; $('navCard').style.top = '';
+  SMIR.layT = window.innerHeight > window.innerWidth ? 0.1 : 0.5; SMIR.shown = show;   // portrait follows the buttons' rows closely
+  const hud = $('hud'), W = window.innerWidth, H = window.innerHeight, portrait = H > W;
+  document.body.classList.toggle('mirrors', show && !portrait);
+  document.body.classList.toggle('mirrors-top', show && portrait);
+  $('led').style.top = ''; $('navCard').style.top = '';
+  if (!show) { hud.style.removeProperty('--mir'); hud.style.removeProperty('--monTop'); SMIR.lay = null; return; }
+  const safe = _smirSafe(), gap = 6;
+  if (portrait) {
+    hud.style.removeProperty('--mir');
+    const y = Math.round(safe.t + 4), x0 = 4 + safe.l, x1 = W - 4 - safe.r;
+    const w = Math.round(clamp(W * 0.13, 44, 90)), h = Math.round(w / SMIR_ASPECT.side);
+    const bw = x1 - x0 - 2 * (w + gap), bh = h;
+    SMIR.lay = { L: { x: x0, y, w, h }, R: { x: x1 - w, y, w, h }, B: { x: x0 + w + gap, y, w: bw, h: bh } };
+    hud.style.setProperty('--monTop', (y + h + 6 - safe.t) + 'px');   // the HUD starts under the row
+    // the card right under the buttons (their rows, or the toggle alone when put away), the board under the card
     const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0);
-    let y = Math.round(safe.t + 8);
+    let below = 0;
     for (const id of ['jobSign', 'topbar']) {
       const el = $(id); if (!el || el.hidden) continue;
-      for (const b of (id === 'topbar' ? [...el.children].filter(c => !c.hidden) : [el])) { const r = b.getBoundingClientRect(); if (r.width) y = Math.max(y, Math.round(r.bottom) + 6); }
+      for (const b of (id === 'topbar' ? [...el.children].filter(c => !c.hidden) : [el])) { const r = b.getBoundingClientRect(); if (r.width) below = Math.max(below, r.bottom - hudTop + 6); }
     }
-    // as tall as fits with the board and a card under it above the touch controls, 52 px at the least (always shown)
-    let floor = H - 8 - safe.b;
-    for (const el of document.querySelectorAll('#touch > *')) { const r = el.getBoundingClientRect(); if (r.width && r.height) floor = Math.min(floor, r.top - 8); }
-    const h = Math.round(clamp(floor - y - 170, 52, sh)), w = Math.round(h * SMIR_ASPECT.side);
-    const x0 = 4 + safe.l, x1 = W - 4 - safe.r, bw = x1 - x0 - 2 * (w + gap), bh = Math.min(h, Math.round(bw / SMIR_ASPECT.back));
-    SMIR.lay = { L: { x: x0, y, w, h }, R: { x: x1 - w, y, w, h }, B: { x: x0 + w + gap, y, w: bw, h: bh } };
-    const below = y + h + 8 - hudTop;
-    $('led').style.top = below + 'px'; $('navCard').style.top = (below + 84) + 'px';   // room for a board of three lines
+    const card = $('navCard'), ch = card.hidden ? 0 : card.getBoundingClientRect().height;
+    card.style.top = Math.round(below) + 'px'; $('led').style.top = Math.round(below + Math.max(84, ch + 6)) + 'px';
     return;
   }
-  hud.style.setProperty('--mir', (sw + gap) + 'px');   // the HUD's side padding grows by this
+  hud.style.removeProperty('--monTop');
+  const sw = Math.round(clamp(Math.min(W, H * 1.6) * 0.085, 56, 120)), sh = Math.round(sw / SMIR_ASPECT.side);
+  hud.style.setProperty('--mir', (sw + 8) + 'px');   // the sign, buttons and card move in by this
   const top = Math.max(8, parseFloat(getComputedStyle(hud).paddingTop) || 10);
-  // the back monitor: on the right, under the buttons (the middle of the screen stays clear: the junction's signals
-  // hang there, ahead over the lanes)
-  const bar = $('topbar'), btns = bar && !bar.hidden ? [...bar.children].filter(c => !c.hidden && c.getBoundingClientRect().width) : [];
-  const barR = btns.length ? Math.max(...btns.map(b => b.getBoundingClientRect().right)) : W - 4 - sw - gap - 12;
-  const bw = Math.round(clamp(W * 0.25, 160, 340)), bh = Math.round(bw / SMIR_ASPECT.back), bx = Math.round(barR - bw);
-  let by = top;
-  for (const b of btns) { const r = b.getBoundingClientRect(); if (r.right > bx - 4 && r.left < bx + bw + 4) by = Math.max(by, Math.round(r.bottom) + 6); }
-  // on a low screen, smaller so it ends above the touch buttons under it (kept on the right)
-  let floor = H - 8;
-  for (const el of document.querySelectorAll('#touch button, #touch > *')) { const r = el.getBoundingClientRect(); if (r.width && r.height && r.right > bx && r.left < bx + bw && r.top > by) floor = Math.min(floor, r.top - 6); }
-  const mh = Math.max(40, Math.min(bh, floor - by)), mw = Math.round(mh * SMIR_ASPECT.back);
-  SMIR.lay = { L: { x: 4 + safe.l, y: top, w: sw, h: sh }, R: { x: W - 4 - safe.r - sw, y: top, w: sw, h: sh }, B: { x: bx + bw - mw, y: by, w: mw, h: mh } };
-  // the navigation card goes below the monitor when it would be under it
-  const hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0), below = by + bh + 8 - hudTop;
-  const card = $('navCard'); card.style.top = ''; $('led').style.top = '';
-  const cr = card.getBoundingClientRect(), cardL = cr.width ? cr.left : W - 300, cardR = cr.width ? cr.right : W;
-  if ((parseFloat(getComputedStyle(card).top) || 0) < below && cardR > bx && cardL < bx + bw) card.style.top = below + 'px';
+  // the back monitor: bottom middle (under the instrument cluster in the cab), clear of the wheel, the pedals and
+  // their buttons, of the speed box, and below the navigation card where that sits in the middle
+  let left = 8 + safe.l, right = W - 8 - safe.r, bottom = H - 6 - Math.max(safe.b, 4), ceil = 0;
+  const sp = $('speedo'); if (sp && !sp.hidden) { const r = sp.getBoundingClientRect(); if (r.height) bottom = Math.min(bottom, r.top - 6); }
+  for (const el of document.querySelectorAll('#touch > *')) {
+    const r = el.getBoundingClientRect(); if (!r.width || !r.height) continue;
+    if (r.right < W / 2) left = Math.max(left, r.right + 8); else right = Math.min(right, r.left - 8);
+  }
+  const card = $('navCard'), cs = getComputedStyle(card), hudTop = hud.getBoundingClientRect().top + (parseFloat(getComputedStyle(hud).paddingTop) || 0);
+  const cr = card.getBoundingClientRect(), cardMid = cr.width ? cr.left < W / 2 && cr.right > W / 2 : cs.left === '50%' || /translateX|matrix/.test(cs.transform);
+  if (cardMid) ceil = hudTop + (parseFloat(cs.top) || 0) + 78;   // the card's bottom (room for its lanes)
+  let bw = Math.round(Math.min(right - left, clamp(W * 0.3, 180, 380))), bh = Math.round(bw / SMIR_ASPECT.back);
+  if (bottom - bh < ceil) { bh = Math.max(50, Math.round(bottom - ceil)); bw = Math.min(bw, Math.round(bh * 2.8)); }
+  const bx = Math.round(clamp(W / 2 - bw / 2, left, right - bw));
+  SMIR.lay = { L: { x: 4 + safe.l, y: top, w: sw, h: sh }, R: { x: W - 4 - safe.r - sw, y: top, w: sw, h: sh }, B: { x: bx, y: Math.round(bottom - bh), w: bw, h: bh } };
+}
+// The back monitor's camera and picture follow its panel's shape (no stretching).
+function _smirBackShape(w, h) {
+  const a = w / h; if (Math.abs(SMIR.backCam.aspect - a) < 0.01) return;
+  SMIR.backCam.aspect = a; SMIR.backCam.fov = a > 2.6 ? 48 : 62; SMIR.backCam.updateProjectionMatrix();
+  SMIR.backRt.setSize(Math.round(clamp(w * 1.2, 160, 512)), Math.round(clamp(h * 1.2, 60, 240)));
 }
 // After the scene: refresh the pictures in turn and draw the panels over it.
 function smirRender(dt) {
@@ -103,6 +113,7 @@ function smirRender(dt) {
   // the side mirrors' pictures: the cab's own refresh does them in the cab view; outside, they are done here
   if (GAME.cam !== 'cab') renderMirrors(false);
   SMIR.frame = (SMIR.frame || 0) + 1;
+  _smirBackShape(SMIR.lay.B.w, SMIR.lay.B.h);
   if (SMIR.frame % Math.max(2, Q.mirrorEvery) === 0) {   // every second frame at most, 250 m
     const fogFar = scene.fog.far; scene.fog.far = Math.min(fogFar, 250);
     renderer.setRenderTarget(SMIR.backRt); renderer.render(scene, SMIR.backCam); renderer.setRenderTarget(null);

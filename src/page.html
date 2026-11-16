@@ -22,7 +22,7 @@ html,body{height:100%}
 body{margin:0;background:#0c120f;color:var(--ink);font-family:var(--f-ui);overflow:hidden;overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 #view{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none;touch-action:none}
 button{font:inherit;color:inherit}
-#hud{position:fixed;inset:0;pointer-events:none;box-sizing:border-box;padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+#hud{position:fixed;inset:0;pointer-events:none;box-sizing:border-box;padding-top:calc(max(10px,env(safe-area-inset-top,0px)) + var(--monTop,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .hud-inner{position:relative;width:100%;height:100%}
 
 .sign{background:var(--sign);color:#fff;border-radius:10px;box-shadow:inset 0 0 0 3px var(--sign),inset 0 0 0 5px var(--sign-line),0 6px 18px rgba(0,0,0,.35)}
@@ -57,6 +57,8 @@ body.touch .tb.only-touch{display:inline-block}
 .sigrep.g i.g{background:#2bff8a;box-shadow:0 0 8px #2bff8a}
 .sigrep.y i.y{background:#ffc21c;box-shadow:0 0 8px #ffc21c}
 .sigrep.r i.r{background:#ff2b18;box-shadow:0 0 8px #ff2b18}
+/* the buttons can be put away: only the toggle (and the place button when it is offered) stays */
+body.btns-hidden #topbar .tb:not(#bBtns):not(#bStop){display:none}
 /* the mirrors on the screen's edges: the top cluster (sign, buttons, card) moves in; the touch controls stay put */
 body.mirrors #jobSign{left:var(--mir,0px)}
 body.mirrors #topbar{right:var(--mir,0px)}
@@ -173,6 +175,7 @@ kbd{font-family:var(--f-ui);font-size:11px;border:1px solid var(--stroke);border
     </div>
 
     <div id="topbar" hidden>
+      <button class="tb" id="bBtns" type="button" aria-pressed="false" title="ボタンを隠す・出す">▲ 隠す</button>
       <button class="tb" id="bCam" type="button" title="視点切替 (V)">視点</button>
       <button class="tb" id="bMirror" type="button" aria-pressed="false" title="ミラーとバックモニターの表示 (B)">ミラー</button>
       <button class="tb" id="bCruise" type="button" aria-pressed="false" title="クルーズコントロール (C)">クルーズ</button>

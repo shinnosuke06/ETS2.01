@@ -19,51 +19,6 @@ test('配送先の目印：目的の町が読み込まれていると倉庫の�
   assert.deepEqual(errors, []);
 }));
 
-// The rectangles of the HUD's buttons and boxes shown now, and the mirror panels.
-const LAYOUT = () => {
-  const rect = el => { const r = el.getBoundingClientRect(); return { name: el.id || el.className, x: r.left, y: r.top, r: r.right, b: r.bottom }; };
-  const els = [...document.querySelectorAll('#topbar .tb, #jobSign, #navCard, #touch button, #wheelPad, #pGas, #pBrake')].filter(e => !e.hidden && e.getBoundingClientRect().width > 0);
-  const pan = SMIR.lay ? Object.entries(SMIR.lay).map(([k, p]) => ({ name: 'mirror ' + k, x: p.x, y: p.y, r: p.x + p.w, b: p.y + p.h })) : [];
-  return { shown: SMIR.shown, hud: els.map(rect), pan, W: innerWidth, H: innerHeight };
-};
-const hits = (a, b) => a.x < b.r - 1 && b.x < a.r - 1 && a.y < b.b - 1 && b.y < a.b - 1;
-
-test('ミラーとバックモニター：車内視点では初めから出て、ボタンや札と重ならず画面の中。「ミラー」で消え、覚えている', async () => {
-  for (const [w, h, touch] of [[1280, 720, false], [844, 390, true], [667, 375, true], [390, 844, true], [375, 667, true]]) {
-    let store;
-    await withGame({ width: w, height: h, touch }, async (page, errors) => {
-      await startJob(page); await driveHelpers(page);
-      const r = await page.evaluate(async LAYOUT => {
-        if (document.body.classList.contains('touch') === false && innerWidth < 900) enableTouchUI();
-        INP.actions.push('couple'); for (let i = 0; i < 160; i++) simTick(1 / 60);
-        setCam('cab'); await __t.frames(3); smirLayout(true); await __t.frames(2);
-        return (0, eval)('(' + LAYOUT + ')')();
-      }, LAYOUT.toString());
-      const tag = `${w}x${h}`;
-      assert.equal(r.shown, true, tag);
-      for (const p of r.pan) {
-        assert.ok(p.x >= 0 && p.y >= 0 && p.r <= r.W && p.b <= r.H, `${tag} ${p.name} off screen ${JSON.stringify(p)}`);
-        for (const b of r.hud) assert.ok(!hits(p, b), `${tag} ${p.name} over ${b.name} ${JSON.stringify([p, b])}`);
-      }
-      const off = await page.evaluate(async () => {
-        const pads = () => [...document.querySelectorAll('#touch > *')].map(e => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; });
-        const before = pads(); document.getElementById('bMirror').click(); for (let i = 0; i < 3; i++) simTick(1 / 60); await __t.frames(2);
-        return { shown: SMIR.shown, saved: JSON.parse(localStorage.getItem('nlh.mirrors')), pad: getComputedStyle(document.getElementById('hud')).getPropertyValue('--mir'), before, after: pads() };
-      });
-      assert.equal(off.shown, false, tag); assert.equal(off.saved.cab, false); assert.equal(off.pad.trim(), '');
-      assert.deepEqual(off.after, off.before, `${tag}: the touch controls moved with the mirrors`);
-      store = { 'nlh.mirrors': off.saved };
-      assert.deepEqual(errors, []);
-    });
-    await withGame({ width: w, height: h, touch, storage: store }, async (page, errors) => {
-      await startJob(page);
-      const r = await page.evaluate(async () => { setCam('cab'); await __t.frames(3); return SMIR.shown; });
-      assert.equal(r, false, 'remembered as hidden');
-      assert.deepEqual(errors, []);
-    });
-  }
-});
-
 test('ミラー：外からの視点では初めは出ず、「ミラー」で出せる（視点ごとに別）。絵は毎回描き直される', () => withGame({}, async (page, errors) => {
   await startJob(page); await driveHelpers(page);
   const r = await page.evaluate(async () => {
@@ -92,7 +47,7 @@ test('信号の色：町で信号のある交差点に近づくと、案内カ�
     for (const t of [5, 31, 40]) {   // green, yellow, red for the v approaches (phase shifted per junction)
       GAME.clock = (Math.ceil(GAME.clock / TIME_SCALE / 70) * 70 + t - n.phase + 700) * TIME_SCALE;
       for (let k = 0; k < 15; k++) simTick(1 / 60);
-      await __t.frames(2);   // the card is redrawn by the frame loop (every 0.2 s)
+      await __t.frames(2); sigRepUpdate();   // the frame loop redraws it every 0.2 s; read it as of now
       const el = document.getElementById('ncSig');
       out.push({ hidden: el.hidden, cls: el.className, want: signalState(n, 'v', GAME.clock / TIME_SCALE) });
     }

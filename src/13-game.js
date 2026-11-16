@@ -217,6 +217,13 @@ function led(text, warn = false, dur = 3.6) {
 
 // ---- actions ------------------------------------------------------------------
 const CAMS = ['cab', 'chase', 'far'];
+// The top buttons put away (the toggle stays) or shown again, kept across visits.
+function setButtonsHidden(on) {
+  GAME.btnsHidden = !!on; lsSet('nlh.btnsHidden', GAME.btnsHidden);
+  document.body.classList.toggle('btns-hidden', GAME.btnsHidden);
+  const b = $('bBtns'); b.textContent = GAME.btnsHidden ? '▼ ボタン' : '▲ 隠す'; b.setAttribute('aria-pressed', String(GAME.btnsHidden));
+  smirLayout(true);
+}
 function setCam(c) {
   GAME.cam = c; smirLayout(true);
   $('speedo').hidden = c === 'cab' || GAME.state !== 'drive';
@@ -252,6 +259,7 @@ function handleActions() {
       case 'camera': setCam(CAMS[(CAMS.indexOf(GAME.cam) + 1) % CAMS.length]); break;
       case 'cam1': setCam('cab'); break;
       case 'mirror': smirToggle(); break;
+      case 'buttons': setButtonsHidden(!GAME.btnsHidden); break;
       case 'cam2': setCam('chase'); break;
       case 'cam3': setCam('far'); break;
       case 'lights': GAME.lights = !GAME.lights; break;
@@ -510,6 +518,7 @@ function showHud(on) {
   if (!on) { $('navCard').hidden = true; _ncKey = ''; }
   $('speedo').hidden = !on || GAME.cam === 'cab';
   $('touch').hidden = !on || !INP.usingTouch;
+  smirLayout(true);   // the mirrors' places depend on what the HUD shows
 }
 // km left to the destination: along the expressway to its exit, or in the destination town straight to the warehouse gate
 // Past the destination's divergence (on its exit ramp or in its town): the card then counts to the warehouse's gate.
@@ -987,7 +996,7 @@ $('startBtn').addEventListener('click', startDriving);
 async function boot(data) {
   if (IS_TOUCH) document.body.classList.add('touch');
   for (const seg of ['qualSeg', 'qualSeg2']) for (const b of $(seg).querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.q === qualityName));
-  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off'); setLka(GAME.lka); syncSeg(['trimSeg', 'trimSeg2'], trimName);
+  syncSeg(['paintSeg', 'paintSeg2'], paintName); syncSeg(['intSeg', 'intSeg2'], interiorName); syncSeg(['assistSeg'], GAME.assist ? 'on' : 'off'); setLka(GAME.lka); setButtonsHidden(lsGet('nlh.btnsHidden', false) === true); syncSeg(['trimSeg', 'trimSeg2'], trimName);
   onResize();
   requestAnimationFrame(frame);
   await fontsReady();

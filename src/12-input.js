@@ -77,7 +77,7 @@ holdButton($('tHorn'), () => INP.actions.push('hornOn'), () => INP.actions.push(
 $('tGear').addEventListener('click', () => INP.actions.push('dir'));
 $('tBlinkL').addEventListener('click', () => INP.actions.push('blinkL'));
 $('tBlinkR').addEventListener('click', () => INP.actions.push('blinkR'));
-for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMap', 'map'], ['bStop', 'stop'], ['bMirror', 'mirror'], ['mapClose', 'map'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
+for (const [id, a] of [['bCam', 'camera'], ['bCruise', 'cruise'], ['bLights', 'lights'], ['bWiper', 'wiper'], ['bHazard', 'hazard'], ['bCouple', 'couple'], ['bMap', 'map'], ['bStop', 'stop'], ['bMirror', 'mirror'], ['bBtns', 'buttons'], ['mapClose', 'map'], ['bMenu', 'menu']]) $(id).addEventListener('click', () => INP.actions.push(a));
 
 function enableTouchUI() {
   if (document.body.classList.contains('touch')) return;
