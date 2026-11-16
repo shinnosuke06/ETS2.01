@@ -4131,13 +4131,19 @@ function* townMeshSteps(i) {
         for (const sx of [-1, 1]) {
           for (let a = a0 + 2; a + 5 < a1; a += 10) lineQ(along(st, a, sx * (med / 2 + st.laneW)), along(st, a + 5, sx * (med / 2 + st.laneW)), 0.15);   // between the two lanes
           lineQ(along(st, a0, sx * (hc(st) - 0.25)), along(st, a1, sx * (hc(st) - 0.25)), 0.15);                                                   // by the kerb
-          // the centre strip's edge on this side: solid, but open where this side's turn lane is being entered
-          for (let a = a0; a < a1 - 0.01; a += 1) { const b = Math.min(a1, a + 1), m = (a + b) / 2; if (inPocket(m, sx) && !inLane(m, sx)) continue; lineQ(along(st, a, sx * med / 2), along(st, b, sx * med / 2), 0.15); }
+          // the centre strip's edge on this side: solid, but open where this side's turn lane is being entered (drawn as runs)
+          let run = null;
+          for (let a = a0; a < a1 - 0.01; a += 1) {
+            const b = Math.min(a1, a + 1), m = (a + b) / 2, open = inPocket(m, sx) && !inLane(m, sx);
+            if (!open) { if (run) run[1] = b; else run = [a, b]; }
+            if ((open || b >= a1 - 0.01) && run) { lineQ(along(st, run[0], sx * med / 2), along(st, run[1], sx * med / 2), 0.15); run = null; }
+          }
         }
         // the hatching across the strip where no turn lane is
         for (let a = a0 + 1; a + 2.5 < a1; a += 4) if (!inPocket(a, null) && !inPocket(a + 2.5, null)) lineQ(along(st, a, -med / 2 + 0.2), along(st, a + 2.5, med / 2 - 0.2), 0.3);
       }
     }
+    yield null;
     // the arrows: 8 m before each stop line, the ways a lane may go (an atlas of 7 glyphs, one quad each)
     const GLYPHS = ['l', 's', 'r', 'ls', 'sr', 'lr', 'lsr'];
     for (const l of L.lanes) {
